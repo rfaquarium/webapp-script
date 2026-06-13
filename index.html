@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ứng dụng của bạn</title>
+    <style>
+        body, html { 
+            margin: 0; 
+            padding: 0; 
+            height: 100%; 
+            overflow: hidden; 
+        }
+        .app-container { 
+            position: relative; 
+            width: 100%; 
+            height: 100vh; 
+            overflow: hidden; 
+        }
+        .app-container iframe {
+            position: absolute;
+            top: -50px; /* Đẩy iframe lên trên 50px để giấu thanh cảnh báo */
+            left: 0;
+            width: 100%;
+            height: calc(100% + 50px);
+            border: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <iframe src="https://script.google.com/macros/s/AKfycbytd9c_FzcqJ_65nqNI-xplYVRD3gstZcIL6PBk34P81XdSqXTNcRWsYt5bbeqjg66N/exec"></iframe>
+    </div>
+</body>
+</html>
