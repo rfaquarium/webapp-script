@@ -1,7 +1,7 @@
 {
   "name": "RF Workspace Pro",
-  "short_name": "RF Pro",
-  "description": "RF Workspace Pro - Ứng dụng làm việc chuyên nghiệp",
+  "short_name": "RFWorkspace",
+  "description": "RFWorkspace Pro - Ứng dụng làm việc chuyên nghiệp",
   "start_url": "./index.html",
   "display": "fullscreen",
   "background_color": "#000000",
