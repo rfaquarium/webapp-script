@@ -2,8 +2,18 @@
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>RF Workspace Pro</title>
+    
+    <!-- KHAI BÁO PWA -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#000000">
+    <!-- Cấu hình riêng cho iOS (iPhone/iPad) -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-title" content="Tên App Của Bạn">
+    <link rel="apple-touch-icon" href="icon.png">
+
     <style>
         body, html { 
             margin: 0; 
@@ -19,7 +29,7 @@
         }
         .app-container iframe {
             position: absolute;
-            top: 50px; /* Đẩy iframe lên trên 50px để giấu thanh cảnh báo */
+            top: -50px; 
             left: 0;
             width: 100%;
             height: calc(100% + 50px);
@@ -29,7 +39,15 @@
 </head>
 <body>
     <div class="app-container">
-        <iframe src="https://script.google.com/macros/s/AKfycbytd9c_FzcqJ_65nqNI-xplYVRD3gstZcIL6PBk34P81XdSqXTNcRWsYt5bbeqjg66N/exec"></iframe>
+        <iframe src="LINK_WEB_APP_GOOGLE_APPS_SCRIPT_CỦA_BẠN"></iframe>
     </div>
+
+    <!-- ĐĂNG KÝ SERVICE WORKER -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js')
+            .then(() => console.log('Service Worker Registered'));
+        }
+    </script>
 </body>
 </html>
