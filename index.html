@@ -17,40 +17,25 @@
     <link rel="apple-touch-icon" href="icon.png">
     
     <style>
-        body, html {
-            margin: 0;
-            padding: 0;
-            height: 100%;
-            overflow: hidden;
-            background: #000000;
-            /* Ẩn thanh cuộn và overscroll */
-            overscroll-behavior: none;
+        body, html { 
+            margin: 0; 
+            padding: 0; 
+            height: 100%; 
+            overflow: hidden; 
         }
-        .app-container {
-            position: relative;
-            width: 100%;
-            height: 100vh;
-            height: 100dvh; /* Dynamic viewport cho mobile hiện đại */
-            overflow: hidden;
-            /* Hỗ trợ notch/dynamic island trên iPhone */
-            padding-top: env(safe-area-inset-top);
-            padding-bottom: env(safe-area-inset-bottom);
-            padding-left: env(safe-area-inset-left);
-            padding-right: env(safe-area-inset-right);
+        .app-container { 
+            position: relative; 
+            width: 100%; 
+            height: 100vh; 
+            overflow: hidden; 
         }
         .app-container iframe {
             position: absolute;
-            top: 0;                    /* SỬA: bỏ top âm để menu trên cùng không bị đẩy lên và vẫn bấm được */
+            top: -50px; 
             left: 0;
             width: 100%;
-            height: 100%;              /* Dùng 100% thay vì calc(100% + 50px) để tránh tràn và lỗi cuộn */
+            height: calc(100% + 50px);
             border: none;
-            background: #ffffff;
-            /* 
-               Nếu vẫn muốn ẩn bớt header/menu của app bên trong (ví dụ 30-40px), 
-               đổi thành: top: -35px; height: calc(100% + 35px);
-               Sau đó test lại trên điện thoại.
-            */
         }
         
         /* Ẩn thanh địa chỉ khi ở chế độ PWA */
