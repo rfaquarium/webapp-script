@@ -1,15 +1,26 @@
 {
   "name": "RF Workspace Pro",
-  "short_name": "RF Workspace",
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#ffffff",
+  "short_name": "RF Pro",
+  "description": "RF Workspace Pro - Ứng dụng làm việc chuyên nghiệp",
+  "start_url": "./index.html",
+  "display": "fullscreen",
+  "background_color": "#000000",
   "theme_color": "#000000",
+  "orientation": "portrait",
   "icons": [
     {
       "src": "icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
-  ]
+  ],
+  "scope": "./",
+  "categories": ["productivity", "business"]
 }
