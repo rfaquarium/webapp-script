@@ -40,13 +40,17 @@
         }
         .app-container iframe {
             position: absolute;
-            top: -50px;
+            top: 0;                    /* SỬA: bỏ top âm để menu trên cùng không bị đẩy lên và vẫn bấm được */
             left: 0;
             width: 100%;
-            height: calc(100% + 50px);
+            height: 100%;              /* Dùng 100% thay vì calc(100% + 50px) để tránh tràn và lỗi cuộn */
             border: none;
-            /* Đảm bảo iframe full màn hình */
             background: #ffffff;
+            /* 
+               Nếu vẫn muốn ẩn bớt header/menu của app bên trong (ví dụ 30-40px), 
+               đổi thành: top: -35px; height: calc(100% + 35px);
+               Sau đó test lại trên điện thoại.
+            */
         }
         
         /* Ẩn thanh địa chỉ khi ở chế độ PWA */
@@ -65,12 +69,27 @@
                 allowfullscreen></iframe>
     </div>
     
-    <!-- ĐĂNG KÝ SERVICE WORKER -->
+    <!-- ĐĂNG KÝ SERVICE WORKER (AN TOÀN - TRÁNH LỖI SANDBOX) -->
     <script>
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js')
-            .then(() => console.log('Service Worker Registered'))
-            .catch(err => console.log('SW registration failed:', err));
+        // Đăng ký Service Worker an toàn, tránh lỗi SecurityError khi trang nằm trong iframe sandbox
+        try {
+            if ('serviceWorker' in navigator) {
+                // Chỉ đăng ký khi ở môi trường an toàn (HTTPS, localhost, hoặc 127.0.0.1)
+                const isSecureContext = location.protocol === 'https:' || 
+                                       location.hostname === 'localhost' || 
+                                       location.hostname === '127.0.0.1';
+                
+                if (isSecureContext) {
+                    navigator.serviceWorker.register('sw.js')
+                        .then(() => console.log('%c[RF Workspace] Service Worker Registered', 'color:#4CAF50'))
+                        .catch(err => console.warn('[RF Workspace] SW registration failed:', err.message));
+                } else {
+                    console.log('%c[RF Workspace] Service Worker bị tắt (không phải môi trường an toàn)', 'color:#FF9800');
+                }
+            }
+        } catch (e) {
+            // Bắt lỗi SecurityError khi context bị sandbox (iframe thiếu allow-same-origin)
+            console.warn('%c[RF Workspace] Service Worker không khả dụng do sandbox/iframe:', 'color:#f44336', e.message);
         }
         
         // Tự động ẩn thanh địa chỉ trên một số trình duyệt mobile (hỗ trợ thêm)
