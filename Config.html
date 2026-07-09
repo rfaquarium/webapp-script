@@ -419,19 +419,20 @@ function getUserTitle(name, userConfigs) {
 
 const getChannelBadge = (channel) => { 
     const ch = String(channel || '').toLowerCase();
-    if (ch.includes('tiktok')) return 'bg-[#000000] text-white border border-[#333]';
-    if (ch.includes('shopee vn')) return 'bg-[#ee4d2d] text-white';
-    if (ch.includes('shopee ma')) return 'bg-[#facc15] text-black';
-    if (ch.includes('shopee sg')) return 'bg-[#ef4444] text-white';
-    if (ch.includes('shopee th')) return 'bg-[#3b82f6] text-white';
-    if (ch.includes('shopee ph')) return 'bg-[#a855f7] text-white';
-    if (ch.includes('bán lẻ')) return 'bg-[#10b981] text-white';
-    if (ch.includes('bán sỉ')) return 'bg-[#059669] text-white';
-    if (ch.includes('cộng tác viên')) return 'bg-[#ec4899] text-white';
-    if (ch.includes('bảo hành') || ch.includes('sửa chữa')) return 'bg-[#64748b] text-white';
-    if (ch.includes('shopee')) return 'bg-[#ee4d2d] text-white'; 
-    return 'bg-[#2563eb] text-white'; 
+    if (ch.includes('tiktok')) return 'bg-zinc-950 text-white border border-zinc-700';
+    if (ch.includes('shopee vn')) return 'bg-orange-600 text-white border border-orange-500';
+    if (ch.includes('shopee ma')) return 'bg-amber-400 text-black border border-amber-300';
+    if (ch.includes('shopee sg')) return 'bg-red-600 text-white border border-red-500';
+    if (ch.includes('shopee th')) return 'bg-blue-600 text-white border border-blue-500';
+    if (ch.includes('shopee ph')) return 'bg-purple-600 text-white border border-purple-500';
+    if (ch.includes('bán lẻ')) return 'bg-emerald-600 text-white border border-emerald-500';
+    if (ch.includes('bán sỉ')) return 'bg-teal-600 text-white border border-teal-500';
+    if (ch.includes('cộng tác viên')) return 'bg-pink-500 text-white border border-pink-400';
+    if (ch.includes('bảo hành') || ch.includes('sửa chữa')) return 'bg-slate-500 text-white border border-slate-400';
+    if (ch.includes('shopee')) return 'bg-orange-600 text-white border border-orange-500'; 
+    return 'bg-blue-600 text-white border border-blue-500'; 
 };
+
 
 const deleteOrderHandler = async (order, prods, pack, erpData, erpProducts, pushDeltas, triggerToast) => {
   if(!window.confirm('XOÁ VĨNH VIỄN đơn này và HOÀN TRẢ toàn bộ tồn kho (nếu có)?')) return;

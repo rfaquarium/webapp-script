@@ -305,9 +305,13 @@ function WorkerCardV2({ item, order, prodItems, erpProducts, currentUser, pushDe
       <div className={`rounded-2xl shadow-sm relative border hover:border-[#444] transition-all p-3.5 mb-3 ${
             isItemDone 
                 ? 'bg-[#10b981]/15 border-[#10b981]/40' 
-                : isAnyInProgress 
-                    ? 'bg-[#141414] rf-production-running-border' 
-                    : 'bg-[#141414] border-[#2a2a2a]'
+                : _item.note === 'Chất Lượng Kém'
+                    ? isAnyInProgress
+                        ? 'bg-[#141414] rf-production-running-red-border'
+                        : 'bg-[#141414] border-red-500/60 shadow-[0_0_10px_rgba(239,68,68,0.15)]'
+                    : isAnyInProgress 
+                        ? 'bg-[#141414] rf-production-running-orange-border' 
+                        : 'bg-[#141414] border-[#2a2a2a]'
         }`}>
         
         <div className="flex gap-3 w-full cursor-pointer relative" onClick={() => setIsExpanded(!isExpanded)}>
@@ -320,7 +324,9 @@ function WorkerCardV2({ item, order, prodItems, erpProducts, currentUser, pushDe
 
            <div className="flex-1 min-w-0 flex flex-col justify-center pr-8">
               <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
-                <span className="text-[8px] font-black px-1.5 py-0.5 rounded border border-[#2563eb]/30 bg-[#2563eb]/10 text-[#60a5fa] uppercase shadow-sm truncate">{order.channel || 'OFFLINE'}</span>
+                <span className={`text-[8px] font-black px-1.5 py-0.5 rounded border uppercase shadow-sm truncate ${typeof getChannelBadge === 'function' ? getChannelBadge(order.channel) : 'bg-blue-600 text-white border border-blue-500'}`}>
+                    {order.channel || 'OFFLINE'}
+                </span>
                 {isBuKho && <span className="text-[8px] font-black px-1.5 py-0.5 bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded shadow-sm uppercase tracking-wider">BÙ KHO</span>}
                 <span className="text-[10px] font-black text-gray-400 truncate uppercase">{oCode}</span>
                 
@@ -337,7 +343,7 @@ function WorkerCardV2({ item, order, prodItems, erpProducts, currentUser, pushDe
               <h4 className={`font-black text-[13px] break-words ${isItemDone ? 'text-[#34d399]' : 'text-[#d4af37]'}`} title={_item.name}>{_item.name}</h4>
               
               {/* === KHỐI GHI CHÚ (VISUAL ENFORCEMENT) CẢNH BÁO CHO THỢ === */}
-              {_item.note && (
+              {_item.note && _item.note !== 'Chất Lượng Kém' && (
                 <div className="mt-2 p-2 bg-rose-500/10 border-l-[3px] border-rose-500 rounded-r-lg flex items-start gap-1.5 shadow-sm w-full">
                     <i className="fas fa-exclamation-triangle text-rose-500 animate-pulse mt-[2px] shrink-0 text-[11px]"></i>
                     <div className="text-[11px] font-black text-rose-400 leading-snug whitespace-normal break-words">
@@ -550,6 +556,22 @@ function ProductionTab({ orders, prodItems, erpProducts, currentUser, pushDeltas
             0% { background-position: 0% 50%; }
             50% { background-position: 100% 50%; }
             100% { background-position: 0% 50%; }
+          }
+          .rf-production-running-orange-border {
+            position: relative;
+            border: 1px solid transparent !important;
+            background: linear-gradient(#141414, #141414) padding-box, linear-gradient(90deg, #f97316, #f59e0b, #ea580c, #f97316) border-box !important;
+            background-size: 250% 250% !important;
+            animation: rf-glow-border 3.5s linear infinite !important;
+            box-shadow: 0 0 10px rgba(249, 115, 22, 0.25) !important;
+          }
+          .rf-production-running-red-border {
+            position: relative;
+            border: 1px solid transparent !important;
+            background: linear-gradient(#141414, #141414) padding-box, linear-gradient(90deg, #ef4444, #f43f5e, #dc2626, #ef4444) border-box !important;
+            background-size: 250% 250% !important;
+            animation: rf-glow-border 3.5s linear infinite !important;
+            box-shadow: 0 0 10px rgba(239, 68, 68, 0.3) !important;
           }
           .rf-production-running-border {
             position: relative;
