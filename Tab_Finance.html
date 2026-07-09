@@ -1,0 +1,1610 @@
+<script type="text/babel">
+// =========================================================================
+// 💰 FILE: Tab_Finance.txt (BẢN VÁ LỖI CỐT LÕI - THUẬT TOÁN NHỒI DỮ LIỆU)
+// =========================================================================
+
+// -------------------------------------------------------------------------
+// 1. HÀM HỖ TRỢ & UTILS (BUNG NÉN VÀ TẠO GIAO DIỆN)
+// -------------------------------------------------------------------------
+
+// Thuật toán bung nén dữ liệu từ cột accountName cũ
+const parseAccountInfo = (acc) => {
+    if (!acc) return { name: 'Unknown', type: 'Ngân hàng', number: '', owner: '' };
+    const raw = acc.accountName || acc.name || '';
+    if (raw.includes('|')) {
+        const parts = raw.split('|').map(p => p.trim());
+        return {
+            name: parts[0] || '',
+            type: parts[1] || 'Ngân hàng',
+            number: parts[2] || '',
+            owner: parts[3] || ''
+        };
+    }
+    // Tương thích ngược với các quỹ cũ chưa bị nhồi dữ liệu
+    let inferredType = 'Ngân hàng';
+    if (raw.toLowerCase().includes('tiền mặt') || raw.toLowerCase().includes('két')) inferredType = 'Tiền mặt';
+    return { name: raw, type: inferredType, number: '', owner: '' };
+};
+
+const getBankVisuals = (accName, type) => {
+    if (type === 'Tiền mặt') return { icon: 'fa-wallet', color: 'text-[#10b981]', bg: 'bg-[#10b981]/10', border: 'border-[#10b981]/30' };
+    
+    const THEMES = [
+        { icon: 'fa-university', color: 'text-[#3b82f6]', bg: 'bg-[#3b82f6]/10', border: 'border-[#3b82f6]/30' },
+        { icon: 'fa-landmark', color: 'text-[#f43f5e]', bg: 'bg-[#f43f5e]/10', border: 'border-[#f43f5e]/30' },
+        { icon: 'fa-piggy-bank', color: 'text-[#8b5cf6]', bg: 'bg-[#8b5cf6]/10', border: 'border-[#8b5cf6]/30' },
+        { icon: 'fa-vault', color: 'text-[#f59e0b]', bg: 'bg-[#f59e0b]/10', border: 'border-[#f59e0b]/30' },
+        { icon: 'fa-credit-card', color: 'text-[#06b6d4]', bg: 'bg-[#06b6d4]/10', border: 'border-[#06b6d4]/30' },
+        { icon: 'fa-coins', color: 'text-[#ec4899]', bg: 'bg-[#ec4899]/10', border: 'border-[#ec4899]/30' },
+        { icon: 'fa-building', color: 'text-[#14b8a6]', bg: 'bg-[#14b8a6]/10', border: 'border-[#14b8a6]/30' },
+        { icon: 'fa-sack-dollar', color: 'text-[#eab308]', bg: 'bg-[#eab308]/10', border: 'border-[#eab308]/30' },
+        { icon: 'fa-money-bill-wave', color: 'text-[#f97316]', bg: 'bg-[#f97316]/10', border: 'border-[#f97316]/30' },
+        { icon: 'fa-shield-alt', color: 'text-[#6366f1]', bg: 'bg-[#6366f1]/10', border: 'border-[#6366f1]/30' }
+    ];
+
+    const str = String(accName || 'Unknown');
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const index = Math.abs(hash) % THEMES.length;
+    return THEMES[index];
+};
+
+const MetricField = React.memo(({ label, field, value, isEditing, onChange, color, canView = true }) => {
+    const formatMoney = (val) => Number(val || 0).toLocaleString('vi-VN');
+    return (
+        <div className="bg-[#0a0a0a] border border-[#222] p-2.5 rounded-xl flex flex-col justify-center">
+            <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">{label}</span>
+            {isEditing ? (
+                <input type="number" value={value === 0 ? '' : value} onChange={(e) => onChange(field, Number(e.target.value))} className={`w-full bg-[#1a1a1a] border border-[#444] rounded-lg px-2.5 py-1.5 text-[13px] font-black outline-none focus:border-[#d4af37] ${color} transition-colors`} placeholder="0" />
+            ) : (
+                <span className={`text-[13px] font-black ${color}`}>
+                    {field === 'orderCount' ? (value || 0) : (canView ? formatMoney(value) + 'đ' : '******* đ')}
+                </span>
+            )}
+        </div>
+    );
+});
+
+// -------------------------------------------------------------------------
+// 2. CÁC THÀNH PHẦN MODAL
+// -------------------------------------------------------------------------
+function ProofViewerModal({ imageUrl, onClose }) {
+    if (!imageUrl) return null;
+    return (
+        <div className="fixed inset-0 bg-black/95 flex items-center justify-center z-[99999] p-4 backdrop-blur-md animate-fade-in" onClick={onClose}>
+            <div className="relative max-w-2xl w-full flex flex-col items-center" onClick={e => e.stopPropagation()}>
+                <button onClick={onClose} className="absolute -top-12 right-0 text-gray-400 hover:text-white text-2xl transition-all"><i className="fas fa-times-circle"></i></button>
+                <div className="text-[12px] font-black text-[#d4af37] uppercase tracking-widest mb-3 bg-black/50 px-4 py-1.5 rounded-full border border-[#d4af37]/30"><i className="fas fa-shield-check mr-2"></i>Ảnh Chứng Từ Xác Nhận</div>
+                <img src={imageUrl} alt="Chứng từ" className="max-w-full max-h-[80vh] object-contain rounded-xl border-4 border-[#333] shadow-[0_0_50px_rgba(0,0,0,0.8)]" />
+            </div>
+        </div>
+    );
+}
+
+function AccountModal({ onClose, onSubmit, initialData }) {
+    const parsed = parseAccountInfo(initialData);
+    const [form, setForm] = React.useState({ 
+        accountName: parsed.name === 'Unknown' ? '' : parsed.name, 
+        type: parsed.type, 
+        accountNumber: parsed.number, 
+        accountOwner: parsed.owner, 
+        balance: initialData?.balance || '' 
+    });
+
+    const save = () => {
+        if (!form.accountName) return alert('Nhập tên quỹ!');
+        
+        // NHỒI DỮ LIỆU: Bọc tất cả vào 1 chuỗi để lách qua Google Sheets
+        const cleanName = form.accountName.replace(/\|/g, '');
+        const cleanType = form.type.replace(/\|/g, '');
+        const cleanNumber = form.accountNumber.replace(/\|/g, '');
+        const cleanOwner = form.accountOwner.replace(/\|/g, '');
+        
+        const combinedName = `${cleanName} | ${cleanType} | ${cleanNumber} | ${cleanOwner}`;
+        
+        let payload = { Accounts: [{ id: initialData?.id || 'ACC_' + Date.now(), accountName: combinedName, balance: Number(form.balance) || 0 }] };
+        onSubmit(payload);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[9999] p-4 backdrop-blur-sm animate-fade-in" onClick={onClose}>
+            <div className="bg-[#141414] w-full max-w-sm rounded-3xl p-5 border border-[#333] shadow-2xl flex flex-col relative" onClick={e => e.stopPropagation()}>
+                <div className="flex justify-between items-center mb-4 border-b border-[#222] pb-3">
+                    <h3 className="font-black text-[#3b82f6] text-[14px] uppercase tracking-widest"><i className="fas fa-university mr-2"></i>{initialData ? 'CẬP NHẬT QUỸ' : 'TẠO QUỸ MỚI'}</h3>
+                    <button onClick={onClose} className="w-8 h-8 rounded-full bg-[#222] text-gray-500 hover:text-white flex items-center justify-center"><i className="fas fa-times text-sm"></i></button>
+                </div>
+
+                <div className="space-y-3">
+                    <div><label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1">Tên Quỹ / Ngân Hàng</label><input type="text" value={form.accountName} onChange={e=>setForm({...form, accountName: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-2.5 text-[12px] font-bold text-white outline-none focus:border-[#3b82f6]" placeholder="VD: Vietcombank, Quỹ Tiền Mặt..." autoFocus /></div>
+                    <div>
+                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1">Loại Quỹ</label>
+                        <select value={form.type} onChange={e=>setForm({...form, type: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-2.5 text-[12px] font-bold text-white outline-none focus:border-[#3b82f6]">
+                            <option value="Ngân hàng">Tài khoản Ngân hàng</option>
+                            <option value="Tiền mặt">Quỹ Tiền Mặt (Két sắt)</option>
+                        </select>
+                    </div>
+                    {form.type === 'Ngân hàng' && (
+                        <div className="grid grid-cols-2 gap-3">
+                            <div><label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1">Số Tài Khoản</label><input type="text" value={form.accountNumber} onChange={e=>setForm({...form, accountNumber: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-2.5 text-[12px] font-bold text-white outline-none focus:border-[#3b82f6]" placeholder="VD: 1903..." /></div>
+                            <div><label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1">Chủ Tài Khoản</label><input type="text" value={form.accountOwner} onChange={e=>setForm({...form, accountOwner: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-2.5 text-[12px] font-bold text-white outline-none focus:border-[#3b82f6]" placeholder="VD: NGUYEN VAN A" /></div>
+                        </div>
+                    )}
+                    <div><label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1">Số dư hiện tại (VNĐ)</label><input type="number" value={form.balance} onChange={e=>setForm({...form, balance: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-2.5 text-[15px] font-black text-[#d4af37] outline-none focus:border-[#3b82f6]" placeholder="0" /></div>
+                </div>
+
+                <div className="flex gap-2 mt-5 shrink-0 pt-3 border-t border-[#222]">
+                    <button onClick={onClose} className="flex-1 py-3 bg-[#222] text-gray-400 font-black rounded-xl text-[12px] active:scale-95 transition-all uppercase tracking-wider">HỦY</button>
+                    <button onClick={save} className="flex-1 py-3 bg-[#3b82f6] text-white font-black rounded-xl text-[12px] active:scale-95 transition-all shadow-md uppercase tracking-wider"><i className="fas fa-save mr-1"></i> {initialData ? 'LƯU THAY ĐỔI' : 'THÊM MỚI'}</button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function AccountHistoryModal({ account, allTxs, onClose, secureMoney, pushDeltas, canManageFinance }) {
+    const [viewingProof, setViewingProof] = React.useState(null);
+    const parsed = parseAccountInfo(account);
+
+    const historyTxs = React.useMemo(() => {
+        if (!account) return [];
+        return allTxs.filter(t => {
+            const accId = account.id;
+            return (t.fromAccount === accId || t.toAccount === accId);
+        }).sort((a, b) => new Date(`${b.date}T${b.time || '00:00'}`) - new Date(`${a.date}T${a.time || '00:00'}`));
+    }, [account, allTxs]);
+
+    const stats = React.useMemo(() => {
+        let inAmt = 0, outAmt = 0;
+        historyTxs.forEach(t => {
+            if (t.type === 'Chuyển') {
+                if (t.fromAccount === account.id) outAmt += Number(t.amount || 0); 
+                if (t.toAccount === account.id) inAmt += Number(t.amount || 0); 
+            } else if (t.type === 'Thu') {
+                inAmt += Number(t.amount || 0);
+            } else if (t.type === 'Chi') {
+                outAmt += Number(t.amount || 0);
+            }
+        });
+        return { inAmt, outAmt };
+    }, [historyTxs, account]);
+
+    if (!account) return null;
+    const visuals = getBankVisuals(parsed.name, parsed.type);
+
+    return (
+        <div className="fixed inset-0 bg-black/90 flex flex-col items-center justify-center z-[9999] p-4 backdrop-blur-sm animate-fade-in" onClick={onClose}>
+            <div className="bg-[#141414] border border-[#333] w-full max-w-2xl rounded-3xl p-5 shadow-2xl flex flex-col h-[85vh] relative animate-slide-up" onClick={e => e.stopPropagation()}>
+                <button onClick={onClose} className="absolute top-4 right-4 w-8 h-8 rounded-full bg-[#222] text-gray-500 hover:text-white hover:bg-rose-500 flex items-center justify-center transition-all z-20"><i className="fas fa-times text-sm"></i></button>
+
+                <div className="flex items-center gap-3 mb-4 border-b border-[#222] pb-3 shrink-0">
+                    <div className={`w-11 h-11 rounded-full ${visuals.bg} border ${visuals.border} ${visuals.color} flex items-center justify-center text-xl`}>
+                        <i className={`fas ${visuals.icon}`}></i>
+                    </div>
+                    <div>
+                        <h3 className="font-black text-white text-[15px] uppercase tracking-widest leading-none">Lịch Sử: {parsed.name}</h3>
+                        
+                        {parsed.type !== 'Tiền mặt' && (
+                            <>
+                                <div className="text-[#3b82f6] text-[12px] mt-1 font-mono font-bold tracking-wider">STK: {parsed.number || '---'}</div>
+                                <div className="text-gray-400 text-[10px] mt-0.5 font-mono font-bold tracking-wider">Chủ TK: {parsed.owner || '---'}</div>
+                            </>
+                        )}
+                        {parsed.type === 'Tiền mặt' && <p className="text-[#10b981] text-[12px] mt-1 font-mono font-bold tracking-wider">Quỹ Tiền Mặt (Két sắt)</p>}
+                    </div>
+                </div>
+
+                <div className="flex gap-2 mb-4 shrink-0">
+                    <div className="flex-1 bg-[#1a1a1a] p-3 rounded-xl border border-[#333]">
+                        <div className="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-1">Tổng Tiền Chảy Vào</div>
+                        <div className="text-[15px] font-black text-[#10b981]">+{secureMoney(stats.inAmt)}đ</div>
+                    </div>
+                    <div className="flex-1 bg-[#1a1a1a] p-3 rounded-xl border border-[#333]">
+                        <div className="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-1">Tổng Tiền Trút Ra</div>
+                        <div className="text-[15px] font-black text-[#f43f5e]">{secureMoney(stats.outAmt)}đ</div>
+                    </div>
+                    <div className="flex-1 bg-[#1a1a1a] p-3 rounded-xl border border-[#3b82f6]/30">
+                        <div className="text-[9px] font-black text-[#3b82f6] uppercase tracking-widest mb-1">Sổ Sách Báo Dư</div>
+                        <div className="text-[15px] font-black text-[#d4af37]">{secureMoney(account.balance)}đ</div>
+                    </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 space-y-2.5">
+                    {historyTxs.length === 0 ? (
+                        <div className="h-full flex flex-col items-center justify-center text-gray-500 opacity-50">
+                            <i className="fas fa-receipt text-4xl mb-3"></i>
+                            <div className="text-[12px] font-bold">Chưa có giao dịch nào liên quan đến quỹ này.</div>
+                        </div>
+                    ) : (
+                        historyTxs.map(t => {
+                            let displayType = t.type;
+                            let displayAmt = t.amount;
+                            let colorClass = ''; let sign = '';
+
+                            if (t.type === 'Chuyển') {
+                                if (t.fromAccount === account.id) {
+                                    displayType = 'Chuyển Đi'; colorClass = 'text-[#f43f5e]'; sign = '-';
+                                } else {
+                                    displayType = 'Nhận Tiền'; colorClass = 'text-[#10b981]'; sign = '+';
+                                }
+                            } else {
+                                if (t.type === 'Thu') { colorClass = 'text-[#10b981]'; sign = '+'; }
+                                else { colorClass = 'text-[#f43f5e]'; sign = '-'; }
+                            }
+
+                            return (
+                                <div key={t.id} className="bg-[#0a0a0a] border border-[#222] p-3 rounded-xl flex justify-between items-center shadow-sm hover:border-[#333] transition-colors group">
+                                    <div className="flex-1 min-w-0 pr-3">
+                                        <div className="flex items-center gap-2 mb-1">
+                                            <span className="font-black text-[12px] text-white truncate">{t.title}</span>
+                                            <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase border ${displayType.includes('Chuyển') || displayType.includes('Nhận') ? 'bg-[#3b82f6]/20 text-[#3b82f6] border-[#3b82f6]/30' : t.type === 'Thu' ? 'bg-[#10b981]/20 text-[#10b981] border-[#10b981]/30' : 'bg-[#f43f5e]/20 text-[#f43f5e] border-[#f43f5e]/30'}`}>{displayType}</span>
+                                            {t.isAuto && <span className="bg-gray-800 text-gray-400 text-[8px] font-black px-1.5 py-0.5 rounded border border-gray-700 uppercase tracking-wider shrink-0">Auto</span>}
+                                            {t.proofImage && (
+                                                <button onClick={() => setViewingProof(t.proofImage)} className="text-[#eab308] hover:text-[#d4af37] text-[10px] bg-[#eab308]/10 px-1.5 py-0.5 rounded border border-[#eab308]/30 flex items-center gap-1 transition-all active:scale-95" title="Xem ảnh chứng từ"><i className="fas fa-image"></i> Ảnh</button>
+                                            )}
+                                        </div>
+                                        <div className="text-[10px] text-gray-400 font-medium truncate mb-1.5">{t.note}</div>
+                                        <div className="flex items-center gap-2 text-[9px] text-gray-500 font-bold">
+                                            <span className="bg-[#1a1a1a] px-1.5 py-0.5 rounded border border-[#222]"><i className="far fa-calendar-alt mr-1"></i>{String(t.date).slice(0, 16)}</span>
+                                            <span className="bg-[#1a1a1a] px-1.5 py-0.5 rounded border border-[#222] truncate max-w-[100px]"><i className="fas fa-folder-open mr-1"></i>{t.category}</span>
+                                        </div>
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                        <div className={`text-[15px] font-black ${colorClass}`}>
+                                            {sign}{secureMoney(displayAmt)}
+                                        </div>
+                                        {canManageFinance && (
+                                            <div className="flex justify-end gap-2 mt-1">
+                                                <button onClick={(e) => { e.stopPropagation(); if(window.confirm('Xoá giao dịch này? Hệ thống sẽ cập nhật lại số dư quỹ!')) pushDeltas({deletes:{Transactions:[t.id]}}); }} className="text-[10px] text-gray-500 hover:text-rose-500 underline decoration-gray-600 underline-offset-2 opacity-0 group-hover:opacity-100 transition-opacity">Xoá</button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })
+                    )}
+                </div>
+            </div>
+            {viewingProof && <ProofViewerModal imageUrl={viewingProof} onClose={() => setViewingProof(null)} />}
+        </div>
+    );
+}
+
+function ImportStatementModal({ onClose, pushDeltas, triggerToast, erpData, categories }) {
+    const [isProcessing, setIsProcessing] = React.useState(false);
+    const [scannedData, setScannedData] = React.useState([]);
+    const [selectedRows, setSelectedRows] = React.useState(new Set());
+    const [bankAccounts, setBankAccounts] = React.useState([]);
+    const [selectedBankId, setSelectedBankId] = React.useState('');
+    const fileInputRef = React.useRef(null);
+
+    React.useEffect(() => {
+        const accs = (erpData?.Accounts || []);
+        setBankAccounts(accs);
+        if (accs.length > 0) setSelectedBankId(accs[0].id);
+        
+        if (typeof window.XLSX === 'undefined') {
+            const script = document.createElement('script');
+            script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+            document.body.appendChild(script);
+        }
+    }, [erpData]);
+
+    const handleFileUpload = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setIsProcessing(true);
+        if (typeof window.XLSX === 'undefined') {
+            triggerToast('Đang tải thư viện xử lý Excel, vui lòng thử lại sau 3 giây!', 'fa-spinner', 'warning');
+            setIsProcessing(false);
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+            try {
+                const data = evt.target.result;
+                let workbook;
+                let isCSV = false;
+                try { workbook = window.XLSX.read(data, { type: 'binary' }); } 
+                catch (err) { isCSV = true; }
+
+                if(isCSV) {
+                   const readerCSV = new FileReader();
+                   readerCSV.onload = (eCSV) => { processSheetData(window.XLSX.read(eCSV.target.result, {type: 'string'}).Sheets[window.XLSX.read(eCSV.target.result, {type: 'string'}).SheetNames[0]]); };
+                   readerCSV.readAsText(file);
+                   return;
+                }
+                processSheetData(workbook.Sheets[workbook.SheetNames[0]]);
+            } catch (err) {
+                triggerToast('Lỗi đọc file!', 'fa-times', 'danger');
+                setIsProcessing(false);
+            }
+        };
+        reader.readAsBinaryString(file);
+    };
+
+    const processSheetData = (worksheet) => {
+        const json = window.XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
+        const existingTxs = erpData?.Transactions || []; 
+        let parsedTransactions = [];
+        let headerRowIndex = -1;
+        let colMap = { date: -1, debit: -1, credit: -1, desc: -1 };
+
+        for (let i = 0; i < Math.min(20, json.length); i++) {
+            const row = Object.values(json[i]);
+            let foundDate = -1, foundDebit = -1, foundCredit = -1, foundDesc = -1;
+            
+            row.forEach((cellText, colIndex) => {
+                const text = String(cellText).toLowerCase().trim();
+                if (text.includes('ngày') || text.includes('date') || text.includes('thời gian')) { if (foundDate === -1) foundDate = colIndex; }
+                if (text.includes('phát sinh nợ') || text.includes('ghi nợ') || text === 'nợ' || text.includes('debit') || text === 'chi' || text === 'số tiền chi') foundDebit = colIndex;
+                if (text.includes('phát sinh có') || text.includes('ghi có') || text === 'có' || text.includes('credit') || text === 'thu' || text === 'số tiền thu') foundCredit = colIndex;
+                if (text.includes('diễn giải') || text.includes('nội dung') || text.includes('desc') || text.includes('detail')) foundDesc = colIndex;
+            });
+
+            if (foundDate > -1 && foundDesc > -1 && (foundDebit > -1 || foundCredit > -1)) {
+                headerRowIndex = i; colMap = { date: foundDate, debit: foundDebit, credit: foundCredit, desc: foundDesc }; break;
+            }
+        }
+
+        if (headerRowIndex === -1) { headerRowIndex = 14; colMap = { date: 2, debit: 5, credit: 6, desc: 11 }; }
+
+        for (let i = headerRowIndex + 1; i < json.length; i++) {
+            const row = Object.values(json[i]);
+            if (row.length === 0 || !row[colMap.date]) continue; 
+            
+            const rawDate = String(row[colMap.date]);
+            const rawDesc = String(row[colMap.desc] || '');
+            
+            let debit = 0;
+            if (colMap.debit > -1) debit = typeof row[colMap.debit] === 'number' ? row[colMap.debit] : (Number(String(row[colMap.debit] || '').replace(/[^\d]/g, '')) || 0);
+
+            let credit = 0;
+            if (colMap.credit > -1) credit = typeof row[colMap.credit] === 'number' ? row[colMap.credit] : (Number(String(row[colMap.credit] || '').replace(/[^\d]/g, '')) || 0);
+
+            if (rawDate.trim() === '' || (debit === 0 && credit === 0)) continue;
+
+            let formattedDate = rawDate;
+            try {
+                const dateParts = rawDate.split(/[\s/:]+/);
+                if (dateParts.length >= 3) {
+                    const day = dateParts[0].padStart(2, '0');
+                    const month = dateParts[1].padStart(2, '0');
+                    const year = dateParts[2].length === 2 ? '20'+dateParts[2] : dateParts[2];
+                    const hour = dateParts[3] ? dateParts[3].padStart(2, '0') : '12';
+                    const min = dateParts[4] ? dateParts[4].padStart(2, '0') : '00';
+                    formattedDate = `${year}-${month}-${day} ${hour}:${min}`;
+                }
+            } catch(e) {}
+
+            let type = ''; let amount = 0; let category = 'Khác';
+            
+            if (credit > 0) {
+                type = 'Thu'; amount = credit;
+                const thuVals = (categories?.THU || []).map(c => c.value);
+                if (rawDesc.toUpperCase().includes('SHOPEE') || rawDesc.toUpperCase().includes('TIKTOK')) {
+                    category = thuVals.includes('Doanh Thu Bán Hàng') ? 'Doanh Thu Bán Hàng' : (thuVals[0] || 'Khác');
+                } else category = thuVals.includes('Thu Khác') ? 'Thu Khác' : (thuVals[0] || 'Khác');
+            } else if (debit > 0) {
+                type = 'Chi'; amount = debit;
+                const chiVals = (categories?.CHI || []).map(c => c.value);
+                if (rawDesc.toUpperCase().includes('LUONG') || rawDesc.toUpperCase().includes('THUONG')) {
+                    category = chiVals.includes('Trả Lương') ? 'Trả Lương' : (chiVals[0] || 'Khác');
+                } else if (rawDesc.toUpperCase().includes('CHUYEN TIEN') || rawDesc.toUpperCase().includes('CHUYEN KHOAN')) {
+                    category = chiVals.includes('Thanh Toán Hoá Đơn') ? 'Thanh Toán Hoá Đơn' : (chiVals[0] || 'Khác');
+                } else category = chiVals.includes('Chi Phí Khác') ? 'Chi Phí Khác' : (chiVals[0] || 'Khác');
+            }
+
+            const isDup = existingTxs.some(t => Number(t.amount) === amount && t.type === type && String(t.date).substring(0, 10) === formattedDate.substring(0, 10));
+
+            parsedTransactions.push({ _id: 'TEMP_' + Date.now() + i, date: formattedDate, type: type, amount: amount, category: category, note: rawDesc, title: `${type} Sao Kê`, isDuplicate: isDup });
+        }
+
+        setScannedData(parsedTransactions);
+        setSelectedRows(new Set(parsedTransactions.filter(t => !t.isDuplicate).map(t => t._id)));
+        setIsProcessing(false);
+        triggerToast(`Đã quét xong ${parsedTransactions.length} giao dịch!`, 'fa-check', 'success');
+    };
+
+    const toggleRow = (id) => {
+        const newSet = new Set(selectedRows);
+        if (newSet.has(id)) newSet.delete(id); else newSet.add(id);
+        setSelectedRows(newSet);
+    };
+
+    const toggleAll = () => {
+        if (selectedRows.size === scannedData.length) setSelectedRows(new Set());
+        else setSelectedRows(new Set(scannedData.map(t => t._id)));
+    };
+
+    const handleImport = async () => {
+        if (selectedRows.size === 0) return triggerToast('Vui lòng chọn ít nhất 1 giao dịch!', 'fa-exclamation', 'warning');
+        if (!selectedBankId) return triggerToast('Vui lòng chọn tài khoản ngân hàng tương ứng!', 'fa-exclamation', 'warning');
+
+        setIsProcessing(true);
+        const transactionsToImport = scannedData.filter(t => selectedRows.has(t._id));
+        
+        let payload = { Transactions: [], Accounts: [] };
+        let totalNet = 0;
+
+        transactionsToImport.forEach((t, i) => {
+            const finalId = 'TX_SK_' + Date.now() + i;
+            payload.Transactions.push({
+                id: finalId, type: t.type, category: t.category, amount: t.amount, date: t.date, title: t.title, note: t.note,
+                fromAccount: t.type === 'Chi' ? selectedBankId : '',
+                toAccount: t.type === 'Thu' ? selectedBankId : '',
+                isAuto: true
+            });
+            totalNet += t.type === 'Thu' ? t.amount : -t.amount;
+        });
+
+        const acc = bankAccounts.find(a => a.id === selectedBankId);
+        if (acc) payload.Accounts.push({ ...acc, balance: Number(acc.balance || 0) + totalNet });
+
+        try {
+            await pushDeltas(payload, `Đã import ${transactionsToImport.length} giao dịch thành công!`, 'fa-cloud-upload-alt');
+            onClose();
+        } catch (e) {
+            triggerToast('Lỗi khi import!', 'fa-times', 'danger');
+            setIsProcessing(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/90 flex flex-col items-center justify-center z-[9999] p-4 backdrop-blur-sm animate-fade-in" onClick={onClose}>
+            <div className="bg-[#141414] border border-[#3b82f6]/50 w-full max-w-4xl rounded-3xl p-5 shadow-[0_0_40px_rgba(59,130,246,0.2)] flex flex-col h-[90vh] relative animate-slide-up" onClick={e => e.stopPropagation()}>
+                <button onClick={onClose} className="absolute top-4 right-4 w-8 h-8 rounded-full bg-[#222] text-gray-500 hover:text-white hover:bg-rose-500 flex items-center justify-center transition-all z-20"><i className="fas fa-times text-sm"></i></button>
+                <div className="flex items-center gap-3 mb-4 border-b border-[#222] pb-3 shrink-0">
+                    <div className="w-10 h-10 rounded-full bg-[#3b82f6]/20 text-[#3b82f6] flex items-center justify-center text-xl"><i className="fas fa-file-excel"></i></div>
+                    <div><h3 className="font-black text-white text-[16px] uppercase tracking-widest leading-none">Máy Quét Sao Kê</h3><p className="text-gray-400 text-[11px] mt-1">Đọc file Excel/CSV từ ngân hàng</p></div>
+                </div>
+                <div className="flex gap-3 mb-4 shrink-0">
+                    <div className="flex-1">
+                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1">1. Tải lên File Sao Kê</label>
+                        <div className="relative">
+                            <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx, .xls, .csv" className="hidden" />
+                            <button onClick={() => fileInputRef.current?.click()} disabled={isProcessing} className="w-full bg-[#0a0a0a] border-2 border-dashed border-[#333] hover:border-[#3b82f6] text-gray-400 hover:text-white rounded-xl py-4 flex flex-col items-center justify-center transition-all cursor-pointer">
+                                {isProcessing ? <i className="fas fa-spinner fa-spin text-2xl text-[#3b82f6] mb-2"></i> : <i className="fas fa-cloud-upload-alt text-2xl text-[#3b82f6] mb-2"></i>}
+                                <span className="font-bold text-[12px]">{isProcessing ? 'Đang phân tích...' : 'Bấm để chọn File Excel/CSV'}</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div className="flex-[0.5]">
+                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1">2. Chọn Ngân Hàng Đích</label>
+                        <select value={selectedBankId} onChange={(e) => setSelectedBankId(e.target.value)} className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl p-3 text-white font-bold outline-none focus:border-[#3b82f6] h-[78px]">
+                            {bankAccounts.length === 0 ? <option value="">-- Chưa có Quỹ nào --</option> : null}
+                            {bankAccounts.map(a => {
+                                const p = parseAccountInfo(a);
+                                return <option key={a.id} value={a.id}>{p.name} {p.number ? `- ${p.number}` : ''}</option>;
+                            })}
+                        </select>
+                    </div>
+                </div>
+                <div className="flex-1 overflow-hidden flex flex-col bg-[#0a0a0a] border border-[#222] rounded-xl">
+                    <div className="flex items-center justify-between p-2 bg-[#1a1a1a] border-b border-[#333] shrink-0">
+                        <div className="text-[11px] font-black text-white ml-2">KẾT QUẢ QUÉT ({scannedData.length} Dòng)</div>
+                        <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-gray-400 font-bold">Hợp lệ để Import: <b className="text-[#3b82f6]">{selectedRows.size}</b></span>
+                            <button onClick={toggleAll} className="px-3 py-1.5 bg-[#222] text-[10px] font-bold text-white rounded hover:bg-[#333]">Chọn / Bỏ chọn tất cả</button>
+                        </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto custom-scrollbar p-2">
+                        {scannedData.length === 0 ? (
+                            <div className="h-full flex flex-col items-center justify-center text-gray-500 opacity-50"><i className="fas fa-search-dollar text-4xl mb-3"></i><div className="text-[12px] font-bold">Chưa có dữ liệu. Vui lòng tải file lên.</div></div>
+                        ) : (
+                            <table className="w-full text-left border-collapse text-[11px]">
+                                <thead>
+                                    <tr className="text-gray-500 font-black tracking-wider uppercase border-b border-[#333] sticky top-0 bg-[#0a0a0a] z-10">
+                                        <th className="p-2 w-10 text-center">X</th>
+                                        <th className="p-2 w-[120px]">Thời gian</th>
+                                        <th className="p-2 w-[50px]">Loại</th>
+                                        <th className="p-2 w-[100px] text-right">Số tiền</th>
+                                        <th className="p-2 w-[150px]">Phân loại Thu / Chi</th>
+                                        <th className="p-2">Nội dung (Diễn giải)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {scannedData.map(t => {
+                                        const isSelected = selectedRows.has(t._id);
+                                        return (
+                                            <tr key={t._id} onClick={() => !t.isDuplicate && toggleRow(t._id)} className={`border-b border-[#222] transition-colors ${t.isDuplicate ? 'opacity-40 cursor-not-allowed bg-[#1a1a1a]' : 'cursor-pointer'} ${isSelected ? (t.type === 'Thu' ? 'bg-[#10b981]/10' : 'bg-rose-500/10') : 'hover:bg-[#1a1a1a]'}`}>
+                                                <td className="p-2 text-center"><div className={`w-4 h-4 rounded border flex items-center justify-center mx-auto ${isSelected ? 'bg-[#3b82f6] border-[#3b82f6] text-white' : 'border-[#444] text-transparent'}`}><i className="fas fa-check text-[8px]"></i></div></td>
+                                                <td className="p-2 font-mono"><div className={t.isDuplicate ? "text-gray-500 line-through" : "text-gray-300"}>{t.date}</div>{t.isDuplicate && <div className="text-[8px] text-rose-500 font-black bg-rose-500/10 px-1 py-0.5 rounded mt-1 inline-block border border-rose-500/30 tracking-widest uppercase">Đã có trên hệ thống</div>}</td>
+                                                <td className="p-2"><span className={`px-1.5 py-0.5 rounded font-black text-[9px] uppercase ${t.isDuplicate ? 'bg-[#333] text-gray-500' : (t.type === 'Thu' ? 'bg-[#10b981]/20 text-[#10b981]' : 'bg-rose-500/20 text-rose-500')}`}>{t.type}</span></td>
+                                                <td className={`p-2 text-right font-black ${t.isDuplicate ? 'text-gray-500 line-through' : (t.type === 'Thu' ? 'text-[#10b981]' : 'text-rose-500')}`}>{Number(t.amount).toLocaleString('vi-VN')}đ</td>
+                                                <td className="p-2">
+                                                    <select value={t.category} disabled={t.isDuplicate} onClick={e => e.stopPropagation()} onChange={(e) => { const newData = [...scannedData]; const idx = newData.findIndex(x => x._id === t._id); newData[idx].category = e.target.value; setScannedData(newData); }} className={`w-full bg-[#111] border border-[#333] rounded text-[10px] p-1.5 outline-none font-bold ${t.isDuplicate ? 'text-gray-600' : 'text-white focus:border-[#3b82f6]'}`}>
+                                                        {(t.type === 'Thu' ? (categories?.THU || []) : (categories?.CHI || [])).map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                                                    </select>
+                                                </td>
+                                                <td className={`p-2 font-medium line-clamp-2 leading-snug ${t.isDuplicate ? 'text-gray-600' : 'text-gray-300'}`} title={t.note}>{t.note}</td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        )}
+                    </div>
+                </div>
+                <div className="mt-4 pt-4 border-t border-[#333] shrink-0">
+                    <button onClick={handleImport} disabled={isProcessing || selectedRows.size === 0} className={`w-full py-4 font-black rounded-xl text-[13px] uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${isProcessing || selectedRows.size === 0 ? 'bg-[#222] text-gray-500 cursor-not-allowed' : 'bg-[#3b82f6] hover:bg-[#2563eb] text-white shadow-[0_0_20px_rgba(59,130,246,0.3)] active:scale-95'}`}>
+                        {isProcessing ? <><i className="fas fa-spinner fa-spin"></i> ĐANG IMPORT...</> : <><i className="fas fa-cloud-download-alt text-lg"></i> IMPORT {selectedRows.size} GIAO DỊCH MỚI VÀO HỆ THỐNG</>}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function ReceiptScannerModal({ onClose, onComplete, triggerToast, accountsData }) {
+    const [isProcessing, setIsProcessing] = React.useState(false);
+    const [previewImage, setPreviewImage] = React.useState(null);
+    const [ocrStatus, setOcrStatus] = React.useState('');
+    const fileInputRef = React.useRef(null);
+
+    React.useEffect(() => {
+        if (typeof window.Tesseract === 'undefined') {
+            const script = document.createElement('script');
+            script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+            document.head.appendChild(script);
+        }
+    }, []);
+
+    const compressImage = (file) => {
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const MAX_WIDTH = 800;
+                    const scaleSize = MAX_WIDTH / img.width;
+                    canvas.width = MAX_WIDTH;
+                    canvas.height = img.height * scaleSize;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    resolve(canvas.toDataURL('image/jpeg', 0.6));
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+    };
+
+    const processReceipt = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        if (typeof window.Tesseract === 'undefined') return triggerToast('Hệ thống AI đang tải, vui lòng đợi 3 giây rồi thử lại!', 'fa-spinner', 'warning');
+
+        setIsProcessing(true);
+        setOcrStatus('Đang nén ảnh chứng từ...');
+        try {
+            const base64Image = await compressImage(file);
+            setPreviewImage(base64Image);
+            setOcrStatus('AI đang đọc và bóc tách dữ liệu...');
+            const worker = await window.Tesseract.createWorker('vie');
+            const ret = await worker.recognize(base64Image);
+            const text = ret.data.text;
+            await worker.terminate();
+
+            setOcrStatus('Đang phân tích thông tin giao dịch...');
+            let maxAmt = 0;
+            const matches = text.match(/[\d][\d\.,\s]+[\d]/g);
+            if (matches) {
+                matches.forEach(m => {
+                    const cleanNum = Number(m.replace(/[^\d]/g, ''));
+                    if (cleanNum > maxAmt && cleanNum < 10000000000) maxAmt = cleanNum;
+                });
+            }
+
+            let detectedAccId = accountsData[0]?.id;
+            const textUpper = text.toUpperCase();
+            if (textUpper.includes('BIDV')) {
+                const bidv = accountsData.find(a => String(parseAccountInfo(a).name).toUpperCase().includes('BIDV'));
+                if (bidv) detectedAccId = bidv.id;
+            } else if (textUpper.includes('LP') || textUpper.includes('LIEN VIET')) {
+                const lp = accountsData.find(a => String(parseAccountInfo(a).name).toUpperCase().includes('LP'));
+                if (lp) detectedAccId = lp.id;
+            }
+
+            triggerToast('Bóc tách ảnh chứng từ thành công!', 'fa-magic', 'success');
+            onComplete({ amount: maxAmt, accId: detectedAccId, proofImage: base64Image, rawText: text });
+        } catch (error) {
+            triggerToast('Ảnh mờ hoặc lỗi AI không đọc được!', 'fa-times', 'danger');
+            setIsProcessing(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/90 flex flex-col items-center justify-center z-[9999] p-4 backdrop-blur-sm animate-fade-in" onClick={onClose}>
+            <div className="bg-[#141414] border border-[#d4af37]/50 w-full max-w-sm rounded-3xl p-6 shadow-[0_0_40px_rgba(212,175,55,0.2)] flex flex-col relative animate-slide-up text-center" onClick={e => e.stopPropagation()}>
+                <button onClick={onClose} className="absolute top-4 right-4 w-8 h-8 rounded-full bg-[#222] text-gray-500 hover:text-white hover:bg-rose-500 flex items-center justify-center transition-all z-20"><i className="fas fa-times text-sm"></i></button>
+                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#d4af37] to-[#eab308] text-black flex items-center justify-center text-3xl mx-auto mb-4 shadow-[0_0_20px_rgba(212,175,55,0.4)]"><i className="fas fa-camera"></i></div>
+                <h3 className="font-black text-white text-[16px] uppercase tracking-widest mb-1">Máy Đọc Ảnh Giao Dịch</h3>
+                <p className="text-gray-400 text-[11px] mb-6 leading-relaxed">Tải ảnh chụp màn hình Bill chuyển khoản lên, AI sẽ tự động đọc Số Tiền và Ngân hàng (BIDV / LPBank).</p>
+                {previewImage ? (
+                    <div className="w-full h-48 rounded-xl overflow-hidden border-2 border-dashed border-[#d4af37] relative bg-black flex items-center justify-center mb-4">
+                        <img src={previewImage} className="w-full h-full object-contain opacity-50" alt="Preview" />
+                        {isProcessing && <div className="absolute inset-0 flex flex-col items-center justify-center z-10 text-[#d4af37] bg-black/40"><i className="fas fa-magic fa-spin text-3xl mb-2"></i><span className="font-black text-[11px] uppercase tracking-wider bg-black/80 px-3 py-1 rounded-full">{ocrStatus}</span></div>}
+                    </div>
+                ) : (
+                    <div className="relative mb-4">
+                        <input type="file" ref={fileInputRef} onChange={processReceipt} accept="image/*" className="hidden" />
+                        <button onClick={() => fileInputRef.current?.click()} disabled={isProcessing} className="w-full bg-[#0a0a0a] border-2 border-dashed border-[#333] hover:border-[#d4af37] text-gray-400 hover:text-white rounded-xl py-8 flex flex-col items-center justify-center transition-all cursor-pointer shadow-inner">
+                            <i className="fas fa-images text-4xl text-[#d4af37] mb-3 opacity-80"></i><span className="font-black text-[12px] uppercase tracking-wider text-[#d4af37]">Bấm để chọn Ảnh Bill</span>
+                        </button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+// -------------------------------------------------------------------------
+// 3. MAIN TAB: FinanceTab (SỔ QUỸ THU CHI TỔNG)
+// -------------------------------------------------------------------------
+function FinanceTab({ orders, erpData, pushDeltas, triggerToast, isAdmin }) {
+  const isBoss = localStorage.getItem('rf_boss') === 'true';
+  const currentRole = localStorage.getItem('rf_role') || '';
+  const canManageFinance = isBoss || currentRole === 'TỐI CAO' || currentRole === 'KẾ TOÁN';
+  const formatMoney = (val) => Number(val || 0).toLocaleString('vi-VN');
+  const secureMoney = (val) => canManageFinance ? formatMoney(val) : '*******';
+
+  const DEFAULT_CATEGORIES = {
+    THU: [
+      { value: 'Doanh Thu Bán Hàng', label: 'Doanh thu bán hàng', icon: 'fa-shopping-cart' },
+      { value: 'Bán Phế Liệu', label: 'Bán phế liệu', icon: 'fa-recycle' },
+      { value: 'Thu Nợ Khách', label: 'Thu nợ khách', icon: 'fa-handshake' },
+      { value: 'Lợi Nhuận Đầu Tư', label: 'Lợi nhuận đầu tư', icon: 'fa-chart-line' },
+      { value: 'Thu Khác', label: 'Thu khác', icon: 'fa-plus-circle' }
+    ],
+    CHI: [
+      { value: 'Trả Lương', label: 'Trả lương nhân sự', icon: 'fa-user-tie' },
+      { value: 'Mua Nguyên Liệu', label: 'Mua nguyên liệu', icon: 'fa-boxes' },
+      { value: 'Mua Vật Tư', label: 'Mua vật tư sản xuất', icon: 'fa-tools' },
+      { value: 'Thanh Toán Hoá Đơn', label: 'Thanh toán hoá đơn', icon: 'fa-file-invoice' },
+      { value: 'Dịch Vụ Phần Mềm', label: 'Dịch vụ phần mềm', icon: 'fa-laptop' },
+      { value: 'Quảng Cáo & Marketing', label: 'Quảng cáo & Marketing', icon: 'fa-bullhorn' },
+      { value: 'Trang Thiết Bị', label: 'Trang thiết bị', icon: 'fa-desktop' },
+      { value: 'Máy Móc & Công Cụ', label: 'Máy móc & công cụ', icon: 'fa-cogs' },
+      { value: 'Hoạt Động & Sự Kiện', label: 'Hoạt động & sự kiện', icon: 'fa-calendar-alt' },
+      { value: 'Chi Phí Khác', label: 'Chi phí khác', icon: 'fa-ellipsis-h' }
+    ]
+  };
+
+  const [categories, setCategories] = React.useState(() => {
+    const saved = localStorage.getItem('rf_transaction_categories');
+    return saved ? JSON.parse(saved) : DEFAULT_CATEGORIES;
+  });
+  React.useEffect(() => { localStorage.setItem('rf_transaction_categories', JSON.stringify(categories)); }, [categories]);
+
+  const [activeSubTab, setActiveSubTab] = React.useState('CASHBOOK');
+  const [filterTime, setFilterTime] = React.useState('Tháng Này'); 
+  const [localAccounts, setLocalAccounts] = React.useState({}); 
+  const [localTxs, setLocalTxs] = React.useState([]); 
+
+  const isDateInRange = (dateStr) => {
+    if (!dateStr) return false;
+    const d = new Date(dateStr); const today = new Date();
+    if (filterTime === 'Tất Cả') return true;
+    if (filterTime === 'Năm Nay') return d.getFullYear() === today.getFullYear();
+    if (filterTime === 'Tháng Này') return d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
+    if (filterTime === 'Tháng Trước') { const m = new Date(today); m.setMonth(m.getMonth() - 1); return d.getMonth() === m.getMonth() && d.getFullYear() === m.getFullYear(); }
+    if (filterTime.startsWith('Tháng ')) { const m = parseInt(filterTime.replace('Tháng ', ''), 10); return d.getMonth() + 1 === m && d.getFullYear() === today.getFullYear(); }
+    return false;
+  };
+
+  const accountsData = React.useMemo(() => {
+      let accs = [...(erpData?.Accounts || [])];
+      Object.values(localAccounts).forEach(localAcc => {
+          if (!accs.find(a => a.id === localAcc.id)) accs.push(localAcc);
+      });
+      return accs.map(acc => { 
+          const cached = localAccounts[acc.id]; 
+          return cached ? { ...acc, ...cached } : acc; 
+      });
+  }, [erpData?.Accounts, localAccounts]);
+
+  const allTxs = React.useMemo(() => {
+      const serverTxs = erpData?.Transactions || []; const merged = [...serverTxs];
+      localTxs.forEach(ltx => { if (!merged.find(s => s.id === ltx.id)) merged.push(ltx); });
+      return merged.sort((a, b) => new Date(`${b.date}T${b.time || '00:00'}`) - new Date(`${a.date}T${a.time || '00:00'}`));
+  }, [erpData?.Transactions, localTxs]);
+
+  const filteredTxs = allTxs.filter(t => isDateInRange(t.date));
+  const thu = filteredTxs.filter(t => t.type === 'Thu').reduce((s, t) => s + Number(t.amount || 0), 0);
+  const chi = filteredTxs.filter(t => t.type === 'Chi').reduce((s, t) => s + Number(t.amount || 0), 0);
+  const totalCurrentBalance = accountsData.reduce((sum, acc) => sum + (Number(acc.balance) || 0), 0);
+
+  const handleExportExcel = () => {
+      const columns = [
+          { key: 'date', label: 'Ngày Giao Dịch' },
+          { key: 'time', label: 'Giờ' },
+          { key: 'type', label: 'Loại' },
+          { key: 'title', label: 'Tiêu Đề' },
+          { key: 'category', label: 'Danh Mục' },
+          { key: 'amount', label: 'Số Tiền' },
+          { 
+              key: 'fromAccount', 
+              label: 'Từ Tài Khoản',
+              formatter: (val) => {
+                  const acc = accountsData.find(a => a.id === val);
+                  return acc ? parseAccountInfo(acc).name : (val || '');
+              }
+          },
+          { 
+              key: 'toAccount', 
+              label: 'Nhận Vào Tài Khoản',
+              formatter: (val) => {
+                  const acc = accountsData.find(a => a.id === val);
+                  return acc ? parseAccountInfo(acc).name : (val || '');
+              }
+          },
+          { key: 'note', label: 'Diễn Giải Chi Tiết' }
+      ];
+      exportToExcel(filteredTxs, columns, `So_Quy_Giao_Dich_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  const [showAddTx, setShowAddTx] = React.useState(false);
+  const [isSavingTx, setIsSavingTx] = React.useState(false);
+  const [txForm, setTxForm] = React.useState({});
+  
+  const [showImportScanner, setShowImportScanner] = React.useState(false);
+  const [showReceiptScanner, setShowReceiptScanner] = React.useState(false);
+  const [viewingProofImage, setViewingProofImage] = React.useState(null);
+
+  const [showAccountModal, setShowAccountModal] = React.useState(false);
+  const [editingAccount, setEditingAccount] = React.useState(null);
+  const [viewingAccountTxs, setViewingAccountTxs] = React.useState(null);
+
+  const handleOpenAddTx = () => {
+    setTxForm({ 
+        id: '', type: 'Chi', category: categories.CHI[0]?.value || 'Chi Phí Khác', 
+        amount: '', title: '', note: '', 
+        fromAccount: accountsData[0]?.id || '', toAccount: '', 
+        date: new Date().toISOString().slice(0, 10), 
+        time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false }), 
+        proofImage: null 
+    });
+    setShowAddTx(true);
+  };
+
+  const handleReceiptScanned = (data) => {
+    setTxForm({ 
+        id: '', type: 'Chi', category: 'Chi Phí Vận Hành', 
+        amount: data.amount ? String(data.amount) : '', title: 'Chuyển khoản (Đọc từ Ảnh)', note: '', 
+        fromAccount: data.accId || '', toAccount: '', 
+        date: new Date().toISOString().slice(0, 10), 
+        time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false }),
+        proofImage: data.proofImage
+    });
+    setShowReceiptScanner(false);
+    setShowAddTx(true);
+  };
+
+  const handleSaveTx = async () => {
+    if (!txForm.amount || !txForm.title) return triggerToast('Vui lòng điền đủ Số tiền và Tiêu đề!', 'fa-exclamation', 'warning');
+    if (txForm.type !== 'Thu' && !txForm.fromAccount) return triggerToast('Vui lòng chọn Từ tài khoản!', 'fa-exclamation', 'warning');
+    if (txForm.type !== 'Chi' && !txForm.toAccount) return triggerToast('Vui lòng chọn Tới tài khoản!', 'fa-exclamation', 'warning');
+    
+    setIsSavingTx(true);
+    try {
+      const amt = Number(String(txForm.amount).replace(/[^0-9]/g, ''));
+      const isEdit = !!txForm.id;
+      const oldTx = isEdit ? allTxs.find(t => t.id === txForm.id) : null;
+
+      const newTx = { 
+          id: isEdit ? txForm.id : 'TX_' + Date.now(), 
+          type: txForm.type, category: txForm.category, amount: amt, 
+          title: txForm.title, date: txForm.date, time: txForm.time, note: txForm.note || '', 
+          proofImage: txForm.proofImage || null,
+          fromAccount: txForm.type !== 'Thu' ? txForm.fromAccount : '',
+          toAccount: txForm.type !== 'Chi' ? txForm.toAccount : '',
+          isAuto: txForm.isAuto || false
+      };
+      
+      let payload = { Transactions: [newTx] };
+      let updatedAccsMap = {};
+      const getAcc = (id) => {
+          if(!id) return null;
+          let found = updatedAccsMap[id] || accountsData.find(a => a.id === id);
+          return found ? { ...found } : null;
+      };
+
+      if (oldTx) {
+          if (oldTx.fromAccount) { let acc = getAcc(oldTx.fromAccount); if(acc) { acc.balance = Number(acc.balance) + Number(oldTx.amount); updatedAccsMap[acc.id] = acc; } }
+          if (oldTx.toAccount) { let acc = getAcc(oldTx.toAccount); if(acc) { acc.balance = Number(acc.balance) - Number(oldTx.amount); updatedAccsMap[acc.id] = acc; } }
+      }
+
+      if (newTx.fromAccount) { let acc = getAcc(newTx.fromAccount); if(acc) { acc.balance = Number(acc.balance) - Number(newTx.amount); updatedAccsMap[acc.id] = acc; } }
+      if (newTx.toAccount) { let acc = getAcc(newTx.toAccount); if(acc) { acc.balance = Number(acc.balance) + Number(newTx.amount); updatedAccsMap[acc.id] = acc; } }
+
+      payload.Accounts = Object.values(updatedAccsMap);
+
+      if (isEdit) setLocalTxs(prev => prev.map(t => t.id === newTx.id ? newTx : t));
+      else setLocalTxs(prev => [newTx, ...prev]);
+
+      if (payload.Accounts.length > 0) {
+          const newLocal = { ...localAccounts };
+          payload.Accounts.forEach(u => newLocal[u.id] = u);
+          setLocalAccounts(newLocal);
+      }
+
+      await pushDeltas(payload, isEdit ? `Cập nhật phiếu thành công!` : `Đã thêm giao dịch!`, 'fa-check-circle');
+      setShowAddTx(false);
+    } catch(e) {
+      triggerToast('Lỗi khi lưu giao dịch!', 'fa-times', 'danger');
+    }
+    setIsSavingTx(false);
+  };
+
+  const handleOpenAccountModal = (acc = null) => { setEditingAccount(acc); setShowAccountModal(true); };
+
+  const handleSaveAccount = async (payload) => {
+      try { 
+          const newAcc = payload.Accounts[0];
+          setLocalAccounts(prev => ({ ...prev, [newAcc.id]: newAcc }));
+          await pushDeltas(payload, editingAccount ? 'Cập nhật quỹ thành công!' : 'Tạo quỹ thành công!', 'fa-check'); 
+          setShowAccountModal(false); setEditingAccount(null);
+      } catch(e) { triggerToast('Lỗi lưu quỹ', 'fa-times', 'danger'); }
+  };
+
+  const totalDebtSuppliers = (erpData?.Suppliers||[]).reduce((s, x)=>s+Number(x.totalDebt||0), 0);
+
+  const getPieChart = () => {
+      let catThu = {}; let catChi = {};
+      filteredTxs.forEach(t => {
+          if(t.type === 'Thu') catThu[t.category] = (catThu[t.category] || 0) + Number(t.amount);
+          if(t.type === 'Chi') catChi[t.category] = (catChi[t.category] || 0) + Number(t.amount);
+      });
+      return { thu: Object.entries(catThu).sort((a,b)=>b[1]-a[1]), chi: Object.entries(catChi).sort((a,b)=>b[1]-a[1]) };
+  };
+  const charts = getPieChart();
+
+  return (
+    <div className="space-y-4 pb-12 overflow-x-hidden w-full">
+      
+      <div className="flex gap-2 w-full">
+          {canManageFinance && (
+              <>
+                  <button onClick={() => setShowImportScanner(true)} className="flex-1 bg-gradient-to-r from-[#1e3a8a] to-[#3b82f6] text-white p-3 rounded-2xl flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(59,130,246,0.3)] active:scale-95 transition-transform border border-[#3b82f6]/50">
+                      <i className="fas fa-file-excel text-xl"></i>
+                      <span className="font-black text-[11px] uppercase tracking-wide hidden sm:inline">Quét Sao Kê</span>
+                  </button>
+                  
+                  <button onClick={() => setShowReceiptScanner(true)} className="flex-1 bg-gradient-to-r from-[#ca8a04] to-[#eab308] text-black p-3 rounded-2xl flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(234,179,8,0.3)] active:scale-95 transition-transform border border-[#eab308]/50">
+                      <i className="fas fa-camera text-xl"></i>
+                      <span className="font-black text-[11px] uppercase tracking-wide hidden sm:inline">Quét Ảnh Bill</span>
+                  </button>
+              </>
+          )}
+
+          <div className="w-[100px] bg-[#141414] rounded-2xl border border-[#333] p-1.5 flex flex-col justify-center items-center shrink-0 ml-auto">
+              <label className="text-[8px] font-black text-gray-500 uppercase tracking-widest mb-1">Thời gian</label>
+              <select value={filterTime} onChange={e => setFilterTime(e.target.value)} className="w-full bg-[#0a0a0a] border border-[#222] text-[#d4af37] text-[9px] font-black px-1 py-1 rounded-lg outline-none text-center">
+                  <option>Hôm Nay</option><option>Tháng Này</option><option>Tháng Trước</option><option>Tất Cả</option>
+              </select>
+          </div>
+      </div>
+
+      {/* PREMIUM EXECUTIVE STATISTICS GRID */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* Card 1: Tổng Quỹ Tồn */}
+          <div className="bg-[#141414] border border-zinc-800/60 p-3.5 rounded-2xl flex items-center justify-between shadow-sm relative overflow-hidden">
+               <div className="absolute top-0 right-0 w-16 h-16 bg-[#d4af37]/5 rounded-full blur-xl -mr-4 -mt-4"></div>
+               <div>
+                   <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">Tổng quỹ hiện hữu</span>
+                   <span className="text-[17px] font-black text-[#d4af37] leading-none">{secureMoney(totalCurrentBalance)}đ</span>
+               </div>
+               <div className="w-8 h-8 rounded-xl bg-yellow-500/10 flex items-center justify-center text-sm text-[#d4af37]"><i className="fas fa-university"></i></div>
+          </div>
+
+          {/* Card 2: Nợ NCC */}
+          <div className="bg-[#141414] border border-zinc-800/60 p-3.5 rounded-2xl flex items-center justify-between shadow-sm relative overflow-hidden">
+               <div className="absolute top-0 right-0 w-16 h-16 bg-rose-500/5 rounded-full blur-xl -mr-4 -mt-4"></div>
+               <div>
+                   <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">Nợ nhà cung cấp</span>
+                   <span className="text-[17px] font-black text-rose-500 leading-none">{secureMoney(totalDebtSuppliers)}đ</span>
+               </div>
+               <div className="w-8 h-8 rounded-xl bg-rose-500/10 flex items-center justify-center text-sm text-rose-500"><i className="fas fa-hand-holding-usd"></i></div>
+          </div>
+
+          {/* Card 3: Tổng Thu */}
+          <div className="bg-[#141414] border border-zinc-800/60 p-3.5 rounded-2xl flex items-center justify-between shadow-sm relative overflow-hidden">
+               <div className="absolute top-0 right-0 w-16 h-16 bg-emerald-500/5 rounded-full blur-xl -mr-4 -mt-4"></div>
+               <div>
+                   <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">Tổng tiền thu</span>
+                   <span className="text-[17px] font-black text-[#10b981] leading-none">+{secureMoney(thu)}đ</span>
+               </div>
+               <div className="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center text-sm text-[#10b981]"><i className="fas fa-arrow-trend-up"></i></div>
+          </div>
+
+          {/* Card 4: Tổng Chi */}
+          <div className="bg-[#141414] border border-zinc-800/60 p-3.5 rounded-2xl flex items-center justify-between shadow-sm relative overflow-hidden">
+               <div className="absolute top-0 right-0 w-16 h-16 bg-red-500/5 rounded-full blur-xl -mr-4 -mt-4"></div>
+               <div>
+                   <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">Tổng tiền chi</span>
+                   <span className="text-[17px] font-black text-[#f43f5e] leading-none">-{secureMoney(chi)}đ</span>
+               </div>
+               <div className="w-8 h-8 rounded-xl bg-red-500/10 flex items-center justify-center text-sm text-[#f43f5e]"><i className="fas fa-arrow-trend-down"></i></div>
+          </div>
+      </div>
+
+      <div className="flex bg-[#141414] p-1.5 rounded-2xl border border-[#333] shadow-sm">
+        <button onClick={() => setActiveSubTab('CASHBOOK')} className={`flex-1 py-2.5 text-[11px] sm:text-[12px] font-black uppercase rounded-[12px] transition-all ${activeSubTab === 'CASHBOOK' ? 'bg-[#3b82f6] text-white shadow-[0_4px_15px_rgba(59,130,246,0.3)]' : 'text-gray-500 hover:text-white'}`}><i className="fas fa-wallet mr-1.5"></i> Sổ Quỹ Thu Chi</button>
+        <button onClick={() => setActiveSubTab('SO_QUY')} className={`flex-1 py-2.5 text-[11px] sm:text-[12px] font-black uppercase rounded-[12px] transition-all ${activeSubTab === 'SO_QUY' ? 'bg-[#d4af37] text-black shadow-[0_4px_15px_rgba(212,175,55,0.3)]' : 'text-gray-500 hover:text-white'}`}><i className="fas fa-university mr-1.5"></i> Quản Lý Quỹ</button>
+        <button onClick={() => setActiveSubTab('THONG_KE')} className={`flex-1 py-2.5 text-[11px] sm:text-[12px] font-black uppercase rounded-[12px] transition-all ${activeSubTab === 'THONG_KE' ? 'bg-[#10b981] text-white shadow-[0_4px_15px_rgba(16,185,129,0.3)]' : 'text-gray-500 hover:text-white'}`}><i className="fas fa-chart-pie mr-1.5"></i> Thống Kê</button>
+      </div>
+
+      {activeSubTab === 'CASHBOOK' && (
+        <div className="space-y-4 animate-fade-in w-full">
+          {canManageFinance && (
+            <div className="flex gap-2 w-full">
+              <button onClick={handleOpenAddTx} className="flex-[3] py-3.5 bg-[#3b82f6] text-white font-black text-[12px] uppercase rounded-xl shadow-[0_0_15px_rgba(59,130,246,0.3)] active:scale-95 transition-all flex items-center justify-center gap-2">
+                <i className="fas fa-plus-circle text-base"></i> TẠO PHIẾU THU / CHI / CHUYỂN KHOẢN
+              </button>
+              <button onClick={handleExportExcel} className="flex-1 py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[12px] uppercase rounded-xl shadow-[0_0_15px_rgba(16,185,129,0.3)] active:scale-95 transition-all flex items-center justify-center gap-1.5 transition-colors">
+                <i className="fas fa-download text-base"></i> XUẤT EXCEL
+              </button>
+            </div>
+          )}
+
+          <div>
+            <div className="text-[10px] font-black text-gray-400 uppercase mb-2 px-1">Lịch Sử Giao Dịch ({filterTime})</div>
+            <div className="space-y-2.5 max-h-[480px] overflow-y-auto custom-scrollbar pr-1 pb-4">
+              {filteredTxs.length === 0 ? (<div className="bg-[#141414] border border-dashed border-[#333] p-8 text-center rounded-2xl text-[#666] text-[11px] font-bold">Chưa có giao dịch nào</div>) : (
+                filteredTxs.map(t => {
+                  const isThu = t.type === 'Thu';
+                  const isAuto = t.isAuto;
+                  
+                  const fAcc = accountsData.find(a => a.id === t.fromAccount);
+                  const tAcc = accountsData.find(a => a.id === t.toAccount);
+                  let accDisplay = '';
+                  if (t.type === 'Thu') accDisplay = tAcc ? parseAccountInfo(tAcc).name : (t.account || t.toAccount || 'N/A');
+                  else if (t.type === 'Chi') accDisplay = fAcc ? parseAccountInfo(fAcc).name : (t.account || t.fromAccount || 'N/A');
+                  else accDisplay = `${fAcc ? parseAccountInfo(fAcc).name : (t.account || 'N/A')} ➔ ${tAcc ? parseAccountInfo(tAcc).name : (t.toAccount || 'N/A')}`;
+
+                  return (
+                      <div key={t.id} className="bg-[#141414] border border-[#2a2a2a] p-3 rounded-2xl flex justify-between items-center shadow-sm relative overflow-hidden group hover:border-[#444] transition-colors">
+                          <div className={`absolute top-0 left-0 w-1.5 h-full ${isThu ? 'bg-[#10b981]' : t.type === 'Chuyển' ? 'bg-blue-400' : 'bg-[#f43f5e]'}`}></div>
+                          <div className="pl-2 flex-1 min-w-0 pr-3">
+                              <div className="flex items-center gap-2 mb-1">
+                                  <span className="font-black text-[12px] text-white truncate">{t.title}</span>
+                                  {isAuto && <span className="bg-[#3b82f6]/20 text-[#3b82f6] text-[8px] font-black px-1.5 py-0.5 rounded border border-[#3b82f6]/30 uppercase tracking-wider shrink-0" title="Tạo bởi hệ thống">Auto</span>}
+                                  {t.proofImage && (
+                                      <button onClick={() => setViewingProofImage(t.proofImage)} className="text-[#eab308] hover:text-[#d4af37] text-[10px] bg-[#eab308]/10 px-1.5 py-0.5 rounded border border-[#eab308]/30 flex items-center gap-1 transition-all active:scale-95" title="Xem ảnh chứng từ"><i className="fas fa-image"></i> Ảnh</button>
+                                  )}
+                              </div>
+                              <div className="text-[10px] text-gray-400 font-medium truncate mb-1.5">{t.note}</div>
+                              <div className="flex items-center gap-2 text-[9px] text-gray-500 font-bold">
+                                  <span className="bg-[#0a0a0a] px-1.5 py-0.5 rounded border border-[#222]"><i className="far fa-calendar-alt mr-1"></i>{String(t.date).slice(0, 16)}</span>
+                                  <span className="bg-[#0a0a0a] px-1.5 py-0.5 rounded border border-[#222] truncate max-w-[150px] text-[#3b82f6]"><i className="fas fa-university mr-1"></i>{accDisplay}</span>
+                                  <span className="bg-[#0a0a0a] px-1.5 py-0.5 rounded border border-[#222] truncate max-w-[100px]"><i className="fas fa-folder-open mr-1"></i>{t.category}</span>
+                              </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                              <div className={`text-[15px] font-black ${isThu ? 'text-[#10b981]' : t.type === 'Chuyển' ? 'text-blue-400' : 'text-[#f43f5e]'}`}>
+                                {isThu ? '+' : t.type === 'Chuyển' ? '↔' : '-'}{secureMoney(t.amount)}
+                              </div>
+                              {canManageFinance && (
+                                  <div className="flex justify-end gap-2 mt-1">
+                                      <button onClick={() => { 
+                                          setTxForm({ id: t.id, type: t.type, category: t.category, amount: String(t.amount), title: t.title, note: t.note, fromAccount: t.fromAccount || '', toAccount: t.toAccount || '', date: t.date, time: t.time || '00:00', proofImage: t.proofImage, isAuto: t.isAuto }); 
+                                          setShowAddTx(true); 
+                                      }} className="text-[10px] text-gray-500 hover:text-[#3b82f6] underline decoration-gray-600 underline-offset-2 opacity-0 group-hover:opacity-100 transition-opacity">Sửa</button>
+                                      <button onClick={() => { if(window.confirm('Xoá giao dịch này?')) pushDeltas({deletes:{Transactions:[t.id]}}); }} className="text-[10px] text-gray-500 hover:text-rose-500 underline decoration-gray-600 underline-offset-2 opacity-0 group-hover:opacity-100 transition-opacity">Xoá</button>
+                                  </div>
+                              )}
+                          </div>
+                      </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeSubTab === 'SO_QUY' && (
+          <div className="space-y-3 animate-fade-in">
+              <div className="flex justify-between items-center px-1 mb-2">
+                  <h3 className="font-black text-[13px] text-gray-200">Danh Sách Quỹ</h3>
+                  {canManageFinance && <button onClick={() => handleOpenAccountModal(null)} className="bg-[#3b82f6] text-white text-[10px] font-black px-3 py-1.5 rounded-lg shadow-sm active:scale-95 transition-all"><i className="fas fa-plus mr-1"></i> TẠO QUỸ</button>}
+              </div>
+              {accountsData.length === 0 ? <div className="text-center py-10 text-gray-500 font-bold text-[11px] bg-[#141414] rounded-2xl border-2 border-dashed border-[#333]">Chưa có quỹ nào</div> : 
+                  accountsData.map(a => {
+                      const parsed = parseAccountInfo(a);
+                      const visuals = getBankVisuals(parsed.name, parsed.type);
+                      return (
+                          <div key={a.id} className="bg-[#141414] border border-[#2a2a2a] p-4 rounded-2xl flex justify-between items-center shadow-sm hover:border-[#333] transition-colors group">
+                              <div className="flex items-center gap-3 min-w-0">
+                                  <div className={`w-11 h-11 rounded-full ${visuals.bg} border ${visuals.border} flex items-center justify-center ${visuals.color} text-xl shadow-inner shrink-0`}>
+                                      <i className={`fas ${visuals.icon}`}></i>
+                                  </div>
+                                  <div className="min-w-0 pr-2">
+                                      <div className="font-black text-[14px] text-white leading-tight truncate">{parsed.name}</div>
+                                      
+                                      {parsed.type !== 'Tiền mặt' && (
+                                          <>
+                                              <div className="text-[11px] text-[#3b82f6] font-bold mt-1 font-mono tracking-wider">STK: {parsed.number || '---'}</div>
+                                              <div className="text-[10px] text-gray-400 font-bold font-mono tracking-wider mt-0.5 truncate">Chủ TK: {parsed.owner || '---'}</div>
+                                          </>
+                                      )}
+                                      {parsed.type === 'Tiền mặt' && <div className="text-[10px] text-gray-500 mt-1">Quỹ Tiền Mặt (Két sắt)</div>}
+                                      
+                                      <div className="flex gap-2 mt-2 items-center">
+                                          <button onClick={() => setViewingAccountTxs(a)} className={`text-[10px] font-bold ${visuals.color} ${visuals.bg} px-2.5 py-1 rounded-lg border ${visuals.border} hover:bg-opacity-20 active:scale-95 transition-all whitespace-nowrap`}><i className="fas fa-history mr-1"></i>Xem lịch sử</button>
+                                          {canManageFinance && (
+                                              <>
+                                                 <button onClick={() => handleOpenAccountModal(a)} className="text-[10px] text-gray-400 hover:text-[#3b82f6] underline decoration-gray-600 underline-offset-2 opacity-0 group-hover:opacity-100 transition-opacity">Sửa</button>
+                                                 {isAdmin && <button onClick={() => { if(window.confirm('Xoá quỹ này?')) pushDeltas({deletes:{Accounts:[a.id]}}); }} className="text-[10px] text-gray-400 hover:text-rose-500 underline decoration-gray-600 underline-offset-2 opacity-0 group-hover:opacity-100 transition-opacity">Xoá</button>}
+                                              </>
+                                          )}
+                                      </div>
+                                  </div>
+                              </div>
+                              <div className="text-right flex flex-col items-end shrink-0 pl-2">
+                                  <div className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-0.5">SỐ DƯ</div>
+                                  <div className="text-[18px] font-black text-[#d4af37]">{secureMoney(a.balance)}</div>
+                              </div>
+                          </div>
+                      );
+                  })
+              }
+          </div>
+      )}
+
+      {activeSubTab === 'THONG_KE' && (
+          <div className="space-y-4 animate-fade-in">
+              <div className="bg-[#141414] border border-[#2a2a2a] rounded-2xl p-4 shadow-sm">
+                  <div className="text-[11px] font-black text-[#10b981] uppercase tracking-widest mb-3 border-b border-[#222] pb-2 flex items-center gap-2"><i className="fas fa-arrow-down"></i> TỶ TRỌNG THU</div>
+                  <div className="space-y-2.5">
+                      {charts.thu.length === 0 ? <div className="text-gray-500 text-[10px] italic">Không có dữ liệu</div> : 
+                          charts.thu.map(([cat, val], i) => (
+                              <div key={i} className="flex justify-between items-center text-[11px]">
+                                  <span className="text-gray-300 font-bold">{cat}</span>
+                                  <div className="flex items-center gap-2">
+                                      <span className="text-[#10b981] font-black">{secureMoney(val)}</span>
+                                      <span className="text-[9px] text-gray-500 bg-[#0a0a0a] px-1.5 py-0.5 rounded border border-[#222] w-10 text-right">{thu > 0 ? ((val/thu)*100).toFixed(0) : 0}%</span>
+                                  </div>
+                              </div>
+                          ))
+                      }
+                  </div>
+              </div>
+
+              <div className="bg-[#141414] border border-[#2a2a2a] rounded-2xl p-4 shadow-sm">
+                  <div className="text-[11px] font-black text-[#f43f5e] uppercase tracking-widest mb-3 border-b border-[#222] pb-2 flex items-center gap-2"><i className="fas fa-arrow-up"></i> TỶ TRỌNG CHI</div>
+                  <div className="space-y-2.5">
+                      {charts.chi.length === 0 ? <div className="text-gray-500 text-[10px] italic">Không có dữ liệu</div> : 
+                          charts.chi.map(([cat, val], i) => (
+                              <div key={i} className="flex justify-between items-center text-[11px]">
+                                  <span className="text-gray-300 font-bold">{cat}</span>
+                                  <div className="flex items-center gap-2">
+                                      <span className="text-[#f43f5e] font-black">{secureMoney(val)}</span>
+                                      <span className="text-[9px] text-gray-500 bg-[#0a0a0a] px-1.5 py-0.5 rounded border border-[#222] w-10 text-right">{chi > 0 ? ((val/chi)*100).toFixed(0) : 0}%</span>
+                                  </div>
+                              </div>
+                          ))
+                      }
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {showAddTx && canManageFinance && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[999] p-4 backdrop-blur-sm animate-fade-in">
+          <div className="bg-[#141414] border border-[#333] w-full max-w-md rounded-[24px] p-5 shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="flex justify-between items-center mb-5">
+              <input type="text" value={txForm.amount ? Number(String(txForm.amount).replace(/[^0-9]/g, '')).toLocaleString('vi-VN') : ''} onChange={e => setTxForm({...txForm, amount: e.target.value.replace(/[^0-9]/g, '')})} className="w-full bg-transparent outline-none font-black text-[24px] text-white placeholder-gray-600" placeholder="0" autoFocus />
+              <button onClick={() => setShowAddTx(false)} className="w-8 h-8 rounded-full bg-[#222] text-gray-400 hover:text-rose-500 flex items-center justify-center"><i className="fas fa-times"></i></button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-4">
+              <div className="flex bg-[#0a0a0a] p-1 rounded-xl border border-[#333]">
+                  {['Thu', 'Chi', 'Chuyển'].map(t => (
+                      <button key={t} onClick={() => setTxForm({...txForm, type: t, category: t==='Chuyển'?'Chuyển Quỹ':categories[t.toUpperCase()][0]?.value||''})} className={`flex-1 py-2 rounded-lg text-[11px] font-black transition-all ${txForm.type === t ? (t==='Thu'?'bg-[#10b981] text-[#0a0a0a]':t==='Chi'?'bg-[#e11d48] text-white':'bg-[#3b82f6] text-white') : 'text-gray-500'}`}>{t.toUpperCase()}</button>
+                  ))}
+              </div>
+
+              <div><input type="text" value={txForm.title} onChange={e => setTxForm({...txForm, title: e.target.value})} className="w-full bg-[#1a1a1a] border border-[#333] rounded-xl px-4 py-3.5 text-[13px] font-bold text-white outline-none focus:border-[#3b82f6] transition-colors" placeholder="Tên giao dịch..." /></div>
+
+              {txForm.type !== 'Chuyển' && (
+                  <div>
+                      <label className="text-[10px] font-black text-gray-500 uppercase mb-1.5 block px-1">Danh mục</label>
+                      <select value={txForm.category} onChange={e => setTxForm({...txForm, category: e.target.value})} className="w-full bg-[#1a1a1a] border border-[#333] rounded-xl px-4 py-3 text-[12px] font-bold text-white outline-none focus:border-[#3b82f6] appearance-none">
+                          {(categories[txForm.type.toUpperCase()] || []).map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                      </select>
+                  </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                  {txForm.type !== 'Thu' && (
+                      <div>
+                          <label className="text-[10px] font-black text-gray-500 uppercase mb-1.5 block px-1">TỪ TÀI KHOẢN</label>
+                          <select value={txForm.fromAccount} onChange={e => setTxForm({...txForm, fromAccount: e.target.value})} className="w-full bg-[#1a1a1a] border border-[#333] rounded-xl px-4 py-3 text-[12px] font-bold text-white outline-none focus:border-[#3b82f6]">
+                              <option value="">-- Chọn --</option>
+                              {accountsData.map(a => <option key={a.id} value={a.id}>{parseAccountInfo(a).name}</option>)}
+                          </select>
+                      </div>
+                  )}
+                  {txForm.type !== 'Chi' && (
+                      <div className="animate-fade-in">
+                          <label className="text-[10px] font-black text-gray-500 uppercase mb-1.5 block px-1">TỚI TÀI KHOẢN</label>
+                          <select value={txForm.toAccount} onChange={e => setTxForm({...txForm, toAccount: e.target.value})} className="w-full bg-[#1a1a1a] border border-[#333] rounded-xl px-4 py-3 text-[12px] font-bold text-[#3b82f6] outline-none focus:border-[#3b82f6]">
+                              <option value="">-- Chọn --</option>
+                              {accountsData.filter(a => txForm.type !== 'Chuyển' || a.id !== txForm.fromAccount).map(a => <option key={a.id} value={a.id}>{parseAccountInfo(a).name}</option>)}
+                          </select>
+                      </div>
+                  )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                  <div><label className="text-[10px] font-black text-gray-500 uppercase mb-1.5 block px-1">Ngày</label><input type="date" value={txForm.date} onChange={e => setTxForm({...txForm, date: e.target.value})} className="w-full bg-[#1a1a1a] border border-[#333] rounded-xl px-4 py-3 text-[12px] font-bold text-white outline-none" /></div>
+                  <div><label className="text-[10px] font-black text-gray-500 uppercase mb-1.5 block px-1">Giờ</label><input type="time" value={txForm.time} onChange={e => setTxForm({...txForm, time: e.target.value})} className="w-full bg-[#1a1a1a] border border-[#333] rounded-xl px-4 py-3 text-[12px] font-bold text-white outline-none" /></div>
+              </div>
+              
+              <div><textarea value={txForm.note} onChange={e => setTxForm({...txForm, note: e.target.value})} className="w-full bg-[#1a1a1a] border border-[#333] rounded-xl px-4 py-3 text-[12px] font-bold text-white outline-none focus:border-[#3b82f6] min-h-[60px]" placeholder="Ghi chú thêm..."></textarea></div>
+
+              {txForm.proofImage && (
+                  <div className="bg-[#0a0a0a] p-3 rounded-xl border border-[#d4af37]/30 flex items-start gap-3">
+                      <img src={txForm.proofImage} alt="Chứng từ đính kèm" className="w-16 h-16 object-cover rounded-lg border border-[#444]" />
+                      <div>
+                          <div className="text-[11px] font-black text-[#d4af37] uppercase tracking-widest"><i className="fas fa-paperclip mr-1"></i>Có ảnh đính kèm</div>
+                          <button onClick={() => setTxForm({...txForm, proofImage: null})} className="text-[10px] text-rose-500 mt-1 font-bold hover:underline">Xóa ảnh</button>
+                      </div>
+                  </div>
+              )}
+            </div>
+
+            <button onClick={handleSaveTx} disabled={isSavingTx} className="w-full py-3.5 mt-4 bg-[#3b82f6] text-white font-black text-[13px] rounded-xl shadow-[0_0_15px_rgba(59,130,246,0.3)] active:scale-95 transition-all flex items-center justify-center gap-2">
+              {isSavingTx ? <><i className="fas fa-spinner fa-spin"></i> ĐANG LƯU...</> : <><i className="fas fa-save"></i> LƯU GIAO DỊCH</>}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showImportScanner && <ImportStatementModal categories={categories} erpData={erpData} onClose={() => setShowImportScanner(false)} pushDeltas={pushDeltas} triggerToast={triggerToast} />}
+      {showReceiptScanner && <ReceiptScannerModal accountsData={accountsData} onClose={() => setShowReceiptScanner(false)} triggerToast={triggerToast} onComplete={handleReceiptScanned} />}
+      {viewingProofImage && <ProofViewerModal imageUrl={viewingProofImage} onClose={() => setViewingProofImage(null)} />}
+      {showAccountModal && <AccountModal initialData={editingAccount} onClose={() => { setShowAccountModal(false); setEditingAccount(null); }} onSubmit={handleSaveAccount} />}
+      {viewingAccountTxs && <AccountHistoryModal account={viewingAccountTxs} allTxs={allTxs} onClose={() => setViewingAccountTxs(null)} secureMoney={secureMoney} pushDeltas={pushDeltas} canManageFinance={canManageFinance} />}
+    </div>
+  );
+}
+
+// -------------------------------------------------------------------------
+// 4. MAIN TAB: BusinessReportTab (BÁO CÁO KQKD DÀNH RIÊNG CHO BOSS)
+// -------------------------------------------------------------------------
+function BusinessReportTab({ erpData, pushDeltas, triggerToast }) {
+  const currentRole = localStorage.getItem('rf_role');
+  const isBoss = currentRole === 'TỐI CAO';
+  const canManageFinance = isBoss || currentRole === 'KẾ TOÁN';
+  
+  if (!isBoss) {
+      return (
+          <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
+              <i className="fas fa-lock text-5xl text-rose-500/50 mb-4"></i>
+              <h2 className="text-xl font-black text-rose-500 tracking-widest uppercase">Tuyệt Mật</h2>
+              <p className="text-sm text-gray-500 mt-2 max-w-xs">Chỉ tài khoản cấp TỐI CAO mới có quyền xem Báo cáo Kết quả Kinh doanh thực tế.</p>
+          </div>
+      );
+  }
+
+  React.useEffect(() => {
+      if (typeof window.XLSX === 'undefined') {
+          const script = document.createElement('script');
+          script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+          document.head.appendChild(script);
+      }
+  }, []);
+
+  const formatMoney = (val) => Number(val || 0).toLocaleString('vi-VN');
+  const secureMoney = (val) => formatMoney(val); 
+
+  const REPORT_CHANNELS = ['Shopee VN', 'Tiktok Shop', 'Bán Lẻ', 'Bán Sỉ', 'Cộng Tác Viên', 'Xuất Khẩu'];
+
+  const [filter, setFilter] = React.useState('Tháng Này');
+  const [localReports, setLocalReports] = React.useState({}); 
+  const [editingReport, setEditingReport] = React.useState(null);
+  const [reportForm, setReportForm] = React.useState({});
+
+  React.useEffect(() => {
+    if (erpData?.ProfitReports && erpData.ProfitReports.length > 0) {
+      const serverMap = {};
+      erpData.ProfitReports.forEach(r => { if (r.period && r.channel) { serverMap[`PROFIT_${r.period}_${r.channel}`] = r; } });
+      setLocalReports(prev => ({ ...serverMap, ...prev }));
+    }
+  }, [erpData?.ProfitReports]);
+
+  const filterOptions = React.useMemo(() => {
+    const opts = ['Tháng Này', 'Năm Nay'];
+    const today = new Date();
+    for (let i = today.getMonth(); i > 0; i--) opts.push(`Tháng ${i}`);
+    opts.push('Tất Cả');
+    return opts;
+  }, []);
+
+  const isAggregatedView = filter === 'Năm Nay' || filter === 'Tất Cả';
+
+  const getAggregatedReport = React.useCallback((channelName) => {
+    if (!isAggregatedView) {
+      const reportId = `PROFIT_${filter}_${channelName}`;
+      const serverReport = (erpData?.ProfitReports || []).find(r => r.period === filter && r.channel === channelName) || {};
+      return localReports[reportId] || serverReport;
+    }
+    let agg = { revenue: 0, orderCount: 0, platformFee: 0, returns: 0, discount: 0, ads: 0, cogs: 0, salary: 0, operation: 0 };
+    (erpData?.ProfitReports || []).forEach(r => {
+      if (r.channel === channelName && (filter === 'Tất Cả' || (filter === 'Năm Nay' && String(r.period).startsWith('Tháng')))) {
+        agg.revenue += Number(r.revenue || 0); agg.orderCount += Number(r.orderCount || 0); agg.platformFee += Number(r.platformFee || 0);
+        agg.returns += Number(r.returns || 0); agg.discount += Number(r.discount || 0); agg.ads += Number(r.ads || 0);
+        agg.cogs += Number(r.cogs || 0); agg.salary += Number(r.salary || 0); agg.operation += Number(r.operation || 0);
+      }
+    });
+    return agg;
+  }, [erpData?.ProfitReports, filter, localReports, isAggregatedView]);
+
+  const profitData = React.useMemo(() => {
+    let summary = { totalRev: 0, totalSalesExp: 0, totalGeneralExp: 0, netProfit: 0 };
+    REPORT_CHANNELS.forEach(channel => {
+      const data = getAggregatedReport(channel);
+      summary.totalRev += Number(data.revenue || 0);
+      summary.totalSalesExp += Number(data.platformFee || 0) + Number(data.returns || 0) + Number(data.discount || 0) + Number(data.ads || 0);
+    });
+    const genData = getAggregatedReport('COMPANY_GENERAL');
+    summary.totalGeneralExp = Number(genData.cogs || 0) + Number(genData.salary || 0) + Number(genData.operation || 0);
+    summary.netProfit = summary.totalRev - summary.totalSalesExp - summary.totalGeneralExp;
+    return summary;
+  }, [getAggregatedReport]);
+
+  const handleEditReport = (channel) => {
+    const reportId = `PROFIT_${filter}_${channel}`;
+    const saved = localReports[reportId] || {};
+    setReportForm({ revenue: saved.revenue || 0, orderCount: saved.orderCount || 0, platformFee: saved.platformFee || 0, returns: saved.returns || 0, discount: saved.discount || 0, ads: saved.ads || 0, cogs: saved.cogs || 0, salary: saved.salary || 0, operation: saved.operation || 0 });
+    setEditingReport(channel);
+  };
+
+  const handleFormChange = React.useCallback((field, value) => { setReportForm(prev => ({ ...prev, [field]: value })); }, []);
+
+  const handleSaveReport = async (channel) => {
+    const reportId = `PROFIT_${filter}_${channel}`;
+    try {
+      const payload = { id: reportId, period: filter, channel: channel, ...reportForm, updatedAt: new Date().toISOString() };
+      await pushDeltas({ ProfitReports: [payload] }, `Đã lưu ${channel}`, 'fa-save');
+      setLocalReports(prev => ({ ...prev, [reportId]: payload }));
+      setEditingReport(null); triggerToast(`Đã lưu báo cáo ${channel} thành công!`, 'fa-check', 'success');
+    } catch(e) { triggerToast('Lỗi khi lưu báo cáo!', 'fa-times', 'danger'); }
+  };
+
+  const handleImportKiotViet = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      if (typeof window.XLSX === 'undefined') {
+          triggerToast('Hệ thống đang nạp lõi đọc Excel, vui lòng thử lại sau 3 giây!', 'fa-spinner', 'warning');
+          return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+          try {
+              const data = evt.target.result;
+              let workbook;
+              let isCSV = false;
+              
+              try { workbook = window.XLSX.read(data, { type: 'binary' }); } 
+              catch (err) { isCSV = true; }
+
+              const processRows = (json) => {
+                  if (!json || json.length < 2) return triggerToast('File trống hoặc không hợp lệ!', 'fa-times', 'danger');
+
+                  let count = 0;
+                  let rev = 0;
+                  let disc = 0;
+                  let platFee = 0;
+                  
+                  const processedInvoices = new Set();
+                  const headers = json[0] || [];
+                  const getCol = (rowArr, keyword) => {
+                      const idx = headers.findIndex(h => String(h).toLowerCase().includes(keyword.toLowerCase()));
+                      return idx !== -1 ? (rowArr[idx] !== undefined ? rowArr[idx] : '') : '';
+                  };
+
+                  for (let i = 1; i < json.length; i++) {
+                      const row = json[i];
+                      if (!row || row.length === 0) continue;
+                      
+                      const invoiceId = String(getCol(row, 'Mã hóa đơn') || '').trim();
+                      if (!invoiceId || invoiceId === 'undefined') continue;
+
+                      const trackingCode = String(getCol(row, 'Mã vận đơn') || '').toUpperCase();
+                      const kenhBan = String(getCol(row, 'Kênh bán') || '').toUpperCase();
+                      const doiTac = String(getCol(row, 'Đối tác giao hàng') || '').toUpperCase();
+                      const ghiChu = String(getCol(row, 'Ghi chú') || '').toUpperCase();
+
+                      let isForeign = false;
+                      let rate = 1;
+
+                      if (trackingCode.startsWith('SG') || kenhBan.includes('SG')) { isForeign = true; rate = 18700; }
+                      else if (trackingCode.startsWith('MY') || kenhBan.includes('MA') || kenhBan.includes('MY')) { isForeign = true; rate = 5400; }
+                      else if (trackingCode.startsWith('TH') || kenhBan.includes('TH')) { isForeign = true; rate = 700; }
+                      else if (trackingCode.startsWith('PH') || kenhBan.includes('PH')) { isForeign = true; rate = 440; }
+
+                      let rowChannel = '';
+
+                      if (isForeign) { rowChannel = 'Xuất Khẩu'; } 
+                      else if (invoiceId.startsWith('HDSPE') || doiTac.includes('SHOPEE') || ghiChu.includes('SHOPEE')) { rowChannel = 'Shopee VN'; } 
+                      else if (invoiceId.startsWith('HDTTS') || doiTac.includes('TIKTOK') || ghiChu.includes('TIKTOK')) { rowChannel = 'Tiktok Shop'; } 
+                      else if (kenhBan.includes('CỘNG TÁC VIÊN') || kenhBan.includes('CTV')) { rowChannel = 'Cộng Tác Viên'; } 
+                      else if (kenhBan.includes('BÁN LẺ') || kenhBan.includes('LẺ') || kenhBan.includes('LE')) { rowChannel = 'Bán Lẻ'; } 
+                      else if (kenhBan.includes('BÁN SỈ') || kenhBan.includes('SỈ') || kenhBan.includes('SI')) { rowChannel = 'Bán Sỉ'; } 
+                      else { rowChannel = 'Khác'; }
+
+                      if (rowChannel !== editingReport) continue;
+
+                      if (processedInvoices.has(invoiceId)) continue;
+                      processedInvoices.add(invoiceId);
+
+                      count++;
+
+                      let rowRev = Number(getCol(row, 'Khách cần trả')) || Number(getCol(row, 'Tổng sau giảm giá')) || Number(getCol(row, 'Tổng tiền hàng')) || 0;
+                      let rowDisc = Number(getCol(row, 'Giảm giá hóa đơn')) || Number(getCol(row, 'Giảm giá')) || 0;
+                      let rowPlatFee = Number(getCol(row, 'Phí trả ĐTGH')) || 0;
+
+                      rev += (rowRev * rate);
+                      disc += (rowDisc * rate);
+                      platFee += (rowPlatFee * rate);
+                  }
+
+                  setReportForm(prev => ({
+                      ...prev,
+                      revenue: rev,
+                      orderCount: count,
+                      discount: disc,
+                      platformFee: platFee
+                  }));
+                  
+                  triggerToast(`Đã gom ${count} Hóa Đơn (Kèm Phí Sàn) cho kênh ${editingReport}!`, 'fa-check', 'success');
+              };
+
+              if (isCSV) {
+                   const readerCSV = new FileReader();
+                   readerCSV.onload = (eCSV) => { 
+                       const wb = window.XLSX.read(eCSV.target.result, {type: 'string'});
+                       const ws = wb.Sheets[wb.SheetNames[0]];
+                       processRows(window.XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }));
+                   };
+                   readerCSV.readAsText(file);
+              } else {
+                   const ws = workbook.Sheets[workbook.SheetNames[0]];
+                   processRows(window.XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }));
+              }
+          } catch (err) {
+              triggerToast('Mảng dữ liệu lỗi hoặc không đúng chuẩn file Hóa Đơn KiotViet!', 'fa-times', 'danger');
+          }
+      };
+      
+      reader.readAsBinaryString(file);
+      e.target.value = null;
+  };
+
+  const handleImportReturnsKiotViet = (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      if (typeof window.XLSX === 'undefined') {
+          triggerToast('Hệ thống đang nạp lõi đọc Excel, vui lòng thử lại sau 3 giây!', 'fa-spinner', 'warning');
+          return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+          try {
+              const data = evt.target.result;
+              let workbook;
+              let isCSV = false;
+              
+              try { workbook = window.XLSX.read(data, { type: 'binary' }); } 
+              catch (err) { isCSV = true; }
+
+              const processRows = (json) => {
+                  if (!json || json.length < 2) return triggerToast('File trống hoặc không hợp lệ!', 'fa-times', 'danger');
+
+                  let count = 0;
+                  let retTotal = 0;
+                  
+                  const processedReturns = new Set();
+                  const headers = json[0] || [];
+                  const getCol = (rowArr, keyword) => {
+                      const idx = headers.findIndex(h => String(h).toLowerCase().includes(keyword.toLowerCase()));
+                      return idx !== -1 ? (rowArr[idx] !== undefined ? rowArr[idx] : '') : '';
+                  };
+
+                  for (let i = 1; i < json.length; i++) {
+                      const row = json[i];
+                      if (!row || row.length === 0) continue;
+                      
+                      const returnId = String(getCol(row, 'Mã trả hàng') || '').trim();
+                      if (!returnId || returnId === 'undefined') continue;
+
+                      const invoiceId = String(getCol(row, 'Mã hóa đơn') || '').trim();
+                      const trackingCode = String(getCol(row, 'Mã vận đơn bán') || getCol(row, 'Mã vận đơn') || '').toUpperCase();
+                      const kenhBan = String(getCol(row, 'Kênh bán') || '').toUpperCase();
+                      const ghiChu = String(getCol(row, 'Ghi chú') || '').toUpperCase();
+
+                      let isForeign = false;
+                      let rate = 1;
+
+                      if (trackingCode.startsWith('SG') || kenhBan.includes('SG')) { isForeign = true; rate = 18700; }
+                      else if (trackingCode.startsWith('MY') || kenhBan.includes('MA') || kenhBan.includes('MY')) { isForeign = true; rate = 5400; }
+                      else if (trackingCode.startsWith('TH') || kenhBan.includes('TH')) { isForeign = true; rate = 700; }
+                      else if (trackingCode.startsWith('PH') || kenhBan.includes('PH')) { isForeign = true; rate = 440; }
+
+                      let rowChannel = '';
+
+                      if (isForeign) { rowChannel = 'Xuất Khẩu'; } 
+                      else if (returnId.startsWith('CHHDSPE') || invoiceId.startsWith('HDSPE') || ghiChu.includes('SHOPEE')) { rowChannel = 'Shopee VN'; } 
+                      else if (returnId.startsWith('CHHDTTS') || invoiceId.startsWith('HDTTS') || ghiChu.includes('TIKTOK')) { rowChannel = 'Tiktok Shop'; } 
+                      else if (kenhBan.includes('CỘNG TÁC VIÊN') || kenhBan.includes('CTV')) { rowChannel = 'Cộng Tác Viên'; } 
+                      else if (kenhBan.includes('BÁN LẺ') || kenhBan.includes('LẺ') || kenhBan.includes('LE')) { rowChannel = 'Bán Lẻ'; } 
+                      else if (kenhBan.includes('BÁN SỈ') || kenhBan.includes('SỈ') || kenhBan.includes('SI')) { rowChannel = 'Bán Sỉ'; } 
+                      else { rowChannel = 'Khác'; }
+
+                      if (rowChannel !== editingReport) continue;
+
+                      if (processedReturns.has(returnId)) continue;
+                      processedReturns.add(returnId);
+
+                      count++;
+
+                      let rowRet = Number(getCol(row, 'Cần trả khách')) || Number(getCol(row, 'Tổng sau giảm giá')) || Number(getCol(row, 'Tổng tiền hàng trả')) || 0;
+                      
+                      retTotal += (rowRet * rate);
+                  }
+
+                  setReportForm(prev => ({
+                      ...prev,
+                      returns: retTotal
+                  }));
+                  
+                  triggerToast(`Đã lọc bóc tách ${count} đơn Trả Hàng cho kênh ${editingReport}!`, 'fa-check', 'success');
+              };
+
+              if (isCSV) {
+                   const readerCSV = new FileReader();
+                   readerCSV.onload = (eCSV) => { 
+                       const wb = window.XLSX.read(eCSV.target.result, {type: 'string'});
+                       const ws = wb.Sheets[wb.SheetNames[0]];
+                       processRows(window.XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }));
+                   };
+                   readerCSV.readAsText(file);
+              } else {
+                   const ws = workbook.Sheets[workbook.SheetNames[0]];
+                   processRows(window.XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }));
+              }
+          } catch (err) {
+              triggerToast('Mảng dữ liệu lỗi hoặc không đúng chuẩn file Trả Hàng KiotViet!', 'fa-times', 'danger');
+          }
+      };
+      
+      reader.readAsBinaryString(file);
+      e.target.value = null;
+  };
+
+  const getChannelIcon = (channel) => {
+    if (channel.includes('Shopee')) return 'fa-shopping-bag text-[#ea580c]'; if (channel === 'Tiktok Shop') return 'fa-music text-white';
+    if (channel === 'Bán Lẻ') return 'fa-store text-[#3b82f6]'; if (channel === 'Bán Sỉ') return 'fa-boxes text-[#d4af37]';
+    if (channel === 'Cộng Tác Viên') return 'fa-users text-[#ec4899]'; if (channel === 'Xuất Khẩu') return 'fa-globe-asia text-[#10b981]'; return 'fa-tag text-gray-400';
+  };
+
+  return (
+      <div className="space-y-4 animate-fade-in pb-12 overflow-x-hidden w-full">
+          <div className="flex gap-1.5 overflow-x-auto custom-scrollbar pb-1">
+            {filterOptions.map(p => (
+              <button key={p} onClick={() => { setFilter(p); setEditingReport(null); }} className={`whitespace-nowrap px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all shadow-sm ${filter === p ? 'bg-[#3b82f6] text-white shadow-md' : 'bg-[#1a1a1a] text-gray-500 border border-[#222] hover:text-[#d4af37]'}`}>{p}</button>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-[#1a73e8] p-4 rounded-2xl text-white shadow-md">
+              <div className="text-[10px] font-black uppercase opacity-80 mb-1">Tổng Doanh Thu</div>
+              <div className="text-[17px] font-black truncate">{secureMoney(profitData.totalRev)}đ</div>
+            </div>
+            <div className="bg-[#f59e0b] p-4 rounded-2xl text-white shadow-md">
+              <div className="text-[10px] font-black uppercase opacity-80 mb-1">Chi Phí Bán Hàng</div>
+              <div className="text-[17px] font-black truncate">{secureMoney(profitData.totalSalesExp)}đ</div>
+            </div>
+            <div className="bg-[#f43f5e] p-4 rounded-2xl text-white shadow-md">
+              <div className="text-[10px] font-black uppercase opacity-80 mb-1">Chi Phí Hoạt Động</div>
+              <div className="text-[17px] font-black truncate">{secureMoney(profitData.totalGeneralExp)}đ</div>
+            </div>
+            <div className="bg-[#10b981] p-4 rounded-2xl text-white shadow-md relative overflow-hidden">
+               <div className="absolute top-0 right-0 w-24 h-24 bg-white/20 rounded-full blur-2xl -mr-10 -mt-10"></div>
+              <div className="text-[10px] font-black uppercase opacity-90 mb-1">Lợi Nhuận Ròng Thực Tế</div>
+              <div className="text-[17px] font-black truncate">{secureMoney(profitData.netProfit)}đ</div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 mt-4 mb-2 pl-1"><i className="fas fa-satellite-dish text-[#3b82f6]"></i><span className="text-[11px] font-black text-gray-400 uppercase tracking-widest">Hiệu Quả Doanh Thu & Sàn ({filter})</span></div>
+
+          <div className="space-y-4">
+            {REPORT_CHANNELS.map(channel => {
+              const isEditing = editingReport === channel; const reportId = `PROFIT_${filter}_${channel}`;
+              const data = isEditing ? reportForm : (localReports[reportId] || (erpData?.ProfitReports || []).find(r => r.period === filter && r.channel === channel) || {});
+              const channelGrossProfit = Number(data.revenue || 0) - (Number(data.platformFee || 0) + Number(data.returns || 0) + Number(data.discount || 0) + Number(data.ads || 0));
+              
+              return (
+                  <div key={channel} className={`bg-[#141414] rounded-2xl border transition-all duration-300 p-4 shadow-sm ${isEditing ? 'border-[#3b82f6]' : 'border-[#2a2a2a]'}`}>
+                      <div className="flex justify-between items-start sm:items-center flex-col sm:flex-row mb-3 pb-3 border-b border-[#222] gap-3">
+                          <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-full bg-[#0a0a0a] border border-[#333] flex items-center justify-center"><i className={`fas ${getChannelIcon(channel)} text-[13px]`}></i></div><span className="font-black text-[#f5f5f5] text-[14px] uppercase tracking-wide">{channel}</span></div>
+                          {isEditing ? (
+                              <div className="flex gap-2 flex-wrap w-full sm:w-auto justify-end">
+                                  <button onClick={() => setEditingReport(null)} className="px-3 py-1.5 bg-[#222] text-gray-300 rounded-lg text-[10px] font-black active:scale-95 transition-all">HỦY</button>
+                                  
+                                  <label className="cursor-pointer px-3 py-1.5 bg-[#10b981]/20 text-[#10b981] border border-[#10b981]/30 rounded-lg text-[10px] font-black hover:bg-[#10b981] hover:text-black active:scale-95 transition-all flex items-center gap-1.5">
+                                      <i className="fas fa-file-invoice-dollar"></i> HÓA ĐƠN
+                                      <input type="file" accept=".csv, .xlsx, .xls" className="hidden" onChange={handleImportKiotViet} />
+                                  </label>
+
+                                  <label className="cursor-pointer px-3 py-1.5 bg-rose-500/20 text-rose-500 border border-rose-500/30 rounded-lg text-[10px] font-black hover:bg-rose-500 hover:text-black active:scale-95 transition-all flex items-center gap-1.5">
+                                      <i className="fas fa-undo-alt"></i> TRẢ HÀNG
+                                      <input type="file" accept=".csv, .xlsx, .xls" className="hidden" onChange={handleImportReturnsKiotViet} />
+                                  </label>
+
+                                  <button onClick={() => handleSaveReport(channel)} className="px-4 py-1.5 bg-[#3b82f6] text-white rounded-lg text-[10px] font-black active:scale-95 transition-all flex items-center gap-1.5"><i className="fas fa-save"></i> LƯU</button>
+                              </div>
+                          ) : (
+                              <button onClick={() => handleEditReport(channel)} className="px-3.5 py-1.5 bg-[#d4af37]/10 text-[#d4af37] border border-[#d4af37]/30 rounded-lg text-[10px] font-black hover:bg-[#d4af37]/20 active:scale-95 transition-all flex items-center gap-1.5"><i className="fas fa-edit"></i> NHẬP SỐ LIỆU</button>
+                          )}
+                      </div>
+
+                      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
+                          <MetricField label="Doanh Thu" field="revenue" value={data.revenue} isEditing={isEditing} onChange={handleFormChange} color="text-[#3b82f6]" canView={true} />
+                          <MetricField label="SL Đơn Hàng" field="orderCount" value={data.orderCount} isEditing={isEditing} onChange={handleFormChange} color="text-white" canView={true} />
+                          <MetricField label="Phí Sàn" field="platformFee" value={data.platformFee} isEditing={isEditing} onChange={handleFormChange} color="text-rose-400" canView={true} />
+                          <MetricField label="Trả Hàng" field="returns" value={data.returns} isEditing={isEditing} onChange={handleFormChange} color="text-rose-400" canView={true} />
+                          <MetricField label="Giảm Giá / Voucher" field="discount" value={data.discount} isEditing={isEditing} onChange={handleFormChange} color="text-orange-400" canView={true} />
+                          <MetricField label="Chi Phí ADS" field="ads" value={data.ads} isEditing={isEditing} onChange={handleFormChange} color="text-yellow-400" canView={true} />
+                      </div>
+
+                      <div className={`border rounded-xl p-3.5 flex justify-between items-center transition-colors ${channelGrossProfit >= 0 ? 'bg-[#3b82f6]/10 border-[#3b82f6]/30' : 'bg-rose-500/10 border-rose-500/30'}`}>
+                          <span className={`text-[10px] font-black uppercase tracking-widest ${channelGrossProfit >= 0 ? 'text-[#3b82f6]' : 'text-rose-500'}`}>Lợi Nhuận Gộp Kênh</span>
+                          <span className={`text-[16px] font-black ${channelGrossProfit >= 0 ? 'text-[#3b82f6]' : 'text-rose-500'}`}>{formatMoney(channelGrossProfit)}đ</span>
+                      </div>
+                  </div>
+              )
+            })}
+          </div>
+
+          <div className="bg-[#141414] rounded-2xl border border-[#2a2a2a] p-4 mt-6 shadow-sm relative overflow-hidden">
+             <div className="absolute top-0 right-0 w-32 h-32 bg-[#10b981]/5 rounded-full blur-3xl -mr-10 -mt-10"></div>
+             <div className="flex justify-between items-center mb-4 pb-3 border-b border-[#222] relative z-10">
+                <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-full bg-[#10b981]/10 border border-[#10b981]/30 flex items-center justify-center"><i className="fas fa-building text-[13px] text-[#10b981]"></i></div><span className="font-black text-[#f5f5f5] text-[14px] uppercase tracking-wide">Chi Phí Hoạt Động Cty</span></div>
+                {editingReport === 'COMPANY_GENERAL' ? (
+                        <div className="flex gap-2"><button onClick={() => setEditingReport(null)} className="px-3 py-1.5 bg-[#222] text-gray-300 rounded-lg text-[10px] font-black active:scale-95 transition-all">HỦY</button><button onClick={() => handleSaveReport('COMPANY_GENERAL')} className="px-4 py-1.5 bg-[#10b981] hover:bg-[#059669] text-white rounded-lg text-[10px] font-black active:scale-95 transition-all flex items-center gap-1.5"><i className="fas fa-save"></i> LƯU</button></div>
+                    ) : (<button onClick={() => handleEditReport('COMPANY_GENERAL')} className="px-3.5 py-1.5 bg-[#10b981]/10 text-[#10b981] border border-[#10b981]/30 rounded-lg text-[10px] font-black hover:bg-[#10b981]/20 active:scale-95 transition-all flex items-center gap-1.5"><i className="fas fa-edit"></i> NHẬP SỐ LIỆU</button>)
+                }
+             </div>
+
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 relative z-10">
+                {(() => {
+                    const isEditing = editingReport === 'COMPANY_GENERAL'; const genId = `PROFIT_${filter}_COMPANY_GENERAL`;
+                    const data = isEditing ? reportForm : (localReports[genId] || (erpData?.ProfitReports || []).find(r => r.period === filter && r.channel === 'COMPANY_GENERAL') || {});
+                    return (
+                        <>
+                            <MetricField label="Giá Vốn Hàng Bán" field="cogs" value={data.cogs} isEditing={isEditing} onChange={handleFormChange} color="text-rose-400" canView={true} />
+                            <MetricField label="Chi Phí Lương + Thưởng" field="salary" value={data.salary} isEditing={isEditing} onChange={handleFormChange} color="text-purple-400" canView={true} />
+                            <MetricField label="Vận Hành, Đóng Gói, Kho Bãi" field="operation" value={data.operation} isEditing={isEditing} onChange={handleFormChange} color="text-gray-400" canView={true} />
+                        </>
+                    );
+                })()}
+             </div>
+          </div>
+      </div>
+  );
+}
+</script>

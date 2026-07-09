@@ -1,0 +1,1364 @@
+<script type="text/babel">
+// =========================================================================
+// 📊 FILE: Tab_Dashboard.txt
+// CHỨC NĂNG: Dashboard điều hành, phân tích tài chính & giám sát xưởng realtime
+// =========================================================================
+
+
+// -------------------------------------------------------------------------
+// 🏆 BỘ PHẬN GIAO VIỆC & NHIỆM VỤ CHUNG TRÊN DASHBOARD
+// -------------------------------------------------------------------------
+function DashboardTasksSection({ prodItems = [], currentUser, pushDeltas, triggerToast, isAdmin, userConfigs }) {
+  const [showAddReminder, setShowAddReminder] = React.useState(false);
+  const [showAddShared, setShowAddShared] = React.useState(false);
+  
+  // States for creating Reminder
+  const [remText, setRemText] = React.useState('');
+  const [remTarget, setRemTarget] = React.useState('');
+  const [remReward, setRemReward] = React.useState('');
+  
+  // States for creating Shared Task
+  const [shName, setShName] = React.useState('');
+  const [shNote, setShNote] = React.useState('');
+  const [shReward, setShReward] = React.useState('');
+  
+  const [processing, setProcessing] = React.useState(false);
+
+  // Extract staff names from userConfigs
+  const staffNames = React.useMemo(() => {
+      if (!userConfigs || !userConfigs.pins) return [];
+      return Object.values(userConfigs.pins)
+          .map(u => u.name)
+          .filter(name => name && name !== 'admin' && name !== 'Boss' && name !== 'TỐI CAO');
+  }, [userConfigs]);
+
+  // Filter Reminders (orderId === 'REMINDER')
+  const reminders = React.useMemo(() => {
+    return (prodItems || []).filter(i => i.orderId === 'REMINDER');
+  }, [prodItems]);
+
+  // Filter Shared Tasks (orderId === 'SHARED_TASK')
+  const sharedTasks = React.useMemo(() => {
+    return (prodItems || []).filter(i => i.orderId === 'SHARED_TASK');
+  }, [prodItems]);
+
+  // Active reminders for current user
+  const myActiveReminders = React.useMemo(() => {
+    return reminders.filter(r => r.phases.phase1.user === currentUser && r.status !== 'Done');
+  }, [reminders, currentUser]);
+
+  // Reminders waiting for Boss approval
+  const pendingRemindersApproval = React.useMemo(() => {
+    return reminders.filter(r => r.status === 'Kiểm Định');
+  }, [reminders]);
+
+  // Reminders monitored by Boss (excluding Done and waiting approval)
+  const bossMonitoredReminders = React.useMemo(() => {
+    return reminders.filter(r => r.status === 'Pending' || r.status === 'In Progress');
+  }, [reminders]);
+
+  // Create Reminder
+  const handleCreateReminder = async () => {
+    if (!remText.trim() || !remTarget) {
+      triggerToast('Vui lòng điền nội dung nhắc việc và chọn nhân sự!', 'fa-exclamation-triangle', 'warning');
+      return;
+    }
+    setProcessing(true);
+    try {
+      const task = {
+        id: 'REM_' + Date.now(),
+        orderId: 'REMINDER',
+        type: 'Nhắc Việc',
+        name: remText.trim(),
+        note: remTarget,
+        status: 'Pending',
+        deadline: new Date().toISOString(),
+        fulfilledFromStock: false,
+        phases: {
+          phase1: {
+            name: 'Thực hiện',
+            status: 'Pending',
+            user: remTarget,
+            start: new Date().toISOString().slice(0, 16).replace('T', ' '),
+            endTime: '',
+            photo: '',
+            reward_vnd: Number(remReward) || 0
+          },
+          phase2: { name: '', status: 'Done', user: '', start: '', endTime: '', photo: '', reward_vnd: 0 }
+        }
+      };
+      await pushDeltas({ prodItems: [task] }, `Đã giao việc cho ${remTarget}: ${remText.trim()}`, 'fa-thumbtack');
+      setRemText('');
+      setRemTarget('');
+      setRemReward('');
+      setShowAddReminder(false);
+      triggerToast('Đã giao nhắc việc thành công!', 'fa-check', 'success');
+    } catch(e) {
+      triggerToast('Lỗi khi giao việc!', 'fa-times', 'danger');
+    }
+    setProcessing(false);
+  };
+
+  // Complete Reminder (Worker reports done)
+  const handleCompleteReminder = async (rem) => {
+    setProcessing(true);
+    try {
+      const upd = JSON.parse(JSON.stringify(rem));
+      upd.status = 'Kiểm Định';
+      upd.phases.phase1.status = 'Kiểm Định';
+      upd.phases.phase1.endTime = new Date().toISOString().slice(0, 16).replace('T', ' ');
+      
+      await pushDeltas({ prodItems: [upd] }, `Đã hoàn thành nhắc việc: ${rem.name}`, 'fa-check-circle');
+      triggerToast('Báo cáo hoàn thành thành công! Chờ Boss duyệt để nhận thưởng.', 'fa-clock', 'success');
+    } catch(e) {
+      triggerToast('Lỗi khi gửi báo cáo!', 'fa-times', 'danger');
+    }
+    setProcessing(false);
+  };
+
+  // Approve Reminder (Boss awards cash)
+  const handleApproveReminder = async (rem) => {
+    setProcessing(true);
+    try {
+      const upd = JSON.parse(JSON.stringify(rem));
+      upd.status = 'Done';
+      upd.phases.phase1.status = 'Done';
+      
+      const rewardAmt = rem.phases.phase1.reward_vnd || 0;
+      const bonusPayload = {
+        BonusPenalty: [{
+          id: 'BONUS_' + Date.now(),
+          user: rem.phases.phase1.user,
+          amount: rewardAmt,
+          type: 'Thưởng',
+          note: `Hoàn thành nhắc việc: ${rem.name}`,
+          date: new Date().toISOString().substring(0, 10),
+          orderCode: 'NHẮC VIỆC'
+        }],
+        prodItems: [upd]
+      };
+      await pushDeltas(bonusPayload, `Duyệt hoàn thành nhắc việc của ${rem.phases.phase1.user}`, 'fa-crown');
+      triggerToast('Đã duyệt nhắc việc và cộng tiền thưởng!', 'fa-medal', 'success');
+    } catch(e) {
+      triggerToast('Lỗi duyệt nhắc việc!', 'fa-times', 'danger');
+    }
+    setProcessing(false);
+  };
+
+  // Reject/Delete Reminder
+  const handleDeleteReminder = async (rem) => {
+    if (!window.confirm('Xác nhận xoá nhắc việc này?')) return;
+    setProcessing(true);
+    try {
+      await pushDeltas({ deletes: { Production: [rem.id] } }, 'Đã xoá nhắc việc', 'fa-trash');
+      triggerToast('Đã xoá thành công!', 'fa-trash', 'success');
+    } catch(e) {
+      triggerToast('Lỗi khi xoá!', 'fa-times', 'danger');
+    }
+    setProcessing(false);
+  };
+
+  // Create Shared Task
+  const handleCreateShared = async () => {
+    if (!shName.trim() || !shReward) {
+      triggerToast('Vui lòng điền tên nhiệm vụ chung và số tiền thưởng!', 'fa-exclamation-triangle', 'warning');
+      return;
+    }
+    setProcessing(true);
+    try {
+      const task = {
+        id: 'SH_' + Date.now(),
+        orderId: 'SHARED_TASK',
+        type: 'Nhiệm Vụ Chung',
+        name: shName.trim(),
+        note: shNote.trim(),
+        status: 'Pending',
+        deadline: new Date().toISOString(),
+        fulfilledFromStock: false,
+        phases: {
+          phase1: {
+            name: 'Thực hiện',
+            status: 'Pending',
+            user: '',
+            start: '',
+            endTime: '',
+            photo: '',
+            reward_vnd: Number(shReward) || 0
+          },
+          phase2: { name: '', status: 'Done', user: '', start: '', endTime: '', photo: '', reward_vnd: 0 }
+        }
+      };
+      await pushDeltas({ prodItems: [task] }, `Đã thêm nhiệm vụ chung: ${shName.trim()}`, 'fa-plus-circle');
+      setShName('');
+      setShNote('');
+      setShReward('');
+      setShowAddShared(false);
+      triggerToast('Thêm nhiệm vụ chung thành công!', 'fa-check', 'success');
+    } catch(e) {
+      triggerToast('Lỗi thêm nhiệm vụ!', 'fa-times', 'danger');
+    }
+    setProcessing(false);
+  };
+
+  // Claim Shared Task
+  const handleClaimShared = async (task) => {
+    setProcessing(true);
+    try {
+      const upd = JSON.parse(JSON.stringify(task));
+      const currentDateTime = new Date().toISOString().slice(0, 16).replace('T', ' ');
+      upd.status = 'In Progress';
+      upd.phases.phase1.status = 'In Progress';
+      upd.phases.phase1.user = currentUser;
+      upd.phases.phase1.start = currentDateTime;
+      await pushDeltas({ prodItems: [upd] }, `Đã nhận nhiệm vụ chung: ${task.name}`, 'fa-hands-helping');
+      triggerToast('Nhận việc thành công! Hãy chụp ảnh báo cáo hoàn thành.', 'fa-check', 'success');
+    } catch(e) {
+      triggerToast('Lỗi nhận việc!', 'fa-times', 'danger');
+    }
+    setProcessing(false);
+  };
+
+  // Upload Photo for Shared Task
+  const handleSharedPhotoUpload = async (task, e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setProcessing(true);
+    try {
+      const b64 = typeof resizeImage === 'function' ? await resizeImage(file) : await new Promise((res) => { const rd = new FileReader(); rd.onload=()=>res(rd.result.split(',')[1]); rd.readAsDataURL(file); });
+      const url = await runGAS('uploadImage', b64, `SX_${task.id}_phase1.jpg`);
+      if (!url) {
+        throw new Error("Không thể tải ảnh lên Drive. Vui lòng kiểm tra lại quyền truy cập hoặc dung lượng Drive.");
+      }
+      const upd = JSON.parse(JSON.stringify(task));
+      upd.phases.phase1.photo = url;
+      await pushDeltas({ prodItems: [upd] }, `Đã tải ảnh nghiệm thu nhiệm vụ`, 'fa-camera');
+      triggerToast('Tải ảnh nghiệm thu thành công!', 'fa-check', 'success');
+    } catch(err) {
+      console.error(err);
+      triggerToast('Lỗi tải ảnh!', 'fa-times', 'danger');
+    } finally {
+      e.target.value = '';
+      setProcessing(false);
+    }
+  };
+
+  // Complete Shared Task
+  const handleCompleteShared = async (task) => {
+    setProcessing(true);
+    try {
+      const upd = JSON.parse(JSON.stringify(task));
+      upd.status = 'Kiểm Định';
+      upd.phases.phase1.status = 'Kiểm Định';
+      upd.phases.phase1.endTime = new Date().toISOString().slice(0, 16).replace('T', ' ');
+      await pushDeltas({ prodItems: [upd] }, `Đã hoàn thành nhiệm vụ chung: ${task.name}`, 'fa-check');
+      triggerToast('Báo cáo thành công! Chờ Boss duyệt.', 'fa-clock', 'info');
+    } catch(e) {
+      triggerToast('Lỗi gửi báo cáo!', 'fa-times', 'danger');
+    }
+    setProcessing(false);
+  };
+
+  // Approve Shared Task
+  const handleApproveShared = async (task) => {
+    setProcessing(true);
+    try {
+      const upd = JSON.parse(JSON.stringify(task));
+      upd.status = 'Done';
+      upd.phases.phase1.status = 'Done';
+      const rewardAmt = task.phases.phase1.reward_vnd || 0;
+      const bonusPayload = {
+        BonusPenalty: [{
+          id: 'BONUS_' + Date.now(),
+          user: task.phases.phase1.user,
+          amount: rewardAmt,
+          type: 'Thưởng',
+          note: `Hoàn thành nhiệm vụ chung: ${task.name}`,
+          date: new Date().toISOString().substring(0, 10),
+          orderCode: 'NHIỆM VỤ CHUNG'
+        }],
+        prodItems: [upd]
+      };
+      await pushDeltas(bonusPayload, `Duyệt đạt nhiệm vụ chung: ${task.name}`, 'fa-trophy');
+      triggerToast(`Đã duyệt! Thưởng +${rewardAmt.toLocaleString()}đ đã ghi nhận vào lương thợ.`, 'fa-medal', 'success');
+    } catch(e) {
+      triggerToast('Lỗi duyệt nhiệm vụ!', 'fa-times', 'danger');
+    }
+    setProcessing(false);
+  };
+
+  // Reject Shared Task
+  const handleRejectShared = async (task) => {
+    if (!window.confirm('Yêu cầu thợ làm lại nhiệm vụ này?')) return;
+    setProcessing(true);
+    try {
+      const upd = JSON.parse(JSON.stringify(task));
+      upd.status = 'In Progress';
+      upd.phases.phase1.status = 'In Progress';
+      await pushDeltas({ prodItems: [upd] }, `Từ chối duyệt nhiệm vụ chung`, 'fa-undo');
+      triggerToast('Đã gửi yêu cầu làm lại!', 'fa-undo', 'warning');
+    } catch(e) {
+      triggerToast('Lỗi thao tác!', 'fa-times', 'danger');
+    }
+    setProcessing(false);
+  };
+
+  // Delete Shared Task
+  const handleDeleteShared = async (task) => {
+    if (!window.confirm('Xác nhận xoá nhiệm vụ chung này?')) return;
+    setProcessing(true);
+    try {
+      await pushDeltas({ deletes: { Production: [task.id] } }, 'Đã xoá nhiệm vụ chung', 'fa-trash');
+      triggerToast('Đã xoá thành công!', 'fa-trash', 'success');
+    } catch(e) {
+      triggerToast('Lỗi xoá nhiệm vụ!', 'fa-times', 'danger');
+    }
+    setProcessing(false);
+  };
+
+  return (
+    <div className="space-y-4 animate-fade-in w-full">
+      
+      {/* ==================== 1. KHUNG NHẮC VIỆC / GIAO VIỆC TĨNH ==================== */}
+      <div className="bg-[#0c0c0e] border border-zinc-800 rounded-2xl p-4 space-y-3.5 shadow-sm">
+        <div className="flex justify-between items-center border-b border-zinc-800 pb-2">
+          <div className="flex items-center gap-2">
+            <i className="fas fa-thumbtack text-rose-500 animate-pulse text-[13px]"></i>
+            <span className="font-black text-[11px] text-zinc-200 uppercase tracking-wider">📌 Nhắc Việc & Giao Việc Riêng</span>
+          </div>
+          {isAdmin && (
+            <button 
+              onClick={() => setShowAddReminder(!showAddReminder)} 
+              className="bg-rose-950/40 hover:bg-rose-900/60 text-rose-400 border border-rose-900/50 font-black text-[9px] px-2.5 py-1.5 rounded-lg active:scale-95 transition-all flex items-center gap-1 uppercase"
+            >
+              <i className={`fas ${showAddReminder ? 'fa-times' : 'fa-plus'}`}></i> {showAddReminder ? 'Đóng' : 'Giao nhắc việc'}
+            </button>
+          )}
+        </div>
+
+        {/* Form giao việc của Boss */}
+        {showAddReminder && isAdmin && (
+          <div className="bg-[#141414] border border-[#222] p-3 rounded-xl space-y-2.5 animate-fade-in text-[11px]">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[9px] font-black text-gray-500 block mb-0.5 uppercase">Nhân sự thực hiện *</label>
+                <select 
+                  value={remTarget} 
+                  onChange={e => setRemTarget(e.target.value)} 
+                  className="w-full bg-[#0a0a0a] border border-[#333] text-white rounded-lg px-2.5 py-1.5 outline-none font-bold"
+                >
+                  <option value="">-- Chọn thợ --</option>
+                  {staffNames.map((name, ni) => <option key={ni} value={name}>{name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-[9px] font-black text-gray-500 block mb-0.5 uppercase">Tiền thưởng (Tùy chọn - VNĐ)</label>
+                <input 
+                  type="number" 
+                  value={remReward} 
+                  onChange={e => setRemReward(e.target.value)} 
+                  className="w-full bg-[#0a0a0a] border border-[#333] text-[#10b981] font-black rounded-lg px-2.5 py-1.5 outline-none" 
+                  placeholder="Ví dụ: 20000"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-[9px] font-black text-gray-500 block mb-0.5 uppercase">Nội dung nhắc việc (VD: Chiều lấy 5 thùng keo 502) *</label>
+              <input 
+                type="text" 
+                value={remText} 
+                onChange={e => setRemText(e.target.value)} 
+                className="w-full bg-[#0a0a0a] border border-[#333] text-white font-bold rounded-lg px-2.5 py-1.5 outline-none" 
+                placeholder="Ví dụ: Bảo chiều lấy 5 thùng keo 502."
+              />
+            </div>
+            <div className="flex justify-end pt-1">
+              <button onClick={handleCreateReminder} disabled={processing} className="bg-rose-600 hover:bg-rose-500 text-white font-black px-4 py-2 rounded-lg active:scale-95 transition-colors uppercase text-[9px]">Giao nhắc việc</button>
+            </div>
+          </div>
+        )}
+
+        {/* Danh sách nhắc việc của tôi (Thợ nhìn thấy) */}
+        {!isAdmin && (
+          <div className="space-y-2">
+            {myActiveReminders.length === 0 ? (
+              <div className="text-center py-4 text-zinc-600 font-bold text-[11px] italic">
+                ✓ Bạn không có nhắc việc nào chưa hoàn thành.
+              </div>
+            ) : (
+              myActiveReminders.map(rem => (
+                <div key={rem.id} className="p-3 bg-[#18181b]/50 border border-zinc-800 rounded-xl flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex-1 min-w-0">
+                    <span className="font-extrabold text-[12px] text-zinc-200 block">• {rem.name}</span>
+                    {rem.phases.phase1.reward_vnd > 0 && (
+                      <span className="text-[9px] font-black text-emerald-400 mt-1 block">💰 Tiền thưởng hoàn thành: +{(rem.phases.phase1.reward_vnd).toLocaleString()}đ</span>
+                    )}
+                  </div>
+                  {rem.status === 'Kiểm Định' ? (
+                    <span className="text-[9px] font-black bg-blue-500/10 text-blue-400 border border-blue-500/20 px-2.5 py-1.5 rounded-lg uppercase tracking-wider">⏳ Chờ duyệt...</span>
+                  ) : (
+                    <button 
+                      onClick={() => handleCompleteReminder(rem)}
+                      disabled={processing}
+                      className="py-1.5 px-4 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-500 hover:to-teal-600 text-white font-black text-[10px] rounded-lg active:scale-95 transition-all uppercase tracking-wider shadow-md"
+                    >
+                      ✓ HOÀN THÀNH NHẬN THƯỞNG
+                    </button>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        {/* Danh sách duyệt & giám sát nhắc việc của Boss */}
+        {isAdmin && (
+          <div className="space-y-3.5 pt-1">
+            {/* 1. Phần duyệt nhắc việc */}
+            {pendingRemindersApproval.length > 0 && (
+              <div className="space-y-2 border-b border-zinc-800/50 pb-3">
+                <div className="text-[9px] font-black text-blue-400 uppercase tracking-widest"><i className="fas fa-check-double mr-1"></i> Yêu cầu duyệt nhắc việc:</div>
+                {pendingRemindersApproval.map(rem => (
+                  <div key={rem.id} className="p-3 bg-blue-950/20 border border-blue-900/30 rounded-xl flex items-center justify-between gap-3 flex-wrap">
+                    <div className="flex-1 min-w-0">
+                      <span className="text-zinc-200 font-extrabold text-[12px] block">{rem.name}</span>
+                      <span className="text-[9px] font-black text-zinc-400 block mt-1">Người làm: {rem.phases.phase1.user} {rem.phases.phase1.reward_vnd > 0 && `| Thưởng: +${rem.phases.phase1.reward_vnd.toLocaleString()}đ`}</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => handleDeleteReminder(rem)} disabled={processing} className="text-[9px] font-black px-2.5 py-1.5 bg-rose-950/50 text-rose-400 border border-rose-900/40 rounded-lg uppercase">Huỷ bỏ</button>
+                      <button onClick={() => handleApproveReminder(rem)} disabled={processing} className="text-[9px] font-black px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg uppercase shadow-[0_0_10px_rgba(16,185,129,0.2)]">Duyệt (+Thưởng)</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* 2. Phần danh sách giám sát nhắc việc đang chạy */}
+            <div>
+              <div className="text-[9px] font-black text-zinc-500 uppercase tracking-widest"><i className="fas fa-eye mr-1"></i> Nhắc việc đang giao trong hôm nay:</div>
+              {bossMonitoredReminders.length === 0 ? (
+                <div className="text-center py-2 text-zinc-700 italic text-[11px] font-bold">Chưa giao nhắc việc nào hôm nay.</div>
+              ) : (
+                <div className="space-y-1.5 mt-1.5 max-h-[150px] overflow-y-auto custom-scrollbar pr-1">
+                  {bossMonitoredReminders.map(rem => (
+                    <div key={rem.id} className="flex justify-between items-center bg-[#141414] border border-zinc-900 p-2 rounded text-[11px] text-zinc-300 font-bold">
+                      <span>• <b className="text-rose-400">{rem.phases.phase1.user}</b>: {rem.name}</span>
+                      <div className="flex items-center gap-2">
+                        {rem.phases.phase1.reward_vnd > 0 && <span className="text-[9px] text-emerald-400 font-mono">+{rem.phases.phase1.reward_vnd.toLocaleString()}đ</span>}
+                        <button onClick={() => handleDeleteReminder(rem)} disabled={processing} className="text-zinc-600 hover:text-rose-500 text-[10px] p-0.5"><i className="fas fa-times-circle"></i></button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ==================== 2. KHUNG NHIỆM VỤ CHUNG (Quest Board) ==================== */}
+      <div className="bg-[#0c0c0e] border border-zinc-800 rounded-2xl p-4 space-y-3.5 shadow-sm">
+        <div className="flex justify-between items-center border-b border-zinc-800 pb-2">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+            <span className="font-black text-[11px] text-[#d4af37] uppercase tracking-wider">🏆 Bảng Nhiệm Vụ Chung Toàn Xưởng</span>
+          </div>
+          {isAdmin && (
+            <button 
+              onClick={() => setShowAddShared(!showAddShared)} 
+              className="bg-[#d4af37] hover:bg-yellow-500 text-black font-black text-[9px] px-2.5 py-1.5 rounded-lg active:scale-95 transition-all flex items-center gap-1 uppercase"
+            >
+              <i className={`fas ${showAddShared ? 'fa-times' : 'fa-plus'}`}></i> {showAddShared ? 'Đóng' : 'Thêm việc'}
+            </button>
+          )}
+        </div>
+
+        {showAddShared && isAdmin && (
+          <div className="bg-[#141414] border border-[#2a2a2a] p-3 rounded-xl space-y-2.5 animate-fade-in text-[11px]">
+            <div>
+              <label className="text-[9px] font-black text-gray-500 block mb-0.5 uppercase">Tên nhiệm vụ *</label>
+              <input 
+                type="text" 
+                value={shName} 
+                onChange={e => setShName(e.target.value)} 
+                className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg px-2.5 py-1.5 text-white font-bold outline-none" 
+                placeholder="VD: Quét dọn khu vực đóng gói"
+              />
+            </div>
+            <div>
+              <label className="text-[9px] font-black text-gray-500 block mb-0.5 uppercase">Mô tả chi tiết</label>
+              <textarea 
+                value={shNote} 
+                onChange={e => setShNote(e.target.value)} 
+                className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg px-2.5 py-1.5 text-white font-medium outline-none" 
+                rows={2}
+                placeholder="Ghi các yêu cầu cụ thể..."
+              />
+            </div>
+            <div>
+              <label className="text-[9px] font-black text-gray-500 block mb-0.5 uppercase">Mức tiền thưởng (VNĐ) *</label>
+              <input 
+                type="number" 
+                value={shReward} 
+                onChange={e => setShReward(e.target.value)} 
+                className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg px-2.5 py-1.5 text-[#10b981] font-black outline-none" 
+                placeholder="VD: 50000"
+              />
+            </div>
+            <div className="flex gap-2 justify-end pt-1">
+              <button onClick={handleCreateShared} disabled={processing} className="bg-emerald-600 hover:bg-emerald-500 text-white font-black px-4 py-2 rounded-lg active:scale-95 transition-all uppercase text-[9px]">Giao Việc</button>
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-2.5">
+          {sharedTasks.length === 0 ? (
+            <div className="text-center py-6 text-zinc-600 font-bold text-[11px] italic">
+              Không có nhiệm vụ chung nào trong hôm nay.
+            </div>
+          ) : (
+            sharedTasks.map(task => {
+              const p = task.phases.phase1 || {};
+              const isPending = task.status === 'Pending';
+              const isInProgress = task.status === 'In Progress';
+              const isInspection = task.status === 'Kiểm Định';
+              const isDone = task.status === 'Done';
+              
+              const isOwner = p.user === currentUser;
+              const hasPhoto = !!p.photo;
+
+              return (
+                <div key={task.id} className={`p-3 rounded-xl border flex flex-col gap-2 relative ${isDone ? 'bg-[#10b981]/5 border-[#10b981]/25' : 'bg-[#141414] border-[#222]'}`}>
+                  <div className="flex justify-between items-start gap-2">
+                    <div>
+                      <h5 className={`font-extrabold text-[12px] ${isDone ? 'text-emerald-400 line-through' : 'text-amber-500'}`}>{task.name}</h5>
+                      {task.note && <p className="text-[11px] text-zinc-400 mt-0.5 font-medium leading-relaxed">{task.note}</p>}
+                      <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                        <span className="text-[9px] font-black text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">💰 Thưởng: +{(p.reward_vnd || 0).toLocaleString()}đ</span>
+                        {isDone && <span className="text-[9px] font-black text-emerald-400">✓ Hoàn thành bởi {p.user}</span>}
+                        {isInProgress && <span className="text-[9px] font-black text-amber-500">⏳ Đang làm: {p.user}</span>}
+                        {isInspection && <span className="text-[9px] font-black text-blue-400">🔍 Chờ KCS duyệt: {p.user}</span>}
+                      </div>
+                    </div>
+
+                    {isAdmin && (
+                      <button onClick={() => handleDeleteShared(task)} className="text-zinc-600 hover:text-rose-500 text-[11px] p-1 transition-colors self-start" title="Xoá nhiệm vụ">
+                        <i className="fas fa-trash"></i>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* NÚT THAO TÁC THEO TRẠNG THÁI */}
+                  <div className="flex gap-2 mt-1">
+                    {isPending && (
+                      <button 
+                        onClick={() => handleClaimShared(task)} 
+                        disabled={processing}
+                        className="flex-1 py-2 bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-400 hover:to-yellow-500 text-black font-black text-[10px] rounded-lg active:scale-95 transition-all uppercase tracking-wider"
+                      >
+                        👉 NHẬN LÀM NGAY
+                      </button>
+                    )}
+
+                    {isInProgress && isOwner && !hasPhoto && (
+                      <label className="flex-1 m-0 py-2 bg-[#2563eb] text-white hover:bg-blue-600 font-black text-[10px] rounded-lg active:scale-95 transition-all text-center uppercase tracking-wider cursor-pointer flex items-center justify-center gap-1">
+                        <i className="fas fa-camera text-xs"></i> 📸 CHỤP ẢNH NGHIỆM THU
+                        <input type="file" accept="image/png, image/jpeg, image/jpg" capture="environment" className="hidden" onChange={e => handleSharedPhotoUpload(task, e)} disabled={processing}/>
+                      </label>
+                    )}
+
+                    {isInProgress && isOwner && hasPhoto && (
+                      <div className="flex gap-2 w-full">
+                        <button onClick={() => window.dispatchEvent(new CustomEvent('triggerInternalPreview', { detail: p.photo }))} className="px-3 bg-zinc-800 text-zinc-300 border border-zinc-700 hover:bg-zinc-700 rounded-lg text-[10px] font-bold"><i className="fas fa-image"></i> Xem ảnh</button>
+                        <button 
+                          onClick={() => handleCompleteShared(task)} 
+                          disabled={processing}
+                          className="flex-1 py-2 bg-[#10b981] hover:bg-[#059669] text-white font-black text-[10px] rounded-lg active:scale-95 transition-all uppercase tracking-wider"
+                        >
+                          ✓ BÁO CÁO HOÀN THÀNH
+                        </button>
+                      </div>
+                    )}
+
+                    {isInProgress && !isOwner && (
+                      <button disabled className="flex-1 py-2 bg-zinc-900 border border-zinc-800 text-zinc-600 font-black text-[10px] rounded-lg cursor-not-allowed uppercase">
+                        🔒 ĐÃ ĐƯỢC NHẬN BỞI {String(p.user).toUpperCase()}
+                      </button>
+                    )}
+
+                    {isInspection && (
+                      <div className="flex gap-2 w-full">
+                        <button onClick={() => window.dispatchEvent(new CustomEvent('triggerInternalPreview', { detail: p.photo }))} className="px-3 bg-zinc-800 text-zinc-300 border border-zinc-700 hover:bg-zinc-700 rounded-lg text-[10px] font-bold"><i className="fas fa-image"></i> Xem ảnh</button>
+                        {isAdmin ? (
+                          <>
+                            <button onClick={() => handleRejectShared(task)} disabled={processing} className="flex-1 py-2 bg-rose-950 text-rose-400 hover:bg-rose-900 font-black text-[10px] rounded-lg uppercase tracking-wider">Bắt làm lại</button>
+                            <button onClick={() => handleApproveShared(task)} disabled={processing} className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] rounded-lg uppercase tracking-wider shadow-[0_0_10px_rgba(16,185,129,0.3)]">Duyệt KCS (+Thưởng)</button>
+                          </>
+                        ) : (
+                          <button disabled className="flex-1 py-2 bg-zinc-900 text-zinc-500 border border-zinc-800 font-bold text-[10px] rounded-lg cursor-not-allowed uppercase">
+                            ⏳ ĐANG CHỜ QUẢN LÝ DUYỆT KCS
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    
+                    {isDone && p.photo && (
+                      <button onClick={() => window.dispatchEvent(new CustomEvent('triggerInternalPreview', { detail: p.photo }))} className="py-1.5 bg-[#10b981]/10 text-[#10b981] border border-[#10b981]/30 hover:bg-[#10b981] hover:text-white rounded-lg font-black text-[10px] flex items-center justify-center shadow-sm gap-1.5 uppercase active:scale-95 transition-all px-3">
+                        <i className="fas fa-image"></i> Xem ảnh nghiệm thu
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+      
+    </div>
+  );
+}
+
+function DashboardTab({ orders = [], prodItems = [], attendance = [], packings = [], kpis = [], importExport = [], users = [], userConfigs = [], erpProducts = [], pushDeltas, triggerToast, erpData = {} }) {
+  const currentUser = localStorage.getItem('rf_user') || '';
+  const currentRole = localStorage.getItem('rf_role') || '';
+  const isBoss = localStorage.getItem('rf_boss') === 'true'; 
+
+  // QUYỀN HẠN XEM BÁO CÁO TÀI CHÍNH
+  const canSeeFinance = isBoss || ['KẾ TOÁN', 'KIỂM TOÁN', 'TỐI CAO'].includes(currentRole);
+  const canSeeMoney = isBoss || ['KẾ TOÁN', 'TỐI CAO'].includes(currentRole);
+
+  // ==================== ĐỒNG HỒ REALTIME CHÍNH XÁC ====================
+  const [currentTime, setCurrentTime] = React.useState(new Date());
+  React.useEffect(() => {
+      const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+      return () => clearInterval(timer);
+  }, []);
+  
+  const formatTime = (date) => {
+      const days = ['Chủ nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
+      const day = days[date.getDay()];
+      const time = date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const dateStr = date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      return `${time} - ${day}, ${dateStr}`;
+  };
+
+  const todayStr = React.useMemo(() => {
+      return new Date(currentTime.getTime() - currentTime.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+  }, [currentTime]);
+
+  const channelChartRef = React.useRef(null);
+  const trendChartRef = React.useRef(null);
+  const channelChartInstance = React.useRef(null);
+  const trendChartInstance = React.useRef(null);
+
+  const channelRevenueData = React.useMemo(() => {
+      const channelMap = {};
+      orders.forEach(o => {
+          if (!o.revenue) return;
+          const ch = o.channel || 'Khác';
+          channelMap[ch] = (channelMap[ch] || 0) + Number(o.revenue);
+      });
+      return channelMap;
+  }, [orders]);
+
+  const last7DaysData = React.useMemo(() => {
+      const dates = [];
+      const revenueMap = {};
+      const countMap = {};
+      for (let i = 6; i >= 0; i--) {
+          const d = new Date();
+          d.setDate(d.getDate() - i);
+          const dStr = d.toISOString().split('T')[0];
+          dates.push(dStr);
+          revenueMap[dStr] = 0;
+          countMap[dStr] = 0;
+      }
+      orders.forEach(o => {
+          const dateStr = o.createdAt?.slice(0, 10) || o.date;
+          if (dateStr && revenueMap[dateStr] !== undefined) {
+              revenueMap[dateStr] += Number(o.revenue || 0);
+              countMap[dateStr] += 1;
+          }
+      });
+      return {
+          labels: dates.map(d => d.split('-').slice(1).reverse().join('/')),
+          revenue: dates.map(d => revenueMap[d]),
+          counts: dates.map(d => countMap[d])
+      };
+  }, [orders]);
+
+  const userTodayRewards = React.useMemo(() => {
+      if (currentRole === 'TỐI CAO') return null;
+      let prodRew = 0;
+      let packRew = 0;
+      let prodCount = 0;
+      let packCount = 0;
+      (prodItems || []).forEach(item => {
+          if (item.fulfilledFromStock) return;
+          const ph1 = item.phases?.phase1 || {};
+          const ph2 = item.phases?.phase2 || {};
+          if (ph1.user === currentUser && ph1.status === 'Done' && ph1.endTime && ph1.endTime.startsWith(todayStr)) {
+              prodRew += Number(ph1.reward_vnd || 0);
+              prodCount++;
+          }
+          if (ph2.user === currentUser && ph2.status === 'Done' && ph2.endTime && ph2.endTime.startsWith(todayStr)) {
+              prodRew += Number(ph2.reward_vnd || 0);
+              prodCount++;
+          }
+      });
+      (packings || []).forEach(p => {
+          if (p.user === currentUser && p.status === 'Done' && p.endTime && p.endTime.startsWith(todayStr)) {
+              packRew += Number(p.reward_vnd || 0);
+              packCount++;
+          }
+      });
+      return { prodRew, packRew, prodCount, packCount, total: prodRew + packRew };
+  }, [prodItems, packings, currentUser, currentRole, todayStr]);
+
+  React.useEffect(() => {
+      if (!canSeeFinance) return;
+      
+      if (channelChartRef.current) {
+          if (channelChartInstance.current) channelChartInstance.current.destroy();
+          const labels = Object.keys(channelRevenueData);
+          const data = Object.values(channelRevenueData);
+          channelChartInstance.current = new Chart(channelChartRef.current, {
+              type: 'doughnut',
+              data: {
+                  labels: labels,
+                  datasets: [{
+                      data: data,
+                      backgroundColor: ['#ee4d2d', '#000000', '#10b981', '#059669', '#ec4899', '#ef4444', '#3b82f6', '#a855f7', '#facc15', '#64748b'],
+                      borderWidth: 1,
+                      borderColor: '#1f1f23'
+                  }]
+              },
+              options: {
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: { legend: { position: 'bottom', labels: { color: '#a1a1aa', font: { size: 9, weight: 'bold' } } } }
+              }
+          });
+      }
+      
+      if (trendChartRef.current) {
+          if (trendChartInstance.current) trendChartInstance.current.destroy();
+          trendChartInstance.current = new Chart(trendChartRef.current, {
+              type: 'line',
+              data: {
+                  labels: last7DaysData.labels,
+                  datasets: [
+                      {
+                          label: 'Doanh thu (đ)',
+                          data: last7DaysData.revenue,
+                          borderColor: '#38bdf8',
+                          backgroundColor: 'rgba(56, 189, 248, 0.05)',
+                          borderWidth: 2,
+                          tension: 0.3,
+                          fill: true,
+                          yAxisID: 'y'
+                      },
+                      {
+                          label: 'Đơn hàng',
+                          data: last7DaysData.counts,
+                          borderColor: '#d4af37',
+                          backgroundColor: 'rgba(212, 175, 55, 0.05)',
+                          borderWidth: 2,
+                          tension: 0.3,
+                          fill: true,
+                          yAxisID: 'y1'
+                      }
+                  ]
+              },
+              options: {
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: { legend: { position: 'bottom', labels: { color: '#a1a1aa', font: { size: 9, weight: 'bold' } } } },
+                  scales: {
+                      x: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#a1a1aa', font: { size: 8 } } },
+                      y: {
+                          position: 'left',
+                          grid: { color: 'rgba(255,255,255,0.03)' },
+                          ticks: { 
+                              color: '#38bdf8', 
+                              font: { size: 8 },
+                              callback: function(v) { return v >= 1000000 ? (v / 1000000) + 'M' : v >= 1000 ? (v / 1000) + 'k' : v; }
+                          }
+                      },
+                      y1: {
+                          position: 'right',
+                          grid: { drawOnChartArea: false },
+                          ticks: { color: '#d4af37', font: { size: 8 } }
+                      }
+                  }
+              }
+          });
+      }
+      return () => {
+          if (channelChartInstance.current) channelChartInstance.current.destroy();
+          if (trendChartInstance.current) trendChartInstance.current.destroy();
+      };
+  }, [channelRevenueData, last7DaysData, canSeeFinance]);
+
+  // ==================== THÔNG BÁO TỪ BAN QUẢN LÝ (BOSS) ====================
+  const noticeLogs = (importExport || []).filter(log => log.type === 'THONG_BAO_HE_THONG');
+  const latestServerNotice = noticeLogs.length > 0 
+      ? noticeLogs[noticeLogs.length - 1].note 
+      : 'Chưa có thông báo nội bộ nào.';
+
+  const [optimisticNotice, setOptimisticNotice] = React.useState(null);
+  const displayNotice = optimisticNotice !== null ? optimisticNotice : latestServerNotice;
+
+  const [isEditingNotice, setIsEditingNotice] = React.useState(false);
+  const [tempNotice, setTempNotice] = React.useState('');
+
+  const handleEditClick = () => {
+      setTempNotice(displayNotice);
+      setIsEditingNotice(true);
+  };
+
+  const handleSaveNotice = () => {
+    setOptimisticNotice(tempNotice);
+    setIsEditingNotice(false);
+
+    const payload = {
+        ImportExport: [{
+            id: 'SYS_ANNO_' + Date.now(),
+            type: 'THONG_BAO_HE_THONG',
+            target: 'ALL',
+            totalAmount: 0,
+            date: new Date().toISOString().replace('T', ' ').slice(0, 19),
+            note: tempNotice,
+            itemsData: '[]'
+        }]
+    };
+    
+    if (typeof pushDeltas === 'function') {
+        pushDeltas(payload, `Boss đã cập nhật thông báo nội bộ`, 'fa-bullhorn')
+            .then(() => { if (typeof triggerToast === 'function') triggerToast('Đã phát loa thông báo toàn xưởng!', 'fa-bullhorn', 'success'); })
+            .catch(() => { if (typeof triggerToast === 'function') triggerToast('Lỗi mạng, chưa gửi được!', 'fa-wifi', 'danger'); });
+    }
+  };
+
+  // ==================== LẤY DANH SÁCH NHÂN SỰ ĐI LÀM HÔM NAY ====================
+  const attendingStaffList = React.useMemo(() => {
+      const staffMap = new Map();
+      (attendance || []).forEach(a => {
+          if (String(a.date).includes(todayStr)) {
+              let timeStr = '';
+              if (a.timeIn) timeStr = `Vào: ${a.timeIn}`;
+              else if (a.morningIn) timeStr = `Vào sáng: ${a.morningIn}`;
+              else if (a.afternoonIn) timeStr = `Vào chiều: ${a.afternoonIn}`;
+              
+              if (timeStr) {
+                  staffMap.set(a.user, {
+                      name: a.user,
+                      time: timeStr.replace(/'/g, '').trim()
+                  });
+              }
+          }
+      });
+      return Array.from(staffMap.values());
+  }, [attendance, todayStr]);
+
+  const countAttendance = attendingStaffList.length;
+
+  // ==================== DOANH THU & TÀI CHÍNH QUẢN TRỊ ====================
+  const financeStats = React.useMemo(() => {
+      if (!canSeeFinance) return null;
+
+      // 1. Doanh thu đơn hàng hôm nay
+      const todayOrders = (orders || []).filter(o => {
+          const oDate = o.createdAt || o.date || '';
+          return oDate.includes(todayStr);
+      });
+      const todayRevenue = todayOrders.reduce((sum, o) => sum + (Number(o.revenue || o.totalAmount) || 0), 0);
+
+      // 2. Số đơn đã hoàn thành hôm nay
+      const completedToday = (orders || []).filter(o => {
+          const status = String(o.status || '').toUpperCase().trim();
+          const isCompletedStatus = ['ĐÃ BÀN GIAO', 'HOÀN THÀNH', 'ĐÃ NHẬP KHO'].includes(status);
+          const updateDate = o.updatedAt || o.createdAt || '';
+          return isCompletedStatus && updateDate.includes(todayStr);
+      }).length;
+
+      // 3. Tổng quỹ khả dụng hiện tại
+      const accounts = erpData.Accounts || [];
+      const totalCash = accounts.reduce((sum, a) => sum + (Number(a.balance) || 0), 0);
+
+      return { todayRevenue, completedToday, totalCash };
+  }, [orders, erpData.Accounts, todayStr, canSeeFinance]);
+
+  // ==================== THÔNG KÊ SẢN XUẤT PHÂN XƯỞNG ====================
+  const thongKeXuong = React.useMemo(() => {
+    let beKinh = 0;
+    let layout = 0;
+
+    (prodItems || []).forEach(i => {
+        if (i.fulfilledFromStock) return; 
+        if (i.status === 'Đã Huỷ' || i.status === 'Done' || i.status === 'Kiểm Định') return;
+
+        const p1 = i.phases?.phase1?.status || 'Pending';
+        const p2 = i.phases?.phase2?.status || 'Pending';
+        const isWaiting = (p1 === 'In Progress' || p2 === 'In Progress' || p1 === 'Done' || p2 === 'Done' || p1 === 'Pending');
+
+        if (isWaiting) {
+            const searchStr = String(i.type || '') + ' ' + String(i.name || '');
+            if (searchStr.toLowerCase().includes('bể') || searchStr.toLowerCase().includes('kính')) {
+                beKinh++;
+            } else {
+                layout++;
+            }
+        }
+    });
+    return { beKinh, layout };
+  }, [prodItems]);
+
+  const countLayouts = thongKeXuong.layout;
+  const countTanks = thongKeXuong.beKinh;
+
+  // ==================== TIẾN ĐỘ THỰC HIỆN CÔNG VIỆC TRONG NGÀY ====================
+  const prodProgress = React.useMemo(() => {
+      let total = 0;
+      let done = 0;
+      (prodItems || []).forEach(i => {
+          if (i.fulfilledFromStock) return;
+          const p1End = i.phases?.phase1?.endTime;
+          const p2End = i.phases?.phase2?.endTime;
+          const p1Stat = i.phases?.phase1?.status;
+          const p2Stat = i.phases?.phase2?.status;
+          
+          const completedToday = (p1End && p1End.startsWith(todayStr)) || (p2End && p2End.startsWith(todayStr));
+          const isActiveToday = (p1Stat === 'In Progress' || p2Stat === 'In Progress');
+          
+          if (completedToday) {
+              done++;
+              total++;
+          } else if (isActiveToday) {
+              total++;
+          }
+      });
+      return { total, done, pct: total > 0 ? Math.round((done / total) * 100) : 0 };
+  }, [prodItems, todayStr]);
+
+  const packProgress = React.useMemo(() => {
+      let total = 0;
+      let done = 0;
+      (packings || []).forEach(p => {
+          const isEndToday = p.endTime && p.endTime.startsWith(todayStr);
+          const isActiveToday = p.status === 'In Progress' || p.status === 'Chờ đóng gói';
+          
+          if (isEndToday && p.status === 'Done') {
+              done++;
+              total++;
+          } else if (isActiveToday || (p.status === 'Done' && isEndToday)) {
+              total++;
+          }
+      });
+      return { total, done, pct: total > 0 ? Math.round((done / total) * 100) : 0 };
+  }, [packings, todayStr]);
+
+  // Cảnh báo hết hàng
+  const countAccMissing = (erpProducts || []).filter(p => 
+      String(p.category || '').toUpperCase().trim() === 'PHỤ KIỆN' && 
+      Number(p.minStock) > 0 && 
+      Number(p.quantity || 0) <= Number(p.minStock)
+  ).length;
+
+  const countMatMissing = (erpProducts || []).filter(p => 
+      String(p.category || '').toUpperCase().trim() === 'DANH MỤC SẢN XUẤT' && 
+      Number(p.minStock) > 0 && 
+      Number(p.quantity || 0) <= Number(p.minStock)
+  ).length;
+
+  const criticalStockList = React.useMemo(() => {
+      return (erpProducts || [])
+          .filter(p => Number(p.minStock) > 0 && Number(p.quantity || 0) <= Number(p.minStock))
+          .sort((a, b) => (Number(a.quantity || 0) - Number(a.minStock)) - (Number(b.quantity || 0) - Number(b.minStock)))
+          .slice(0, 3);
+  }, [erpProducts]);
+
+  // Vận chuyển chờ bàn giao
+  const countOrders = (orders || []).filter(o => {
+      const st = String(o.status || '').toUpperCase().trim();
+      return ['CHỜ SẢN XUẤT', 'QUÉT TỰ ĐỘNG', 'SẴN SÀNG ĐÓNG GÓI', 'CHỜ BÀN GIAO', 'ĐANG SẢN XUẤT'].includes(st);
+  }).length;
+
+  // ==================== DỰNG NHẬT KÝ HOẠT ĐỘNG GẦN ĐÂY ====================
+  const [categoryFilter, setCategoryFilter] = React.useState('Tất cả');
+  const getActivityLogs = () => {
+    let logs = [];
+    (orders || []).forEach(order => {
+      if (order.createdAt) logs.push({ time: order.createdAt, category: 'Đơn hàng', message: `Đơn hàng mới: ${order.orderCode} (Kênh: ${order.channel || 'Khác'})`, user: order.updatedBy || '', amount: 0 });
+    });
+    (prodItems || []).forEach(item => {
+      if (item.phases?.phase1?.endTime) logs.push({ time: item.phases.phase1.endTime, category: 'Sản xuất', message: `${item.name} đã hoàn thành ${item.phases.phase1.name}`, user: item.phases.phase1.user || '', amount: Number(item.phases.phase1.reward_vnd) || 0 });
+      if (item.phases?.phase2?.endTime) logs.push({ time: item.phases.phase2.endTime, category: 'Sản xuất', message: `${item.name} đã hoàn thành ${item.phases.phase2.name}`, user: item.phases.phase2.user || '', amount: Number(item.phases.phase2.reward_vnd) || 0 });
+    });
+    (packings || []).forEach(pk => {
+      if (pk.endTime && pk.status === 'Done') logs.push({ time: pk.endTime, category: 'Đóng gói', message: `Đơn ${pk.orderId} hoàn thành đóng gói`, user: pk.user || '', amount: Number(pk.reward_vnd) || 0 });
+    });
+    (attendance || []).forEach(att => {
+      const parseTime = (t) => t ? String(t).replace(/'/g, '').trim() : null;
+      if (att.morningIn || att.timeIn) logs.push({ time: `${att.date} ${parseTime(att.morningIn || att.timeIn)}`, category: 'Chấm công', message: `${att.user} đã Check-in`, user: att.user, amount: 0 });
+      if (att.afternoonOut || att.timeOut) logs.push({ time: `${att.date} ${parseTime(att.afternoonOut || att.timeOut)}`, category: 'Chấm công', message: `${att.user} đã Check-out`, user: att.user, amount: 0 });
+    });
+    (kpis || []).forEach(kpi => {
+      if (kpi.date) logs.push({ time: kpi.date, category: 'KPI / Thưởng', message: kpi.note || 'Thưởng nóng KPI', user: kpi.user || '', amount: Number(kpi.amount) || 0 });
+    });
+    (importExport || []).forEach(item => {
+      if (item.date && item.type !== 'THONG_BAO_HE_THONG') {
+          logs.push({ time: item.date, category: 'Xuất nhập kho', message: `${item.type || 'Kho'}: ${item.note || item.target || ''}`, user: '', amount: Number(item.totalAmount) || 0 });
+      }
+    });
+    logs.sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0));
+    return logs;
+  };
+
+  const allLogs = getActivityLogs();
+  const filteredLogs = categoryFilter === 'Tất cả' ? allLogs : allLogs.filter(log => log.category === categoryFilter);
+  const categories = ['Tất cả', 'Đơn hàng', 'Sản xuất', 'Đóng gói', 'Chấm công', 'KPI / Thưởng', 'Xuất nhập kho'];
+
+  const getCategoryStyle = (category) => {
+    switch (category) {
+      case 'Đơn hàng': return { icon: <i className="fas fa-file-invoice-dollar"></i>, color: '#3b82f6', bg: 'bg-[#3b82f6]/10' };
+      case 'Sản xuất': return { icon: <i className="fas fa-hammer"></i>, color: '#fbbf24', bg: 'bg-[#fbbf24]/10' };
+      case 'Đóng gói': return { icon: <i className="fas fa-boxes"></i>, color: '#34d399', bg: 'bg-emerald-400/10' };
+      case 'Chấm công': return { icon: <i className="fas fa-clock"></i>, color: '#60a5fa', bg: 'bg-[#60a5fa]/10' };
+      case 'KPI / Thưởng': return { icon: <i className="fas fa-trophy"></i>, color: '#d4af37', bg: 'bg-[#d4af37]/10' };
+      case 'Xuất nhập kho': return { icon: <i className="fas fa-exchange-alt"></i>, color: '#a78bfa', bg: 'bg-[#a78bfa]/10' };
+      default: return { icon: <i className="fas fa-info-circle"></i>, color: '#9ca3af', bg: 'bg-gray-400/10' };
+    }
+  };
+
+  return (
+    <div className="space-y-5 pb-10 w-full relative">
+      
+      {/* HEADER: ĐỒNG HỒ & GREETING */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-[#222] pb-4">
+        <div>
+          <h1 className="text-[24px] font-black text-white tracking-wide">Trung Tâm Điều Hành</h1>
+          <p className="text-[#34d399] text-[11px] font-bold flex items-center gap-1.5 mt-1 font-mono">
+              <i className="fas fa-clock text-[10px] animate-pulse"></i>
+              {formatTime(currentTime)}
+          </p>
+        </div>
+        <div className="flex items-center gap-3 bg-[#141414] p-3 rounded-2xl border border-[#222]">
+          <div className="w-9 h-9 rounded-full bg-[#d4af37]/10 border border-[#d4af37]/20 flex items-center justify-center text-[#d4af37] text-sm"><i className="fas fa-user-shield"></i></div>
+          <div>
+            <div className="text-[9px] text-gray-500 font-black uppercase">Đăng nhập tài khoản</div>
+            <div className="font-black text-[#d4af37] text-[13px]">{currentUser || 'Guest'} <span className="text-[10px] text-gray-500 font-bold">({currentRole})</span></div>
+          </div>
+        </div>
+      </div>
+
+      {/* THÔNG BÁO TỪ BAN QUẢN LÝ (BOSS) */}
+      <div className="bg-gradient-to-r from-[#21190c] to-[#141414] border border-[#d4af37]/35 rounded-2xl p-4 transition-all relative overflow-hidden shadow-md">
+        <div className="absolute top-0 right-0 w-24 h-24 bg-[#d4af37]/5 rounded-full blur-2xl -mr-6 -mt-6"></div>
+        <div className="flex items-center justify-between mb-3.5 relative z-10">
+          <div className="flex items-center gap-2">
+            <span className="flex h-2.5 w-2.5 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+            </span>
+            <i className="fas fa-bullhorn text-[#d4af37] text-[13px]"></i>
+            <span className="font-black text-[12px] text-[#d4af37] uppercase tracking-widest">Loa phát thanh nội bộ</span>
+          </div>
+          
+          {isBoss && !isEditingNotice && (
+            <button 
+              onClick={handleEditClick} 
+              className="text-[10px] font-black text-[#d4af37] bg-[#d4af37]/15 px-3 py-1.5 rounded-lg border border-[#d4af37]/25 hover:bg-[#d4af37]/25 active:scale-95 transition-all flex items-center gap-1 uppercase"
+            >
+              <i className="fas fa-edit text-[9px]"></i> Phát loa mới
+            </button>
+          )}
+        </div>
+
+        {isEditingNotice ? (
+          <div className="space-y-3 animate-fade-in relative z-10">
+            <textarea
+              value={tempNotice}
+              onChange={(e) => setTempNotice(e.target.value)}
+              className="w-full bg-[#0a0a0a] border border-[#333] focus:border-[#d4af37]/50 text-white text-[13px] rounded-xl p-3 outline-none min-h-[90px] custom-scrollbar font-bold"
+              placeholder="Nhập thông báo truyền đi toàn xưởng..."
+            />
+            <div className="flex items-center justify-end gap-2">
+              <button onClick={() => setIsEditingNotice(false)} className="px-4 py-2 rounded-xl text-[10px] font-black text-gray-400 bg-[#222] hover:bg-[#333] transition-colors uppercase">Hủy</button>
+              <button onClick={handleSaveNotice} className="px-4 py-2 rounded-xl text-[10px] font-black text-black bg-[#d4af37] hover:bg-amber-500 transition-colors shadow-md uppercase flex items-center gap-1.5">
+                <i className="fas fa-share-square"></i> Phát loa ngay
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="text-[13px] text-zinc-100 leading-relaxed whitespace-pre-wrap relative z-10 pl-1.5 font-bold font-sans">
+            {displayNotice}
+          </div>
+        )}
+      </div>
+
+      {/* KHUNG GIAO VIỆC / NHẮC VIỆC & NHIỆM VỤ CHUNG */}
+      <DashboardTasksSection 
+          prodItems={prodItems} 
+          currentUser={currentUser} 
+          pushDeltas={pushDeltas} 
+          triggerToast={triggerToast} 
+          isAdmin={isBoss} 
+          userConfigs={userConfigs}
+      />
+
+      {/* KHUNG THỐNG KÊ DOANH THU & QUỸ (CHỈ CHO QUẢN TRỊ / BOSS / KẾ TOÁN) */}
+      {canSeeFinance && financeStats && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 animate-fade-in bg-zinc-900/30 p-3 rounded-2xl border border-zinc-800">
+              <div className="bg-[#141414] p-4 rounded-xl border border-emerald-500/10 shadow-sm flex items-center justify-between">
+                  <div>
+                      <span className="text-[8px] font-black text-emerald-400 uppercase tracking-widest block mb-1">DOANH THU HÔM NAY</span>
+                      <span className="text-[19px] font-black text-emerald-500 leading-none">{canSeeMoney ? financeStats.todayRevenue.toLocaleString('vi-VN') + 'đ' : '******đ'}</span>
+                  </div>
+                  <div className="w-9 h-9 rounded-lg bg-emerald-500/10 text-emerald-500 flex items-center justify-center text-sm"><i className="fas fa-arrow-trend-up"></i></div>
+              </div>
+              <div className="bg-[#141414] p-4 rounded-xl border border-blue-500/10 shadow-sm flex items-center justify-between">
+                  <div>
+                      <span className="text-[8px] font-black text-blue-400 uppercase tracking-widest block mb-1">ĐƠN XONG HÔM NAY</span>
+                      <span className="text-[19px] font-black text-blue-400 leading-none">{financeStats.completedToday} <span className="text-[10px] text-gray-500">đơn</span></span>
+                  </div>
+                  <div className="w-9 h-9 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center text-sm"><i className="fas fa-check-circle"></i></div>
+              </div>
+              <div className="bg-[#141414] p-4 rounded-xl border border-[#d4af37]/10 shadow-sm flex items-center justify-between">
+                  <div>
+                      <span className="text-[8px] font-black text-[#d4af37] uppercase tracking-widest block mb-1">CÂN ĐỐI TỔNG QUỸ TIỀN</span>
+                      <span className="text-[19px] font-black text-[#d4af37] leading-none">{canSeeMoney ? financeStats.totalCash.toLocaleString('vi-VN') + 'đ' : '******đ'}</span>
+                  </div>
+                  <div className="w-9 h-9 rounded-lg bg-[#d4af37]/10 text-[#d4af37] flex items-center justify-center text-sm"><i className="fas fa-wallet"></i></div>
+              </div>
+          </div>
+      )}
+
+      {/* BIỂU ĐỒ PHÂN TÍCH DOANH THU (CHỈ HIỂN THỊ KHI CÓ QUYỀN XEM TÀI CHÍNH) */}
+      {canSeeFinance && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-in">
+              <div className="bg-[#141414] border border-[#2a2a2a] p-4 rounded-2xl shadow-sm">
+                  <div className="flex items-center gap-2 mb-3 border-b border-zinc-800/60 pb-2">
+                      <i className="fas fa-chart-pie text-[#38bdf8]"></i>
+                      <span className="font-black text-[12px] text-gray-300 uppercase tracking-widest">Tỷ Trọng Kênh Bán Hàng</span>
+                  </div>
+                  <div className="relative h-60 w-full">
+                      <canvas ref={channelChartRef}></canvas>
+                  </div>
+              </div>
+              
+              <div className="bg-[#141414] border border-[#2a2a2a] p-4 rounded-2xl shadow-sm">
+                  <div className="flex items-center gap-2 mb-3 border-b border-zinc-800/60 pb-2">
+                      <i className="fas fa-chart-line text-[#d4af37]"></i>
+                      <span className="font-black text-[12px] text-gray-300 uppercase tracking-widest">Xu Hướng Doanh Thu 7 Ngày</span>
+                  </div>
+                  <div className="relative h-60 w-full">
+                      <canvas ref={trendChartRef}></canvas>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* THÀNH TÍCH CÁ NHÂN HÔM NAY (HIỂN THỊ CHO NHÂN VIÊN THỢ/ĐÓNG GÓI) */}
+      {!canSeeFinance && userTodayRewards && (
+          <div className="bg-[#141414] border border-[#2a2a2a] p-4 rounded-2xl shadow-sm space-y-3">
+              <div className="flex items-center gap-2 border-b border-zinc-800/60 pb-2">
+                  <i className="fas fa-trophy text-[#d4af37] text-[13px]"></i>
+                  <span className="font-black text-[12px] text-gray-300 uppercase tracking-widest">Thành tích cá nhân hôm nay</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                  <div className="bg-[#0a0a0a] border border-zinc-900 rounded-xl p-3 text-center">
+                      <span className="text-gray-500 text-[8px] font-black uppercase tracking-wider block mb-1">Thưởng Sản Xuất</span>
+                      <span className="text-amber-500 text-[13px] font-black">{userTodayRewards.prodRew.toLocaleString('vi-VN')}đ</span>
+                      <span className="text-[8px] text-gray-500 block mt-0.5">({userTodayRewards.prodCount} công đoạn)</span>
+                  </div>
+                  <div className="bg-[#0a0a0a] border border-zinc-900 rounded-xl p-3 text-center">
+                      <span className="text-gray-500 text-[8px] font-black uppercase tracking-wider block mb-1">Thưởng Đóng Gói</span>
+                      <span className="text-emerald-400 text-[13px] font-black">{userTodayRewards.packRew.toLocaleString('vi-VN')}đ</span>
+                      <span className="text-[8px] text-gray-500 block mt-0.5">({userTodayRewards.packCount} đơn)</span>
+                  </div>
+                  <div className="bg-gradient-to-br from-[#d4af37]/10 to-black/35 border border-[#d4af37]/20 rounded-xl p-3 text-center">
+                      <span className="text-[#d4af37] text-[8px] font-black uppercase tracking-wider block mb-1">Tổng Nhận Ngày</span>
+                      <span className="text-[#d4af37] text-[15px] font-black">{userTodayRewards.total.toLocaleString('vi-VN')}đ</span>
+                      <span className="text-[8px] text-[#10b981] font-bold block mt-0.5">Xuất Sắc!</span>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* DANH SÁCH NHÂN SỰ ĐANG ĐI LÀM (LIVE ROSTER) */}
+      <div className="bg-[#141414] border border-[#2a2a2a] p-4 rounded-2xl shadow-sm">
+          <div className="flex justify-between items-center mb-3">
+              <div className="flex items-center gap-2">
+                  <i className="fas fa-users text-[#60a5fa] text-[13px]"></i>
+                  <span className="font-black text-[12px] text-gray-300 uppercase tracking-widest">Đội ngũ làm việc hôm nay ({countAttendance})</span>
+              </div>
+              <span className="text-[9px] font-mono text-zinc-500">Hệ thống chấm công trực tuyến</span>
+          </div>
+          {attendingStaffList.length === 0 ? (
+              <div className="text-center py-6 text-zinc-650 italic text-[11px] font-bold bg-[#0a0a0a] rounded-xl border border-zinc-900">
+                  Chưa có nhân sự nào điểm danh hôm nay.
+              </div>
+          ) : (
+              <div className="flex flex-wrap gap-2">
+                  {attendingStaffList.map((st, i) => (
+                      <div key={i} className="flex items-center gap-2 bg-[#0a0a0a] border border-zinc-800 rounded-xl px-3 py-2 shadow-sm animate-fade-in hover:border-zinc-700 transition-colors">
+                          <div className="w-6 h-6 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 font-black text-[11px] flex items-center justify-center select-none uppercase">{st.name.charAt(0)}</div>
+                          <div>
+                              <div className="text-[11px] font-black text-gray-200 leading-tight">{st.name}</div>
+                              <div className="text-[8px] font-bold text-[#10b981] mt-0.5">{st.time}</div>
+                          </div>
+                      </div>
+                  ))}
+              </div>
+          )}
+      </div>
+
+      {/* TIẾN ĐỘ THỰC HIỆN CÔNG VIỆC TRONG NGÀY (DAILY OPERATION PROGRESS) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="bg-[#141414] border border-[#2a2a2a] p-4 rounded-2xl shadow-sm">
+              <div className="flex justify-between items-center mb-2.5">
+                  <span className="text-[11px] font-black text-gray-300 uppercase tracking-widest"><i className="fas fa-hammer mr-1 text-amber-500"></i> Tiến độ Sản xuất hôm nay</span>
+                  <span className="text-[11px] font-mono text-amber-500 font-black">{prodProgress.done}/{prodProgress.total} lệnh ({prodProgress.pct}%)</span>
+              </div>
+              <div className="w-full bg-[#0a0a0a] rounded-full h-2.5 border border-zinc-900 overflow-hidden p-0.5">
+                  <div className="bg-gradient-to-r from-amber-500 to-yellow-400 h-1.5 rounded-full transition-all duration-500" style={{ width: `${prodProgress.pct}%` }}></div>
+              </div>
+          </div>
+          
+          <div className="bg-[#141414] border border-[#2a2a2a] p-4 rounded-2xl shadow-sm">
+              <div className="flex justify-between items-center mb-2.5">
+                  <span className="text-[11px] font-black text-gray-300 uppercase tracking-widest"><i className="fas fa-box-open mr-1 text-emerald-500"></i> Tiến độ Đóng gói hôm nay</span>
+                  <span className="text-[11px] font-mono text-emerald-500 font-black">{packProgress.done}/{packProgress.total} đơn ({packProgress.pct}%)</span>
+              </div>
+              <div className="w-full bg-[#0a0a0a] rounded-full h-2.5 border border-zinc-900 overflow-hidden p-0.5">
+                  <div className="bg-gradient-to-r from-emerald-500 to-teal-400 h-1.5 rounded-full transition-all duration-500" style={{ width: `${packProgress.pct}%` }}></div>
+              </div>
+          </div>
+      </div>
+
+      {/* GRID REALTIME COUNTERS */}
+      <div className="bg-[#141414] border border-[#2a2a2a] rounded-2xl p-4 shadow-sm">
+        <div className="flex items-center gap-2 mb-3.5 border-b border-zinc-800 pb-2">
+          <i className="fas fa-chart-pie text-[#d4af37] text-[13px]"></i>
+          <span className="font-black text-[12px] text-gray-300 uppercase tracking-widest">Giám sát hoạt động Realtime</span>
+        </div>
+
+        <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 text-[12px]">
+          <div className="bg-[#0a0a0a] border border-zinc-900 rounded-xl p-3 flex flex-col items-center justify-center relative overflow-hidden text-center hover:border-blue-500/20 transition-colors">
+            <span className="text-gray-400 text-[8px] font-black uppercase leading-tight">ĐƠN CHỜ GIAO</span>
+            <span className="text-[#3b82f6] text-[20px] font-black mt-1">{countOrders}</span>
+            <div className="absolute top-0 right-0 w-1 h-full bg-[#3b82f6]/20"></div>
+          </div>
+
+          <div className="bg-[#0a0a0a] border border-zinc-900 rounded-xl p-3 flex flex-col items-center justify-center relative overflow-hidden text-center hover:border-yellow-500/20 transition-colors">
+            <span className="text-gray-400 text-[8px] font-black uppercase leading-tight">LAYOUT CẦN LÀM</span>
+            <span className="text-[#fbbf24] text-[20px] font-black mt-1">{countLayouts}</span>
+            <div className="absolute top-0 right-0 w-1 h-full bg-[#fbbf24]/20"></div>
+          </div>
+
+          <div className="bg-[#0a0a0a] border border-zinc-900 rounded-xl p-3 flex flex-col items-center justify-center relative overflow-hidden text-center hover:border-sky-500/20 transition-colors">
+            <span className="text-gray-400 text-[8px] font-black uppercase leading-tight">BỂ KÍNH CẦN LÀM</span>
+            <span className="text-[#60a5fa] text-[20px] font-black mt-1">{countTanks}</span>
+            <div className="absolute top-0 right-0 w-1 h-full bg-[#60a5fa]/20"></div>
+          </div>
+
+          <div className="bg-[#0a0a0a] border border-zinc-900 rounded-xl p-3 flex flex-col items-center justify-center relative overflow-hidden text-center hover:border-rose-500/20 transition-colors">
+            <span className="text-gray-400 text-[8px] font-black uppercase leading-tight">PHỤ KIỆN CẦN NHẬP</span>
+            <span className="text-[#fb7185] text-[20px] font-black mt-1">{countAccMissing}</span>
+            <div className="absolute top-0 right-0 w-1 h-full bg-[#fb7185]/20"></div>
+          </div>
+
+          <div className="bg-[#0a0a0a] border border-zinc-900 rounded-xl p-3 flex flex-col items-center justify-center relative overflow-hidden text-center hover:border-purple-500/20 transition-colors">
+            <span className="text-gray-400 text-[8px] font-black uppercase leading-tight">NGUYÊN LIỆU HẾT</span>
+            <span className="text-[#c084fc] text-[20px] font-black mt-1">{countMatMissing}</span>
+            <div className="absolute top-0 right-0 w-1 h-full bg-[#c084fc]/20"></div>
+          </div>
+
+          <div className="bg-[#0a0a0a] border border-zinc-900 rounded-xl p-3 flex flex-col items-center justify-center relative overflow-hidden text-center hover:border-emerald-500/20 transition-colors">
+            <span className="text-gray-400 text-[8px] font-black uppercase leading-tight">ĐỘI NGŨ ĐI LÀM</span>
+            <span className="text-[#10b981] text-[20px] font-black mt-1">{countAttendance}</span>
+            <div className="absolute top-0 right-0 w-1 h-full bg-[#10b981]/20"></div>
+          </div>
+        </div>
+      </div>
+
+      {/* CẢNH BÁO HẾT HÀNG GẤP (CRITICAL STOCK WARNINGS) */}
+      {criticalStockList.length > 0 && (
+          <div className="bg-[#141414] border border-[#2a2a2a] p-4 rounded-2xl shadow-sm">
+              <div className="flex justify-between items-center mb-3">
+                  <div className="flex items-center gap-2">
+                      <i className="fas fa-exclamation-triangle text-rose-500 text-[13px]"></i>
+                      <span className="font-black text-[12px] text-gray-300 uppercase tracking-widest">Cảnh báo hết kho cần nhập gấp</span>
+                  </div>
+                  <span className="text-[8px] font-black bg-rose-500/10 text-rose-500 border border-rose-500/20 px-2 py-0.5 rounded-full uppercase tracking-widest animate-pulse">Khẩn cấp</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {criticalStockList.map((prod) => (
+                      <div key={prod.id} className="bg-[#0a0a0a] border border-zinc-800 p-3 rounded-xl flex items-center justify-between group shadow-inner">
+                          <div className="min-w-0 pr-2 flex-1">
+                              <div className="text-[11px] font-black text-gray-200 truncate group-hover:text-rose-400 transition-colors">{prod.name}</div>
+                              <div className="text-[9px] font-bold text-gray-500 font-mono mt-0.5 flex items-center gap-2">
+                                  <span>SKU: {prod.sku || 'N/A'}</span>
+                                  <button 
+                                      onClick={() => {
+                                          const event = new CustomEvent('openImportExportForm', { detail: prod });
+                                          window.dispatchEvent(event);
+                                      }}
+                                      className="text-[9px] font-black text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/20 transition-all uppercase tracking-wider flex items-center gap-1 active:scale-95"
+                                      title="Lập phiếu nhập kho nhanh"
+                                  >
+                                      <i className="fas fa-plus"></i> Nhập Hàng
+                                  </button>
+                              </div>
+                          </div>
+                          <div className="text-right shrink-0 ml-2">
+                              <span className="text-[9px] font-bold text-gray-500 block">Tồn hiện tại</span>
+                              <span className="text-[13px] font-black text-rose-500 bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20">{prod.quantity} / <span className="text-[10px] text-gray-400">{prod.minStock}</span></span>
+                          </div>
+                      </div>
+                  ))}
+              </div>
+          </div>
+      )}
+
+      {/* NHẬT KÝ HOẠT ĐỘNG GẦN ĐÂY */}
+      <div className="bg-[#141414] border border-[#333] rounded-2xl p-4 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3 border-b border-zinc-800 pb-2">
+          <div className="font-black text-[13px] text-gray-300 uppercase tracking-widest flex items-center gap-1.5"><i className="fas fa-list-ol text-[#60a5fa]"></i> Hoạt động xưởng gần đây</div>
+          <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="bg-[#0a0a0a] border border-[#333] text-white text-[10px] font-black uppercase tracking-wider px-3 py-2 rounded-xl outline-none cursor-pointer focus:border-[#d4af37]">
+            {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+          </select>
+        </div>
+
+        <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1 custom-scrollbar">
+          {filteredLogs.length === 0 ? (
+            <div className="text-center py-8 text-gray-600 italic text-[11px] font-bold bg-[#0a0a0a] rounded-xl border border-zinc-900">Không có hoạt động nào được ghi nhận</div>
+          ) : (
+            filteredLogs.slice(0, 50).map((log, index) => {
+              const style = getCategoryStyle(log.category);
+              return (
+                <div key={index} className="flex items-start gap-3 bg-[#0a0a0a] border border-zinc-900 rounded-xl px-3 py-2.5 transition-colors hover:border-zinc-800">
+                  <div className="mt-0.5 text-[15px] w-6 shrink-0 flex items-center justify-center" style={{ color: style.color }}>{style.icon}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[12px] text-white font-bold leading-tight flex items-center gap-2">
+                      {log.message}
+                      {log.amount > 0 && <span className="text-emerald-500 font-black text-[11px] bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20">+{canSeeMoney ? log.amount.toLocaleString('vi-VN') + 'đ' : '******đ'}</span>}
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5 text-[10px] font-bold text-gray-500">
+                      <span className="font-mono">{log.time?.split(' ')[1]?.slice(0,5) || log.time?.slice(11,16)}</span>
+                      {log.user && <span>• <span className="text-gray-400">{log.user}</span></span>}
+                      <span>•</span>
+                      <div className={`text-[8px] font-black uppercase px-2 py-0.5 rounded-full ${style.bg}`} style={{ color: style.color }}>{log.category}</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+</script>

@@ -1,0 +1,755 @@
+<script type="text/babel">
+// =========================================================================
+// 🔨 FILE: Tab_Production.txt
+// CHỨC NĂNG: Giao diện Xưởng sản xuất, chia việc cho thợ, theo dõi tiến độ
+// =========================================================================
+
+// -------------------------------------------------------------------------
+// MỤC 1: COMPONENT CÁC KHÂU NHỎ BÊN TRONG (WorkerPhaseV2)
+// -------------------------------------------------------------------------
+function WorkerPhaseV2({ item, c, configs, order, prodItems, erpProducts, currentUser, pushDeltas, userConfigs, triggerToast, kpiConfig, isAdmin }) {
+  const data = (item.phases || {})[c.k] || { status: 'Pending' };
+  const [processing, setProcessing] = React.useState(false);
+
+  const parseDateSafe = (val) => {
+    if (!val) return NaN;
+    const str = String(val).trim();
+    if (!str) return NaN;
+    let s = str;
+    if (s.includes(' ')) {
+      s = s.replace(' ', 'T');
+    }
+    if (s.includes('T') && s.split(':').length === 2) {
+      s += ':00';
+    }
+    const t = new Date(s).getTime();
+    if (!isNaN(t)) return t;
+    return new Date(val).getTime();
+  };
+
+  const isLocked = c.req.some(rk => (item.phases[rk] || {}).status !== 'Done');
+  if (isLocked) return null; 
+
+  const isOwner = !data.user || String(data.user).trim() === '' || data.user === currentUser;
+  const isPending = data.status !== 'In Progress' && data.status !== 'Done';
+  const isInProgress = data.status === 'In Progress';
+  const isDone = data.status === 'Done';
+
+  const [timeText, setTimeText] = React.useState('');
+  const [timeColorClass, setTimeColorClass] = React.useState('text-emerald-500');
+  const [progressPercent, setProgressPercent] = React.useState(100);
+
+  // Lấy định mức thời gian từ Config_KPI
+  const kpiData = React.useMemo(() => {
+    return typeof getSopAndReward === 'function' 
+        ? getSopAndReward(item, c.n, kpiConfig || [], order?.channel) 
+        : { time: 30, reward: 0 };
+  }, [item, c.n, kpiConfig, order]);
+
+  const limitMins = kpiData.time || 30;
+
+  React.useEffect(() => {
+    if (!isInProgress || !data.start) return;
+
+    const updateTimer = () => {
+      const startMs = parseDateSafe(data.start);
+      const nowMs = Date.now();
+      if (isNaN(startMs)) return;
+
+      const elapsedMs = nowMs - startMs;
+      const elapsedMins = elapsedMs / 60000;
+      const remainingMins = limitMins - elapsedMins;
+
+      if (remainingMins <= 0) {
+        const overdueMs = Math.abs(remainingMins) * 60000;
+        const overdueH = Math.floor(overdueMs / 3600000);
+        const overdueM = Math.floor((overdueMs % 3600000) / 60000);
+        const overdueS = Math.floor((overdueMs % 60000) / 1000);
+        const overdueText = overdueH > 0 
+            ? `${overdueH}h:${String(overdueM).padStart(2, '0')}m`
+            : `${overdueM}:${String(overdueS).padStart(2, '0')}`;
+        
+        setTimeText(`Quá giờ ${overdueText}`);
+        setTimeColorClass('text-rose-500 animate-pulse font-black');
+        setProgressPercent(0);
+      } else {
+        const remainingMs = remainingMins * 60000;
+        const remH = Math.floor(remainingMs / 3600000);
+        const remM = Math.floor((remainingMs % 3600000) / 60000);
+        const remS = Math.floor((remainingMs % 60000) / 1000);
+        const remText = remH > 0 
+            ? `${remH}h:${String(remM).padStart(2, '0')}m`
+            : `${remM}:${String(remS).padStart(2, '0')}`;
+        
+        setTimeText(`Còn ${remText}`);
+        const ratio = remainingMins / limitMins;
+        setProgressPercent(ratio * 100);
+        if (ratio <= 0.25) {
+          setTimeColorClass('text-amber-500 font-black animate-pulse');
+        } else {
+          setTimeColorClass('text-emerald-400 font-bold');
+        }
+      }
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [isInProgress, data.start, limitMins]);
+
+  const completedDurationText = React.useMemo(() => {
+    const startMs = parseDateSafe(data.start);
+    const endMs = parseDateSafe(data.endTime);
+    if (isNaN(startMs) || !endMs) return '';
+    const diffMins = Math.round((endMs - startMs) / 60000);
+    return `Làm mất ${diffMins} phút`;
+  }, [isDone, data.start, data.endTime]);
+
+  const act = async (s) => {
+    setProcessing(true);
+    const safeDateFull = typeof getLocalISODate === 'function' ? getLocalISODate() : new Date().toISOString();
+    const currentDateTime = safeDateFull.slice(0, 16).replace('T', ' ');
+
+    const upd = JSON.parse(JSON.stringify(item));
+    upd.phases[c.k] = {
+      ...upd.phases[c.k], 
+      status: s, 
+      user: currentUser, 
+      date: currentDateTime.split(' ')[0], 
+      start: s === 'In Progress' ? currentDateTime : data.start, 
+      endTime: s === 'Done' ? currentDateTime : ''
+    };
+
+    if (s === 'Done') {
+      upd.phases[c.k].reward_vnd = (item.note === 'Chất Lượng Kém') ? 0 : (kpiData.reward || 0);
+    }
+
+    const p1 = upd.phases['phase1']?.status || 'Pending';
+    const p2 = upd.phases['phase2']?.status || 'Pending';
+    const isAllDone = (p1 === 'Done' && p2 === 'Done');
+    if (!isAllDone && upd.status === 'Pending') upd.status = 'In Progress';
+    if (isAllDone) upd.status = 'Kiểm Định';
+
+    await pushDeltas({ prodItems: [upd] }, s === 'In Progress' ? `Đã nhận ${c.n}` : `Xong ${c.n}`, s === 'In Progress' ? 'fa-play' : 'fa-check');
+    setProcessing(false);
+  };
+
+  const handlePhotoUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setProcessing(true);
+    try {
+      const b64 = typeof resizeImage === 'function' ? await resizeImage(file) : await new Promise((res, rej) => { const rd = new FileReader(); rd.onload=()=>res(rd.result.split(',')[1]); rd.readAsDataURL(file); });
+      const url = await runGAS('uploadImage', b64, `SX_${item.id}_${c.k}.jpg`);
+      if (!url) {
+        throw new Error("Không thể tải ảnh lên Drive. Vui lòng kiểm tra lại quyền truy cập hoặc dung lượng Drive.");
+      }
+      
+      const safeDateFull = typeof getLocalISODate === 'function' ? getLocalISODate() : new Date().toISOString();
+      const currentDateTime = safeDateFull.slice(0, 16).replace('T', ' ');
+
+      const upd = JSON.parse(JSON.stringify(item));
+      upd.phases[c.k] = {
+        ...upd.phases[c.k], 
+        status: 'Done', 
+        user: currentUser, 
+        date: currentDateTime.split(' ')[0], 
+        start: data.start || currentDateTime, 
+        endTime: currentDateTime,
+        photo: url
+      };
+
+      let durationMins = 0;
+      let isLate = false;
+      if (upd.phases[c.k].start) {
+        const startMs = parseDateSafe(upd.phases[c.k].start);
+        const endMs = parseDateSafe(currentDateTime);
+        if (!isNaN(startMs) && !isNaN(endMs)) {
+          durationMins = Math.round((endMs - startMs) / 60000);
+          if (durationMins > limitMins) {
+            isLate = true;
+          }
+        }
+      }
+
+      if (isLate) {
+        upd.phases[c.k].reward_vnd = 0;
+        upd.phases[c.k].note = `Trễ hạn (${durationMins}/${limitMins}p) - Cắt thưởng KPI`;
+      } else {
+        upd.phases[c.k].reward_vnd = (item.note === 'Chất Lượng Kém') ? 0 : (kpiData.reward || 0);
+      }
+
+      const p1 = upd.phases['phase1']?.status || 'Pending';
+      const p2 = upd.phases['phase2']?.status || 'Pending';
+      const isAllDone = (p1 === 'Done' && p2 === 'Done');
+      if (!isAllDone && upd.status === 'Pending') upd.status = 'In Progress';
+      if (isAllDone) upd.status = 'Kiểm Định';
+
+      await pushDeltas({ prodItems: [upd] }, `Tải ảnh & hoàn thành ${c.n}`, 'fa-check-double');
+      if (isLate) {
+        triggerToast(`Hoàn thành muộn (${durationMins}/${limitMins} phút). Bị cắt tiền thưởng KPI khâu này!`, 'fa-times-circle', 'danger');
+      } else {
+        triggerToast(`Tải ảnh & hoàn thành ${c.n} thành công!`, 'fa-check', 'success');
+      }
+    } catch (err) { 
+      console.error(err);
+      triggerToast(`Lỗi tải ảnh!`, 'fa-times', 'danger'); 
+    } finally {
+      e.target.value = '';
+      setProcessing(false);
+    }
+  };
+
+  const userName = data.user ? data.user.split(' ').pop() : 'Chờ nhận việc';
+  const phaseAvatar = data.user ? 
+      <Avatar name={data.user} userConfigs={userConfigs} className="w-[32px] h-[32px] shrink-0 border border-[#333] shadow-sm rounded-full" /> 
+      : 
+      <div className="w-[32px] h-[32px] rounded-full bg-[#222] border border-[#333] flex items-center justify-center text-gray-500"><i className="fas fa-user text-[14px]"></i></div>;
+
+  return (
+    <div className="w-full py-2 bg-[#0a0a0a] rounded-xl px-2.5 border border-[#222] flex flex-col gap-1">
+      <div className="flex items-center justify-between w-full">
+        <div className="flex items-center gap-3 min-w-0 pr-2">
+            {phaseAvatar}
+            <div className="flex flex-col">
+                <span className={`font-black text-[10px] uppercase ${isDone ? 'text-[#10b981]' : (isInProgress ? 'text-amber-500' : 'text-gray-500')}`}>{c.n}</span>
+                <div className="flex flex-col">
+                    <span className={`font-bold text-[13px] truncate ${isOwner && !isDone && isInProgress ? 'text-amber-400' : 'text-[#f5f5f5]'}`}>{userName}</span>
+                    {isDone && completedDurationText && (
+                        <span className="text-[9px] text-zinc-500 font-bold leading-tight">
+                            🕒 {completedDurationText} {data.reward_vnd === 0 && <span className="text-rose-500 font-black ml-1">(Trễ - Cắt Thưởng)</span>}
+                        </span>
+                    )}
+                </div>
+            </div>
+        </div>
+
+        <div className="shrink-0 w-[115px]">
+            {isPending && (
+                <button onClick={(e) => { e.stopPropagation(); act('In Progress'); }} disabled={processing} className="w-full py-2 bg-[#2563eb] text-white rounded-lg font-black text-[11px] uppercase tracking-wider hover:bg-blue-600 active:scale-95 shadow-md flex justify-center items-center gap-1.5">
+                    {processing ? <i className="fas fa-spinner fa-spin text-[14px]"></i> : <><i className="fas fa-play text-[10px]"></i> NHẬN LÀM</>}
+                </button>
+            )}
+
+            {isInProgress && isOwner && (
+                <label onClick={(e) => e.stopPropagation()} className="w-full m-0 py-2 bg-amber-500 text-black rounded-lg cursor-pointer hover:bg-amber-400 flex items-center justify-center active:scale-95 shadow-md font-black text-[11px] uppercase tracking-wider gap-1.5">
+                    {processing ? <i className="fas fa-spinner fa-spin text-[14px]"></i> : <><i className="fas fa-camera text-[14px]"></i> CHỤP ẢNH</>}
+                    <input type="file" accept="image/png, image/jpeg, image/jpg" capture="environment" className="hidden" onChange={handlePhotoUpload} disabled={processing}/>
+                </label>
+            )}
+
+            {isInProgress && !isOwner && (
+                <div className="w-full py-2 bg-[#1a1a1a] text-amber-500 rounded-lg font-bold text-[10px] uppercase tracking-wider text-center border border-[#333]">ĐANG LÀM</div>
+            )}
+
+            {isDone && data.photo && (
+                <button onClick={(e) => { e.stopPropagation(); window.dispatchEvent(new CustomEvent('triggerInternalPreview', { detail: data.photo })); }} className="w-full py-1.5 bg-[#10b981]/10 text-[#10b981] border border-[#10b981]/30 hover:bg-[#10b981] hover:text-white rounded-lg font-black text-[11px] flex items-center justify-center shadow-sm gap-1.5 uppercase active:scale-95 transition-all">
+                    <i className="fas fa-image text-[13px]"></i> XEM ẢNH
+                </button>
+            )}
+        </div>
+      </div>
+
+      {/* Progress Bar đếm ngược khi đang làm việc */}
+      {isInProgress && (
+          <div className="w-full border-t border-zinc-900 pt-1.5 mt-1 space-y-1">
+              <div className="flex justify-between items-center text-[9px] font-bold">
+                  <span className="text-zinc-500">Định mức: {limitMins} phút</span>
+                  <span className={timeColorClass}>{timeText}</span>
+              </div>
+              <div className="w-full bg-zinc-900 rounded-full h-1 overflow-hidden">
+                  <div 
+                      className={`h-full transition-all duration-1000 ${
+                          progressPercent > 25 ? 'bg-emerald-500' : (progressPercent > 0 ? 'bg-amber-500' : 'bg-rose-500')
+                      }`}
+                      style={{ width: `${progressPercent}%` }}
+                  ></div>
+              </div>
+          </div>
+      )}
+    </div>
+  );
+}
+
+// -------------------------------------------------------------------------
+// MỤC 2: COMPONENT THẺ HIỂN THỊ BAO NGOÀI (WorkerCardV2)
+// -------------------------------------------------------------------------
+function WorkerCardV2({ item, order, prodItems, erpProducts, currentUser, pushDeltas, configs, userConfigs, triggerToast, kpiConfig, idx_num, isAdmin }) {
+  const [optimisticItem, setOptimisticItem] = React.useState(null);
+  const [isExpanded, setIsExpanded] = React.useState(false);
+  const [previewImg, setPreviewImg] = React.useState(null);
+
+  React.useEffect(() => { setOptimisticItem(null); }, [item]);
+  
+  const _item = optimisticItem || item;
+  const wrappedPushDeltas = (payload, msg, icon) => {
+    if (payload.prodItems && payload.prodItems[0]) { setOptimisticItem(payload.prodItems[0]); }
+    return pushDeltas(payload, msg, icon).catch(() => triggerToast("Đang đồng bộ ngầm...", "fa-wifi", "warning"));
+  };
+
+  const productInfo = (erpProducts || []).find(p => p.name === _item.name) || {};
+  const productImage = productInfo.image;
+  const realImage = productInfo.realImage;
+  const oCode = (order.orderCode || '').split(' | MVĐ: ')[0] || 'ĐƠN LẺ';
+  const isBuKho = order.channel === 'Sản Xuất Bù Kho' || order.channel === 'Sản Xuất Tồn' || _item.fulfilledFromStock;
+
+  const p1Status = _item.phases?.phase1?.status || 'Pending';
+  const p2Status = _item.phases?.phase2?.status || 'Pending';
+  const isAnyInProgress = p1Status === 'In Progress' || p2Status === 'In Progress';
+  const isReadyForInspection = _item.status === 'Kiểm Định' || (p1Status === 'Done' && p2Status === 'Done' && _item.status !== 'Done' && _item.status !== 'Đã Huỷ');
+  
+  const isItemDone = _item.status === 'Done' || String(_item.status).toUpperCase() === 'ĐÃ XONG';
+
+  return (
+    <React.Fragment>
+      <div className={`rounded-2xl shadow-sm relative border hover:border-[#444] transition-all p-3.5 mb-3 ${
+            isItemDone 
+                ? 'bg-[#10b981]/15 border-[#10b981]/40' 
+                : isAnyInProgress 
+                    ? 'bg-[#141414] rf-production-running-border' 
+                    : 'bg-[#141414] border-[#2a2a2a]'
+        }`}>
+        
+        <div className="flex gap-3 w-full cursor-pointer relative" onClick={() => setIsExpanded(!isExpanded)}>
+           <div className="w-[60px] h-[60px] shrink-0 relative z-10">
+              <div className="w-full h-full bg-[#0a0a0a] rounded-lg border border-[#333] overflow-hidden flex items-center justify-center relative shadow-sm">
+                <div className="absolute top-0.5 left-0.5 w-3.5 h-3.5 bg-black/80 text-[#d4af37] font-black text-[8px] rounded-full flex items-center justify-center border border-[#333] z-10">{idx_num}</div>
+                {productImage ? <img src={productImage} className="w-full h-full object-cover opacity-90" alt="img" /> : <i className="fas fa-image text-[#444] text-xl"></i>}
+              </div>
+           </div>
+
+           <div className="flex-1 min-w-0 flex flex-col justify-center pr-8">
+              <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
+                <span className="text-[8px] font-black px-1.5 py-0.5 rounded border border-[#2563eb]/30 bg-[#2563eb]/10 text-[#60a5fa] uppercase shadow-sm truncate">{order.channel || 'OFFLINE'}</span>
+                {isBuKho && <span className="text-[8px] font-black px-1.5 py-0.5 bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded shadow-sm uppercase tracking-wider">BÙ KHO</span>}
+                <span className="text-[10px] font-black text-gray-400 truncate uppercase">{oCode}</span>
+                
+                {/* HIỂN THỊ NHÃN TRẠNG THÁI */}
+                {isItemDone ? (
+                    <span className="text-[8px] font-black px-1.5 py-0.5 bg-[#10b981]/20 text-[#10b981] border border-[#10b981]/40 rounded shadow-sm uppercase tracking-wider flex items-center gap-1">
+                        <i className="fas fa-check-circle"></i> ĐẠT KCS
+                    </span>
+                ) : isAnyInProgress ? (
+                    <span className="text-[8px] font-black px-1.5 py-0.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded shadow-sm animate-pulse uppercase tracking-wider">ĐANG LÀM</span>
+                ) : null}
+
+              </div>
+              <h4 className={`font-black text-[13px] break-words ${isItemDone ? 'text-[#34d399]' : 'text-[#d4af37]'}`} title={_item.name}>{_item.name}</h4>
+              
+              {/* === KHỐI GHI CHÚ (VISUAL ENFORCEMENT) CẢNH BÁO CHO THỢ === */}
+              {_item.note && (
+                <div className="mt-2 p-2 bg-rose-500/10 border-l-[3px] border-rose-500 rounded-r-lg flex items-start gap-1.5 shadow-sm w-full">
+                    <i className="fas fa-exclamation-triangle text-rose-500 animate-pulse mt-[2px] shrink-0 text-[11px]"></i>
+                    <div className="text-[11px] font-black text-rose-400 leading-snug whitespace-normal break-words">
+                        <span className="uppercase mr-1 underline decoration-rose-500/50">LƯU Ý:</span>{_item.note}
+                    </div>
+                </div>
+              )}
+           </div>
+
+           <div className="absolute top-2 right-2 flex gap-1 z-30">
+              {realImage && (
+                 <button onClick={(e) => { e.stopPropagation(); setPreviewImg(realImage); }} className="w-6 h-6 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500 hover:text-black rounded flex items-center justify-center transition-colors shadow-sm" title="Xem ảnh thật mẫu tại đây">
+                   <i className="fas fa-camera text-[10px]"></i>
+                 </button>
+              )}
+              {isAdmin && (
+                <React.Fragment>
+                  <button onClick={(e) => { e.stopPropagation(); const n = window.prompt("Sửa ghi chú:", _item.note); if (n !== null) wrappedPushDeltas({ prodItems: [{ ..._item, note: n }] }); }} className="w-6 h-6 bg-[#1a1a1a] text-[#d4af37] border border-[#333] hover:border-[#d4af37]/50 rounded flex items-center justify-center transition-colors shadow-sm"><i className="fas fa-edit text-[10px]"></i></button>
+                  <button onClick={(e) => { e.stopPropagation(); if (window.confirm("Xoá lệnh này?")) wrappedPushDeltas({ deletes: { prodItems: [_item.id] } }); }} className="w-6 h-6 bg-[#4c0519]/50 text-[#e11d48] border border-[#e11d48]/30 hover:bg-[#e11d48] hover:text-white rounded flex items-center justify-center transition-colors shadow-sm"><i className="fas fa-trash text-[10px]"></i></button>
+                </React.Fragment>
+              )}
+           </div>
+
+           <div className="absolute right-3 bottom-2 text-gray-500 text-[10px]">
+               {isExpanded ? <i className="fas fa-chevron-up"></i> : <i className="fas fa-chevron-down"></i>}
+           </div>
+        </div>
+
+        {isExpanded && (
+            <div className={`px-2 pb-2 border-t border-[#222] pt-2 flex flex-col gap-1 w-full animate-fade-in rounded-b-xl ${isItemDone ? 'bg-[#0f2e24]' : 'bg-[#111]'}`}>
+              {/* Vẫn render các công đoạn như bình thường */}
+              {configs.map(c => (
+                  <WorkerPhaseV2 key={c.k} item={_item} c={c} configs={configs} order={order} prodItems={prodItems} erpProducts={erpProducts} currentUser={currentUser} pushDeltas={wrappedPushDeltas} userConfigs={userConfigs} triggerToast={triggerToast} kpiConfig={kpiConfig} isAdmin={isAdmin} />
+              ))}
+
+              {isReadyForInspection && !isItemDone && (
+                <div className="mt-1 p-2.5 bg-[#1e1b4b]/50 border border-[#4338ca]/30 rounded-xl relative">
+                  <div className="text-[10px] font-black text-[#818cf8] mb-2 text-center uppercase"><i className="fas fa-search-dollar mr-1"></i> KIỂM ĐỊNH CHẤT LƯỢNG</div>
+                  <div className="flex gap-2">
+                    <button onClick={(e) => { 
+                        e.stopPropagation();
+                        if(window.confirm('Bạn muốn trả lại sản phẩm này cho thợ sửa lỗi?')) {
+                            const upd = JSON.parse(JSON.stringify(_item));
+                            upd.status = 'In Progress';
+                            if (upd.phases && upd.phases.phase2 && upd.phases.phase2.status === 'Done') {
+                                upd.phases.phase2.status = 'In Progress';
+                            } else if (upd.phases && upd.phases.phase1) {
+                                upd.phases.phase1.status = 'In Progress';
+                            }
+                            wrappedPushDeltas({ updItems: [upd], prodItems: [upd] }, 'Yêu cầu làm lại', 'fa-undo');
+                        }
+                    }} className="flex-1 py-2 bg-[#4c0519] text-[#fb7185] hover:bg-[#e11d48] hover:text-white font-black text-[10px] rounded-lg shadow-sm active:scale-95 transition-all">LÀM LẠI</button>
+                    
+                    <button onClick={(e) => { 
+                        e.stopPropagation();
+                        if (window.confirm('Xác nhận sản phẩm ĐẠT yêu cầu xuất xưởng?')) {
+                            const upd = JSON.parse(JSON.stringify(_item));
+                            upd.status = 'Done';
+                            
+                            let payload = { prodItems: [upd] };
+                            
+                            if (order && order.id) {
+                                const allOrderProds = (prodItems || []).filter(p => p.orderId === _item.orderId);
+                                const isAllDone = allOrderProds.every(p => {
+                                    if (p.id === _item.id) return true;
+                                    const pStatusUpper = String(p.status || '').toUpperCase().trim();
+                                    return pStatusUpper === 'DONE' || pStatusUpper === 'ĐÃ XONG' || pStatusUpper === 'HỦY/VỠ' || pStatusUpper === 'HOÀN KHO ĐẠT' || p.fulfilledFromStock;
+                                });
+                                if (isAllDone && (order.status === 'Chờ Sản Xuất' || order.status === 'Quét Tự Động' || order.status === 'Đang Sản Xuất')) {
+                                    payload.orders = [{ ...order, status: 'Sẵn sàng đóng gói' }];
+                                }
+                            }
+                            wrappedPushDeltas(payload, 'Đã xác nhận Đạt KCS!', 'fa-check-double');
+                        }
+                    }} className="flex-1 py-2 bg-[#10b981] text-[#0a0a0a] hover:bg-[#059669] hover:text-white font-black text-[10px] rounded-lg shadow-[0_0_10px_rgba(16,185,129,0.3)] active:scale-95 transition-all">
+                        DUYỆT ĐẠT KCS
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+        )}
+      </div>
+
+      {previewImg && (
+          <div className="fixed inset-0 z-[99999] bg-black/95 flex flex-col items-center justify-center p-4 backdrop-blur-md animate-fade-in" onClick={() => setPreviewImg(null)}>
+              <div className="relative max-w-md w-full flex flex-col items-center animate-slide-up" onClick={e => e.stopPropagation()}>
+                  <button className="absolute -top-12 right-0 text-white/70 hover:text-rose-400 text-2xl w-10 h-10 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-full transition-all shadow-md" onClick={() => setPreviewImg(null)}>
+                      <i className="fas fa-times"></i>
+                  </button>
+                  <img src={previewImg} alt="Ảnh sản phẩm thực tế" className="w-full h-auto max-h-[75vh] object-contain rounded-2xl shadow-[0_0_30px_rgba(212,175,55,0.3)] border border-white/10 bg-black" />
+                  <div className="mt-4 flex items-center justify-center gap-2 text-[#d4af37] text-[11px] font-black uppercase tracking-[0.15em] bg-[#141414] px-5 py-2 rounded-full border border-[#d4af37]/30 shadow-md">
+                      <i className="fas fa-eye"></i> MẪU THỰC TẾ ĐƯỢC CHỈ ĐỊNH
+                  </div>
+              </div>
+          </div>
+      )}
+    </React.Fragment>
+  );
+}
+
+// -------------------------------------------------------------------------
+// MỤC 3: GIAO DIỆN CHÍNH TAB SẢN XUẤT (ProductionTab)
+// -------------------------------------------------------------------------
+function ProductionTab({ orders, prodItems, erpProducts, currentUser, pushDeltas, userConfigs, triggerToast, kpiConfig }) {
+  const [typeTab, setTypeTab] = React.useState('Layout'); 
+  const [statusTab, setStatusTab] = React.useState('CHỜ SẢN XUẤT'); 
+  const [filterTime, setFilterTime] = React.useState('Tháng Này'); 
+  const [searchQuery, setSearchQuery] = React.useState('');
+  const [globalPreview, setGlobalPreview] = React.useState(null);
+  const [showRules, setShowRules] = React.useState(false);
+
+  React.useEffect(() => {
+    const handleGlobalPreview = (e) => { if(e.detail) setGlobalPreview(e.detail); };
+    window.addEventListener('triggerInternalPreview', handleGlobalPreview);
+    return () => window.removeEventListener('triggerInternalPreview', handleGlobalPreview);
+  }, []);
+
+  const baseFiltered = React.useMemo(() => { 
+      return (prodItems || []).filter(i => { 
+          if (i.orderId === 'SHARED_TASK') return false; 
+          const o = (orders || []).find(x => x.id === i.orderId) || {}; 
+          
+          if (searchQuery) {
+              const q = searchQuery.toLowerCase();
+              const matchName = String(i.name || '').toLowerCase().includes(q);
+              const matchOrder = String(o.orderCode || '').toLowerCase().includes(q);
+              if (!matchName && !matchOrder) return false;
+          }
+
+          if (typeof checkTimeFilter === 'function' && !checkTimeFilter(i.deadline || o.createdAt, filterTime)) return false; 
+          return true; 
+      }); 
+  }, [prodItems, orders, filterTime, searchQuery]);
+
+  const countBeKinh = baseFiltered.filter(i => {
+      const searchStr = String(i.type || '') + ' ' + String(i.name || '');
+      return searchStr.toLowerCase().includes('bể');
+  }).length; 
+
+  const countLayout = baseFiltered.filter(i => {
+      const searchStr = String(i.type || '') + ' ' + String(i.name || '');
+      return !searchStr.toLowerCase().includes('bể');
+  }).length;
+
+  const typeFiltered = React.useMemo(() => { 
+      return baseFiltered.filter(i => { 
+          const searchStr = String(i.type || '') + ' ' + String(i.name || '');
+          const isG = searchStr.toLowerCase().includes('bể'); 
+          
+          if (typeTab === 'Bể Kính' && !isG) return false; 
+          if (typeTab === 'Layout' && isG) return false; 
+          return true; 
+      }); 
+  }, [baseFiltered, typeTab]);
+
+  const listWithStatus = typeFiltered.map(i => {
+    let curSt = 'CHỜ SẢN XUẤT';
+    const p1 = i.phases?.phase1?.status || 'Pending';
+    const p2 = i.phases?.phase2?.status || 'Pending';
+
+    if (i.status === 'Đã Huỷ' || i.status === 'HUỶ') curSt = 'ĐÃ HUỶ';
+    else if (i.status === 'Done' || i.status === 'Đã Xong') curSt = 'ĐÃ XONG';
+    else if (i.status === 'Kiểm Định' || (p1 === 'Done' && p2 === 'Done')) curSt = 'KIỂM ĐỊNH';
+    else curSt = 'CHỜ SẢN XUẤT';
+    
+    return { ...i, _computedStatus: curSt };
+  });
+
+  const counts = { 'CHỜ SẢN XUẤT': 0, 'KIỂM ĐỊNH': 0, 'ĐÃ XONG': 0, 'ĐÃ HUỶ': 0, 'TẤT CẢ': typeFiltered.length };
+  listWithStatus.forEach(i => { counts[i._computedStatus] = (counts[i._computedStatus] || 0) + 1; });
+
+  const list = listWithStatus.filter(i => {
+    if (statusTab !== 'TẤT CẢ' && statusTab !== i._computedStatus) return false;
+    return true;
+  });
+
+  const stats = React.useMemo(() => {
+      let pending = 0;
+      let running = 0;
+      let done = 0;
+      
+      listWithStatus.forEach(item => {
+          if (item._computedStatus === 'CHỜ SẢN XUẤT') {
+              const p1 = item.phases?.phase1?.status || 'Pending';
+              const p2 = item.phases?.phase2?.status || 'Pending';
+              if (p1 === 'In Progress' || p2 === 'In Progress') {
+                  running++;
+              } else {
+                  pending++;
+              }
+          } else if (item._computedStatus === 'ĐÃ XONG') {
+              done++;
+          }
+      });
+      
+      const total = pending + running + done;
+      const ratio = total > 0 ? Math.round((done / total) * 100) : 0;
+      
+      return { pending, running, done, ratio };
+  }, [listWithStatus]);
+
+  const adminCheck = localStorage.getItem('rf_admin') === 'true';
+
+  return (
+    <div className="space-y-3">
+      <style>
+        {`
+          @keyframes rf-glow-border {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+          }
+          .rf-production-running-border {
+            position: relative;
+            border: 1px solid transparent !important;
+            background: linear-gradient(#141414, #141414) padding-box, linear-gradient(90deg, #d4af37, #f59e0b, #3b82f6, #d4af37) border-box !important;
+            background-size: 250% 250% !important;
+            animation: rf-glow-border 3.5s linear infinite !important;
+            box-shadow: 0 0 10px rgba(245, 158, 11, 0.2) !important;
+          }
+        `}
+      </style>
+
+      {/* 1. KHUNG TĨNH: NỘI QUY & QUY CHUẨN PHẠT (COLLAPSIBLE TO SAVE SPACE) */}
+      <div className="bg-gradient-to-r from-[#2a0808]/40 to-[#141414]/90 border border-rose-500/20 rounded-2xl shadow-md overflow-hidden transition-all duration-300">
+          <div 
+              onClick={() => setShowRules(!showRules)} 
+              className="p-3 flex justify-between items-center cursor-pointer hover:bg-rose-500/5 transition-colors"
+          >
+              <div className="flex items-center gap-2">
+                  <i className="fas fa-gavel text-rose-500 text-[13px]"></i>
+                  <span className="font-black text-[11px] text-rose-400 uppercase tracking-widest">Nội Quy & Phạt Sản Xuất ({showRules ? 'Thu gọn' : 'Xem chi tiết'})</span>
+              </div>
+              <i className={`fas fa-chevron-${showRules ? 'up' : 'down'} text-rose-500/70 text-[10px] transition-transform`}></i>
+          </div>
+          
+          {showRules && (
+              <div className="p-4 pt-0 border-t border-rose-500/10 animate-fade-in">
+                  <ul className="text-[11px] text-gray-300 font-medium space-y-2.5 pl-1">
+                      <li className="flex items-start gap-2 leading-snug">
+                          <i className="fas fa-times-circle text-[10px] text-rose-500/70 mt-0.5 shrink-0"></i>
+                          <span>Bắt đầu, kết thúc các khâu sản xuất, không bấm nút <b className="text-rose-400 bg-rose-500/10 px-1 py-0.5 rounded ml-1 border border-rose-500/20">-50k</b> <span className="text-gray-500 text-[9px]">/ 1 lệnh</span></span>
+                      </li>
+                      <li className="flex items-start gap-2 leading-snug">
+                          <i className="fas fa-times-circle text-[10px] text-rose-500/70 mt-0.5 shrink-0"></i>
+                          <span>Trạng thái khâu lệnh sản xuất sai với thực tế <b className="text-rose-400 bg-rose-500/10 px-1 py-0.5 rounded ml-1 border border-rose-500/20">-100k</b> <span className="text-gray-500 text-[9px]">/ 1 lệnh</span></span>
+                      </li>
+                      <li className="flex items-start gap-2 leading-snug">
+                          <i className="fas fa-times-circle text-[10px] text-rose-500/70 mt-0.5 shrink-0"></i>
+                          <span>Có đơn hoàn huỷ trả về không sửa <b className="text-rose-400 bg-rose-500/10 px-1 py-0.5 rounded ml-1 border border-rose-500/20">-200k</b> <span className="text-gray-500 text-[9px]">/ 1 đơn</span></span>
+                      </li>
+                      <li className="flex items-start gap-2 leading-snug">
+                          <i className="fas fa-times-circle text-[10px] text-rose-500/70 mt-0.5 shrink-0"></i>
+                          <span>Ảnh không khớp với lệnh sản xuất, nhoè, mờ,... <b className="text-rose-400 bg-rose-500/10 px-1 py-0.5 rounded ml-1 border border-rose-500/20">-100k</b> <span className="text-gray-500 text-[9px]">/ 1 đơn</span></span>
+                      </li>
+                      <li className="flex items-start gap-2 leading-snug">
+                          <i className="fas fa-times-circle text-[10px] text-rose-500/70 mt-0.5 shrink-0"></i>
+                          <span>Trễ bàn giao cho bộ phận đóng gói <b className="text-rose-400 bg-rose-500/10 px-1 py-0.5 rounded ml-1 border border-rose-500/20">-100k</b> <span className="text-gray-500 text-[9px]">/ tổng đơn</span></span>
+                      </li>
+                  </ul>
+              </div>
+          )}
+      </div>
+
+      {/* 2. CHỈ SỐ DASHBOARD SẢN XUẤT */}
+      <div className="grid grid-cols-2 gap-3">
+          <div className="bg-[#0f0f11] border border-white/[0.07] p-3.5 rounded-2xl flex items-center justify-between group hover:border-yellow-500/20 transition-colors">
+              <div>
+                  <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">Chờ nhận việc</span>
+                  <span className="text-[18px] font-black text-[#d4af37] leading-none">{stats.pending} <span className="text-[9px] text-gray-500 font-bold">món</span></span>
+              </div>
+              <div className="w-8 h-8 rounded-xl bg-yellow-500/10 flex items-center justify-center text-sm text-[#d4af37] group-hover:scale-110 transition-transform"><i className="fas fa-hourglass-start"></i></div>
+          </div>
+          <div className="bg-[#0f0f11] border border-white/[0.07] p-3.5 rounded-2xl flex items-center justify-between group hover:border-blue-500/20 transition-colors">
+              <div>
+                  <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">Đang sản xuất</span>
+                  <span className="text-[18px] font-black text-[#3b82f6] leading-none">{stats.running} <span className="text-[9px] text-gray-500 font-bold">món</span></span>
+              </div>
+              <div className="w-8 h-8 rounded-xl bg-blue-500/10 flex items-center justify-center text-sm text-[#3b82f6] group-hover:scale-110 transition-transform"><i className="fas fa-hammer"></i></div>
+          </div>
+          <div className="bg-[#0f0f11] border border-white/[0.07] p-3.5 rounded-2xl flex items-center justify-between group hover:border-emerald-500/20 transition-colors">
+              <div>
+                  <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">Hoàn thành</span>
+                  <span className="text-[18px] font-black text-[#10b981] leading-none">{stats.done} <span className="text-[9px] text-gray-500 font-bold">món</span></span>
+              </div>
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center text-sm text-[#10b981] group-hover:scale-110 transition-transform"><i className="fas fa-check-double"></i></div>
+          </div>
+          <div className="bg-[#0f0f11] border border-white/[0.07] p-3.5 rounded-2xl flex items-center justify-between group hover:border-purple-500/20 transition-colors">
+              <div>
+                  <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">Hiệu suất tháng</span>
+                  <span className="text-[18px] font-black text-[#a78bfa] leading-none">{stats.ratio}%</span>
+              </div>
+              <div className="w-8 h-8 rounded-xl bg-purple-500/10 flex items-center justify-center text-sm text-[#a78bfa] group-hover:scale-110 transition-transform"><i className="fas fa-chart-line"></i></div>
+          </div>
+      </div>
+
+
+
+      <div className="flex bg-[#0f0f11] rounded-xl p-1.5 border border-white/[0.07]">
+        {[{id: 'Bể Kính', c: countBeKinh}, {id: 'Layout', c: countLayout}].map(t => (
+          <button key={t.id} onClick={() => setTypeTab(t.id)} className={`flex-1 py-2.5 rounded-lg font-black text-[11px] transition-colors ${typeTab === t.id ? 'bg-[#d4af37] text-[#0a0a0a] shadow-md' : 'text-gray-400 hover:bg-[#1a1a1a]'}`}>
+            {t.id.toUpperCase()} <span className={`ml-1 px-1.5 py-0.5 rounded-md text-[9px] ${typeTab === t.id ? 'bg-black/20' : 'bg-[#222]'}`}>{t.c}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="flex gap-2 mb-1">
+        <select value={filterTime} onChange={e => setFilterTime(e.target.value)} className="w-[105px] py-2.5 px-2 bg-[#0a0a0a] rounded-xl border border-[#333] text-[10px] font-bold outline-none text-white shadow-sm focus:border-[#d4af37]">
+          <option>Hôm Nay</option><option>Hôm Qua</option><option>Tháng Này</option><option>Tháng Trước</option><option>Tất Cả</option>
+        </select>
+        
+        <div className="flex-1 relative">
+            <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-[11px]"></i>
+            <input 
+                type="text" 
+                placeholder="Tìm tên hàng, mã đơn..." 
+                value={searchQuery} 
+                onChange={e => setSearchQuery(e.target.value)} 
+                className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl pl-8 pr-8 py-2.5 text-[11px] font-bold outline-none text-white shadow-sm focus:border-[#d4af37] transition-colors"
+            />
+            {searchQuery && <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"><i className="fas fa-times-circle text-sm"></i></button>}
+        </div>
+      </div>
+
+      <div className="flex overflow-x-auto gap-2 pb-1 hide-scrollbar">
+        {['CHỜ SẢN XUẤT', 'KIỂM ĐỊNH', 'ĐÃ XONG', 'ĐÃ HUỶ', 'TẤT CẢ'].map(t => (
+          <button key={t} onClick={() => setStatusTab(t)} className={`flex-shrink-0 px-3.5 py-2.5 rounded-xl text-[10px] font-bold transition-all ${statusTab === t ? 'bg-[#d4af37] text-[#0a0a0a]' : 'bg-[#0f0f11] text-gray-400 hover:bg-[#18181b] border border-white/[0.07]'}`}>
+            {t} <span className={`ml-1 px-1.5 py-0.5 rounded-md text-[8px] ${statusTab === t ? 'bg-black/20' : 'bg-[#222]'}`}>{counts[t]}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="space-y-3 mt-1 pb-4">
+        {list.length === 0 ? (
+          <div className="text-center py-16 text-[#8a8a8a] font-bold text-[13px] bg-[#0f0f11] rounded-[16px] border-2 border-dashed border-white/[0.07] flex flex-col items-center justify-center">
+            <i className="fas fa-clipboard-check text-4xl block mb-3 opacity-50"></i> KHÔNG CÓ LỆNH THỢ
+          </div>
+        ) : (
+          (() => {
+            let lastDateStr = null;
+            
+            const sortedList = list.sort((a, b) => {
+              if (statusTab === 'ĐÃ XONG' || statusTab === 'KIỂM ĐỊNH') {
+                  const getEnd = (i) => i.phases?.phase2?.endTime || i.phases?.phase1?.endTime || i.phases?.phase2?.date || i.phases?.phase1?.date || '0';
+                  const comp = getEnd(b).localeCompare(getEnd(a));
+                  if (comp !== 0) return comp;
+                  return String(b.id).localeCompare(String(a.id));
+              }
+              const dDiff = new Date(a.deadline || 0) - new Date(b.deadline || 0);
+              if (dDiff !== 0) return dDiff;
+              return String(a.id).localeCompare(String(b.id));
+            });
+
+            return sortedList.map((item, idx) => {
+              const order = (orders || []).find(o => o.id === item.orderId) || {};
+              
+              let groupHeader = null;
+              if (statusTab === 'ĐÃ XONG') {
+                  const dateVal = item.phases?.phase2?.date || item.phases?.phase1?.date || 'CHƯA RÕ NGÀY';
+                  if (dateVal !== lastDateStr) {
+                      groupHeader = (
+                          <div className="w-full py-2 px-3 mt-4 mb-2 bg-gradient-to-r from-[#1a1a1a] to-[#111] text-[#10b981] font-black text-[11px] rounded-lg border border-[#10b981]/30 shadow-sm flex items-center gap-2 uppercase tracking-wider">
+                              <i className="fas fa-calendar-check text-[13px]"></i> HOÀN THÀNH NGÀY: {dateVal}
+                          </div>
+                      );
+                      lastDateStr = dateVal;
+                  }
+              }
+
+              return (
+                <React.Fragment key={item.id}>
+                  {groupHeader}
+                  <WorkerCardV2 
+                    key={item.id}
+                    item={item} 
+                    order={order} 
+                    prodItems={prodItems} 
+                    erpProducts={erpProducts} 
+                    currentUser={currentUser} 
+                    pushDeltas={pushDeltas} 
+                    userConfigs={userConfigs} 
+                    triggerToast={triggerToast} 
+                    kpiConfig={kpiConfig} 
+                    idx_num={idx + 1} 
+                    isAdmin={adminCheck}
+                    configs={typeTab === 'Bể Kính' 
+                      ? [{k:'phase1', n:'Cắt Dán', req:[]}, {k:'phase2', n:'Gọt Keo', req:['phase1']}] 
+                      : [{k:'phase1', n:'Dựng Khung', req:[]}, {k:'phase2', n:'Gia Cố', req:['phase1']}]
+                    } 
+                  />
+                </React.Fragment>
+              );
+            });
+          })()
+        )}
+      </div>
+
+      {globalPreview && (
+          <div className="fixed inset-0 z-[99999] bg-black/95 flex flex-col items-center justify-center p-4 backdrop-blur-md animate-fade-in" onClick={() => setGlobalPreview(null)}>
+              <div className="relative max-w-md w-full flex flex-col items-center animate-slide-up" onClick={e => e.stopPropagation()}>
+                  <button className="absolute -top-12 right-0 text-white/70 hover:text-rose-400 text-2xl w-10 h-10 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-full transition-all shadow-md" onClick={() => setGlobalPreview(null)}>
+                      <i className="fas fa-times"></i>
+                  </button>
+                  <img src={globalPreview} alt="Ảnh nghiệm thu" className="w-full h-auto max-h-[75vh] object-contain rounded-2xl shadow-[0_0_30px_rgba(16,185,129,0.3)] border border-white/10 bg-black" />
+                  <div className="mt-4 flex items-center justify-center gap-2 text-[#10b981] text-[11px] font-black uppercase tracking-[0.15em] bg-[#141414] px-5 py-2 rounded-full border border-[#10b981]/30 shadow-md">
+                      <i className="fas fa-check-circle"></i> ẢNH KẾT QUẢ SẢN XUẤT CHÍNH XÁC
+                  </div>
+              </div>
+          </div>
+      )}
+    </div>
+  );
+}
+</script>

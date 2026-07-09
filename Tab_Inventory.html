@@ -1,0 +1,807 @@
+<script type="text/babel">
+function VariantGroupCard({ group, setEditProd, setAddVarGroup, pushData }) { 
+    const [selectedVarId, setSelectedVarId] = React.useState(group.items[0]?.id);
+    const selectedVar = group.items.find(item => item.id === selectedVarId) || group.items[0] || {};
+    const [previewImg, setPreviewImg] = React.useState(null); 
+    const formatMoney = (val) => Number(val || 0).toLocaleString('vi-VN');
+    const isBoss = localStorage.getItem('rf_boss') === 'true';
+    const currentRole = localStorage.getItem('rf_role');
+    const canEdit = isBoss || currentRole === 'KHO VẬN';
+
+    return ( 
+        <React.Fragment>
+        <div className={"bg-[#141414] p-4 rounded-2xl shadow-sm border border-[#2a2a2a] relative overflow-hidden group hover:border-[#444] transition-colors mb-3"}> 
+            {canEdit && ( 
+                <div className={"absolute top-3 right-3 flex gap-1.5 z-10 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"}> 
+                    <button onClick={() => setEditProd(selectedVar)} className={"w-8 h-8 flex items-center justify-center text-gray-400 hover:text-[#d4af37] bg-[#0a0a0a] rounded-lg border border-[#333] transition-colors shadow-sm"} title="Chỉnh sửa sản phẩm"> 
+                        <i className={"fas fa-pencil-alt text-[11px]"}></i> 
+                    </button> 
+                    {isBoss && (
+                        <button onClick={() => { 
+                            if(window.confirm(`Bạn có chắc muốn XÓA VĨNH VIỄN mã [${selectedVar.sku}] và tất cả các mục bị trùng lặp của nó?`)) { 
+                                pushData({deletes: {Products: selectedVar._allIds || [selectedVar.id]}});
+                            } 
+                        }} className={"w-8 h-8 flex items-center justify-center text-gray-400 hover:text-rose-500 bg-[#0a0a0a] rounded-lg border border-[#333] hover:border-rose-500/30 transition-colors shadow-sm"} title="Xóa sản phẩm"> 
+                            <i className={"fas fa-trash text-[11px]"}></i> 
+                        </button> 
+                    )}
+                </div> 
+            )}
+
+            <div className={"flex gap-4"}>
+                <div className={"w-20 h-20 sm:w-24 sm:h-24 shrink-0 bg-[#0a0a0a] rounded-xl overflow-hidden border border-[#333] flex items-center justify-center relative shadow-inner"}>
+                    {group.image ? (
+                        <img src={group.image} className={"w-full h-full object-cover"} alt="img" />
+                    ) : (
+                        <i className={"fas fa-box-open text-[#333] text-3xl"}></i>
+                    )}
+                    
+                    {Number(selectedVar.quantity || 0) <= 0 ? (
+                        <div className={"absolute bottom-0 w-full bg-rose-600/90 backdrop-blur text-white text-[9px] font-black uppercase tracking-widest text-center py-1 border-t border-rose-500"}>
+                            HẾT HÀNG
+                        </div>
+                    ) : (Number(selectedVar.minStock || 0) > 0 && Number(selectedVar.quantity || 0) <= Number(selectedVar.minStock || 0)) ? (
+                        <div className={"absolute bottom-0 w-full bg-amber-500/90 backdrop-blur text-black text-[9px] font-black uppercase tracking-widest text-center py-1 border-t border-amber-400 animate-pulse"}>
+                            CẦN NHẬP
+                        </div>
+                    ) : null}
+                </div>
+
+                <div className={"flex-1 min-w-0 pr-16 sm:pr-20"}>
+                    <h4 className={"font-black text-[14px] sm:text-[15px] text-[#f5f5f5] leading-tight mb-1 truncate"}>{group.baseName}</h4>
+                    <div className={"text-[10px] font-black text-gray-500 mb-2.5 uppercase tracking-widest flex items-center gap-1.5"}>
+                        <i className={"fas fa-barcode text-[#444]"}></i> <span className={"text-[#d4af37] bg-[#d4af37]/10 px-1.5 py-0.5 rounded border border-[#d4af37]/20 shadow-sm"}>{selectedVar.sku}</span>
+                    </div>
+                    
+                    <div className={"flex flex-wrap gap-2 mb-1"}>
+                        {group.items.map(item => ( 
+                            <button 
+                                key={item.id} 
+                                onClick={() => setSelectedVarId(item.id)} 
+                                className={`px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all shadow-sm ${
+                                    selectedVar.id === item.id 
+                                        ? 'bg-[#2563eb] text-white shadow-[0_0_10px_rgba(37,99,235,0.2)] border border-[#1d4ed8]' 
+                                        : 'bg-[#0a0a0a] text-gray-400 border border-[#333] hover:border-[#555] hover:text-white'
+                                }`}
+                            >
+                                {item.variantLabel || 'MẶC ĐỊNH'}
+                            </button> 
+                        ))}
+                        
+                        {canEdit && (
+                            <button 
+                                onClick={() => setAddVarGroup(group)} 
+                                className={"px-2.5 py-1.5 rounded-lg text-[9px] font-black bg-[#0a0a0a] text-[#2563eb] border border-[#2563eb]/30 hover:bg-[#2563eb] hover:text-white transition-colors flex items-center justify-center shadow-sm"}
+                                title="Thêm phân loại mới"
+                            >
+                                <i className={"fas fa-plus"}></i>
+                            </button>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            <div className={"flex justify-between items-end mt-3.5 pt-3.5 border-t border-[#2a2a2a]"}>
+                <div className={"flex gap-4 sm:gap-6"}>
+                    <div>
+                        <span className={"text-[9px] font-black text-gray-500 block mb-1 uppercase tracking-widest"}><i className={"fas fa-tag mr-1 text-[#444]"}></i>Giá Vốn</span>
+                        <span className={"text-[12px] font-bold text-gray-400"}>{formatMoney(selectedVar.costPrice)}<span className={"text-[9px]"}>đ</span></span>
+                    </div>
+                    <div>
+                        <span className={"text-[9px] font-black text-gray-500 block mb-1 uppercase tracking-widest"}><i className={"fas fa-shopping-cart mr-1 text-[#444]"}></i>Giá Bán</span>
+                        <span className={"text-[14px] font-black text-[#10b981]"}>{formatMoney(selectedVar.price)}<span className={"text-[10px]"}>đ</span></span>
+                    </div>
+                    {selectedVar.price > 0 && selectedVar.costPrice > 0 && (
+                        <div>
+                            <span className={"text-[9px] font-black text-gray-500 block mb-1 uppercase tracking-widest"}><i className={"fas fa-chart-line mr-1 text-[#444]"}></i>Lợi Nhuận</span>
+                            <span className={"text-[12px] font-black text-[#d4af37] block"}>
+                                {formatMoney(selectedVar.price - selectedVar.costPrice)}đ <span className="text-[9px] text-[#10b981] font-bold ml-0.5">({((selectedVar.price - selectedVar.costPrice) / selectedVar.price * 100).toFixed(0)}%)</span>
+                            </span>
+                        </div>
+                    )}
+                </div>
+                
+                <div className={"flex items-center gap-2"}>
+                    <div className={"flex items-center bg-[#0a0a0a] rounded-xl border border-[#333] p-1 shadow-sm divide-x divide-[#333]"}>
+                        <div className={"px-2 text-center min-w-[32px]"}>
+                            <div className={"text-[7px] font-black text-gray-500 uppercase tracking-widest"}>Min</div>
+                            <div className={"text-[10px] font-bold text-gray-400"}>{selectedVar.minStock || 0}</div>
+                        </div>
+                        <div className={"px-3 text-center cursor-help"} title="Tồn kho hiện tại">
+                            <div className={"text-[8px] font-black text-[#d4af37] uppercase tracking-widest mb-0.5"}>Tồn Kho</div>
+                            <div className={`text-[14px] font-black leading-none ${Number(selectedVar.quantity || 0) <= 0 ? 'text-rose-500 animate-pulse' : 'text-[#d4af37]'}`}>
+                                {selectedVar.quantity || 0}
+                            </div>
+                        </div>
+                        <div className={"px-2 text-center min-w-[32px]"}>
+                            <div className={"text-[7px] font-black text-gray-500 uppercase tracking-widest"}>Max</div>
+                            <div className={"text-[10px] font-bold text-gray-400"}>{selectedVar.maxStock || 0}</div>
+                        </div>
+                    </div>
+
+                    {selectedVar.realImage && (
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); setPreviewImg(selectedVar.realImage); }}
+                            className={"w-10 h-10 rounded-xl bg-[#d4af37]/10 text-[#d4af37] border border-[#d4af37]/30 flex items-center justify-center hover:bg-[#d4af37] hover:text-[#0a0a0a] transition-all active:scale-95 shadow-[0_0_10px_rgba(212,175,55,0.1)]"}
+                            title="Xem ảnh thực tế Layout cho thợ"
+                        >
+                            <i className={"fas fa-camera-retro text-[14px]"}></i>
+                        </button>
+                    )}
+                    
+                    <button 
+                        onClick={() => window.dispatchEvent(new CustomEvent('openStockHistory', {detail: selectedVar}))} 
+                        className={"w-10 h-10 rounded-xl bg-[#10b981]/10 text-[#10b981] border border-[#10b981]/30 flex items-center justify-center hover:bg-[#10b981] hover:text-white transition-all active:scale-95 shadow-[0_0_10px_rgba(16,185,129,0.1)]"}
+                        title="Thẻ Kho"
+                    >
+                        <i className={"fas fa-history text-[14px]"}></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        {previewImg && (
+            <div className={"fixed inset-0 z-[9999] bg-black/90 flex flex-col items-center justify-center p-4 backdrop-blur-md animate-fade-in"} onClick={() => setPreviewImg(null)}>
+                <div className={"relative max-w-2xl w-full flex flex-col items-center animate-slide-up"} onClick={e => e.stopPropagation()}>
+                    <button className={"absolute -top-12 right-0 text-white/70 hover:text-rose-400 text-2xl w-10 h-10 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-full transition-all"} onClick={() => setPreviewImg(null)}>
+                        <i className={"fas fa-times"}></i>
+                    </button>
+                    <img src={previewImg} alt="Preview" className={"w-full h-auto max-h-[80vh] object-contain rounded-2xl shadow-[0_0_40px_rgba(212,175,55,0.2)] border border-white/10"} />
+                    <div className={"mt-5 flex items-center justify-center gap-2 text-[#d4af37] text-[11px] font-black uppercase tracking-[0.2em] bg-[#0a0a0a] px-6 py-2.5 rounded-full border border-[#d4af37]/30 shadow-sm"}>
+                        <i className={"fas fa-eye"}></i> GÓC NHÌN THỰC TẾ TỪ THỢ LAYOUT
+                    </div>
+                </div>
+            </div>
+        )}
+        </React.Fragment>
+    );
+}
+
+function ProductEditModal({ prod, onClose, pushData, currentCat, data }) {
+  const isNew = !prod || !prod.id;
+  const [form, setForm] = React.useState({
+    id: prod?.id || ('PROD_' + Date.now()),
+    sku: prod?.sku || '',
+    name: prod?.name || '',
+    category: prod?.category || currentCat || 'PHỤ KIỆN',
+    sub_category: prod?.sub_category || '',
+    costPrice: prod?.costPrice || 0,
+    price: prod?.price || 0,
+    quantity: prod?.quantity || 0,
+    image: prod?.image || '',
+    minStock: prod?.minStock || 0,
+    maxStock: prod?.maxStock || 0,
+    realImage: prod?.realImage || '',
+    unit: prod?.unit || 'Cái',
+    importUnit: prod?.importUnit || '',
+    conversionRate: prod?.conversionRate || 1
+  });
+  
+  const [showConversion, setShowConversion] = React.useState(!!prod?.importUnit);
+  const [skuError, setSkuError] = React.useState('');
+
+  const existingSkus = React.useMemo(() => {
+    const setObj = new Set();
+    if (data && data.Products) {
+        data.Products.forEach(p => {
+            if (p.sku) setObj.add(String(p.sku).trim().toLowerCase());
+        });
+    }
+    return setObj;
+  }, [data]);
+
+  React.useEffect(() => {
+    const currentSku = String(form.sku || '').trim().toLowerCase();
+    if (currentSku === '') {
+      setSkuError('');
+      return;
+    }
+    const prodSku = String(prod?.sku || '').trim().toLowerCase();
+    const isDuplicate = existingSkus.has(currentSku) && (isNew || prodSku !== currentSku);
+    if (isDuplicate) {
+        setSkuError('Mã SKU này đã tồn tại!');
+    } else {
+        setSkuError('');
+    }
+  }, [form.sku, existingSkus, isNew, prod]);
+
+  const categories = typeof CATEGORIES !== 'undefined' ? CATEGORIES : ['LAYOUT', 'BỂ KÍNH', 'PHỤ KIỆN', 'DANH MỤC SẢN XUẤT'];
+  const subCats = (typeof SUB_CATEGORIES !== 'undefined' && SUB_CATEGORIES[form.category]) ? SUB_CATEGORIES[form.category] : [];
+
+  const handleSave = async () => {
+    if (form.name.trim() === '') return alert('Tên sản phẩm không được để trống!');
+    if (form.sku.trim() === '') return alert('Mã SKU không được để trống!');
+    if (skuError !== '') return alert(skuError);
+
+    try {
+      const oldQty = Number(prod?.quantity) || 0;
+      const newQty = Number(form.quantity) || 0;
+      const diffVal = newQty - oldQty;
+
+      const payloadItem = {
+        ...form,
+        costPrice: Number(form.costPrice) || 0,
+        price: Number(form.price) || 0,
+        quantity: newQty,
+        _diff: diffVal,
+        minStock: Number(form.minStock) || 0,
+        maxStock: Number(form.maxStock) || 0,
+        conversionRate: Number(form.conversionRate) || 1,
+        category: form.category || 'PHỤ KIỆN',
+        sub_category: form.sub_category || 'KHÁC'
+      };
+      
+      const payload = { Products: [payloadItem] };
+      const oldRealImage = prod?.realImage || '';
+      const oldImage = prod?.image || '';
+      
+      if (!isNew && form.category === 'LAYOUT' && (form.realImage !== oldRealImage || form.image !== oldImage)) {
+          const baseName = form.name.split(' - ')[0];
+          const confirmBulk = window.confirm(`CẢNH BÁO ĐỒNG BỘ:\n\nBạn vừa đổi ảnh của mẫu [${baseName}].\nBạn có muốn tự động áp dụng ảnh này cho TẤT CẢ các kích thước khác của mẫu này không?`);
+          
+          if (confirmBulk) {
+              const relatedProducts = (data.Products || []).filter(p => p.id !== form.id && p.name && p.name.startsWith(baseName));
+              relatedProducts.forEach(p => {
+                  payload.Products.push({
+                      id: p.id,
+                      image: form.image,          
+                      realImage: form.realImage   
+                  });
+              });
+          }
+      }
+
+      await pushData(payload);
+      onClose();
+    } catch (e) {
+      alert('Lỗi lưu sản phẩm: ' + e.message);
+    }
+  };
+
+  const isDuplicate = skuError !== '';
+  const disableSave = isDuplicate || form.sku.trim() === '' || form.name.trim() === '';
+
+  return (
+    <div className={"fixed inset-0 bg-black/80 flex items-end sm:items-center justify-center z-[9999] p-4 backdrop-blur-sm"}>
+      <div className={"bg-[#141414] border border-[#333] w-full max-w-md rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl flex flex-col"}>
+        
+        <div className={"flex justify-between items-center mb-4 shrink-0"}>
+          <div className={"font-black text-lg text-[#d4af37]"}>{isNew ? 'THÊM HÀNG MỚI' : 'CHỈNH SỬA HÀNG HOÁ'}</div>
+          <button onClick={onClose} className={"text-3xl text-gray-500 hover:text-white"}>×</button>
+        </div>
+
+        <div className={"space-y-3 text-sm max-h-[70vh] overflow-y-auto custom-scrollbar pr-1 flex-1"}>
+          <div>
+            <label className={"text-[10px] font-black text-gray-400 block mb-1"}>TÊN SẢN PHẨM</label>
+            <input value={form.name} onChange={(e) => setForm({...form, name: e.target.value})} className={"w-full bg-[#0a0a0a] border border-[#444] rounded-xl px-3 py-2.5 text-white font-bold outline-none focus:border-[#d4af37]"} placeholder="Tên đầy đủ" />
+          </div>
+
+          <div className={"grid grid-cols-2 gap-3"}>
+            <div>
+              <label className={"text-[10px] font-black text-gray-400 block mb-1"}>MÃ SKU <span className={"text-rose-500"}>*</span></label>
+              <input value={form.sku} onChange={(e) => setForm({...form, sku: e.target.value})} className={`w-full bg-[#0a0a0a] border ${isDuplicate ? 'border-rose-500' : 'border-[#444]'} rounded-xl px-3 py-2.5 text-[#d4af37] font-black outline-none focus:border-[#d4af37]`} placeholder="SKU-001" />
+              {isDuplicate && <div className={"text-rose-500 text-[10px] font-bold mt-1 flex items-center gap-1"}><i className={"fas fa-exclamation-circle"}></i> {skuError}</div>}
+            </div>
+            <div>
+              <label className={"text-[10px] font-black text-gray-400 block mb-1"}>DANH MỤC</label>
+              <select value={form.category} onChange={(e) => setForm({...form, category: e.target.value, sub_category: ''})} className={"w-full bg-[#0a0a0a] border border-[#444] rounded-xl px-3 py-2.5 text-white font-bold outline-none focus:border-[#d4af37]"}>
+                {categories.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className={"text-[10px] font-black text-gray-400 block mb-1"}>DANH MỤC CON / PHIÊN BẢN</label>
+            <input value={form.sub_category} onChange={(e) => setForm({...form, sub_category: e.target.value})} list="subcat-list" className={"w-full bg-[#0a0a0a] border border-[#444] rounded-xl px-3 py-2.5 text-white font-bold outline-none focus:border-[#d4af37]"} placeholder="VD: LINH THÚ" />
+            <datalist id="subcat-list">
+              {subCats.map(s => <option key={s} value={s}>{s}</option>)}
+            </datalist>
+          </div>
+
+          <div className={"grid grid-cols-3 gap-3"}>
+            <div>
+              <label className={"text-[10px] font-black text-gray-400 block mb-1"}>GIÁ VỐN</label>
+              <input type="number" value={form.costPrice} onChange={(e) => setForm({...form, costPrice: e.target.value})} className={"w-full bg-[#0a0a0a] border border-[#444] rounded-xl px-3 py-2.5 text-white font-black outline-none focus:border-[#d4af37]"} />
+            </div>
+            <div>
+              <label className={"text-[10px] font-black text-gray-400 block mb-1"}>GIÁ BÁN</label>
+              <input type="number" value={form.price} onChange={(e) => setForm({...form, price: e.target.value})} className={"w-full bg-[#0a0a0a] border border-[#444] rounded-xl px-3 py-2.5 text-[#10b981] font-black outline-none focus:border-[#10b981]"} />
+            </div>
+            <div>
+              <label className={"text-[10px] font-black text-gray-400 block mb-1"}>TỒN KHO</label>
+              <input type="number" value={form.quantity} onChange={(e) => setForm({...form, quantity: e.target.value})} className={"w-full bg-[#0a0a0a] border border-[#444] rounded-xl px-3 py-2.5 text-[#d4af37] font-black outline-none focus:border-[#d4af37]"} />
+            </div>
+          </div>
+
+          <div className={"mt-3 p-3 bg-zinc-900/50 rounded-xl border border-white/5"}>
+              <div className="flex justify-between items-center mb-2">
+                  <label className={"text-[10px] font-black text-gray-400 block uppercase tracking-widest"}><i className="fas fa-balance-scale mr-1 text-[#d4af37]"></i> ĐƠN VỊ TÍNH</label>
+                  {!showConversion && (
+                      <button onClick={() => setShowConversion(true)} className="text-[9px] font-black text-emerald-500 bg-emerald-500/10 px-2.5 py-1.5 rounded-lg border border-emerald-500/30 hover:bg-emerald-500 hover:text-black transition-colors active:scale-95"><i className="fas fa-plus mr-1"></i>ĐV QUY ĐỔI</button>
+                  )}
+              </div>
+              
+              <div className="flex gap-3">
+                  <div className="flex-1">
+                      <label className={"text-[9px] font-bold text-gray-500 block mb-1"}>ĐV CƠ BẢN (Kho/Bán)</label>
+                      <input type="text" value={form.unit} onChange={(e) => setForm({...form, unit: e.target.value})} className={"w-full bg-[#0a0a0a] border border-[#444] rounded-lg px-3 py-2 text-[#d4af37] font-black outline-none focus:border-[#d4af37] uppercase placeholder-gray-600"} placeholder="VD: CÁI" />
+                  </div>
+                  {showConversion && (
+                      <div className="flex-[2] grid grid-cols-2 gap-2 animate-fade-in pl-3 border-l border-white/10 relative">
+                          <button onClick={() => {setShowConversion(false); setForm({...form, importUnit: '', conversionRate: 1})}} className="absolute -top-6 right-0 text-[9px] text-rose-500 hover:text-rose-400 font-bold"><i className="fas fa-times"></i> Hủy quy đổi</button>
+                          <div>
+                              <label className={"text-[9px] font-bold text-emerald-500 block mb-1"}>ĐV NHẬP LÔ</label>
+                              <input type="text" value={form.importUnit} onChange={(e) => setForm({...form, importUnit: e.target.value})} className={"w-full bg-[#0a0a0a] border border-emerald-500/30 rounded-lg px-3 py-2 text-emerald-400 font-black outline-none focus:border-emerald-500 uppercase placeholder-gray-600"} placeholder="VD: THÙNG" />
+                          </div>
+                          <div>
+                              <label className={"text-[9px] font-bold text-emerald-500 block mb-1 truncate"}>TỶ LỆ (1 {form.importUnit || 'ĐVN'} = ?)</label>
+                              <div className="flex items-center gap-1.5">
+                                  <input type="number" value={form.conversionRate} onChange={(e) => setForm({...form, conversionRate: e.target.value})} className={"w-full bg-[#0a0a0a] border border-emerald-500/30 rounded-lg px-3 py-2 text-emerald-400 font-black outline-none focus:border-emerald-500 placeholder-gray-600 text-center"} placeholder="100" />
+                                  <span className="text-[9px] text-gray-500 font-bold uppercase w-10 truncate">{form.unit || 'CÁI'}</span>
+                              </div>
+                          </div>
+                      </div>
+                  )}
+              </div>
+          </div>
+
+          <div className={"grid grid-cols-2 gap-3 mt-3 p-3 bg-zinc-900/50 rounded-xl border border-white/5"}>
+              <div>
+                  <label className={"text-[10px] font-black text-zinc-400 block mb-1"}>TỒN NHỎ NHẤT (MIN)</label>
+                  <input type="number" value={form.minStock} onChange={(e) => setForm({...form, minStock: e.target.value})} className={"w-full bg-[#0a0a0a] border border-[#444] rounded-xl px-3 py-2.5 text-white font-black outline-none focus:border-[#d4af37]"} placeholder="0" />
+              </div>
+              <div>
+                  <label className={"text-[10px] font-black text-zinc-400 block mb-1"}>TỒN LỚN NHẤT (MAX)</label>
+                  <input type="number" value={form.maxStock} onChange={(e) => setForm({...form, maxStock: e.target.value})} className={"w-full bg-[#0a0a0a] border border-[#444] rounded-xl px-3 py-2.5 text-white font-black outline-none focus:border-[#d4af37]"} placeholder="0" />
+              </div>
+          </div>
+
+          <div className={"mt-3 p-3 bg-zinc-900/50 rounded-xl border border-white/5"}>
+              <label className={"text-[10px] font-black text-[#d4af37] block mb-1"}><i className={"fas fa-camera-retro mr-1"}></i> LINK ẢNH THỰC TẾ (Cho thợ)</label>
+              <input type="text" value={form.realImage} onChange={(e) => setForm({...form, realImage: e.target.value})} className={"w-full bg-[#0a0a0a] border border-[#d4af37]/30 rounded-xl px-3 py-2.5 text-white text-[12px] outline-none focus:border-[#d4af37]"} placeholder="Link ảnh..." />
+          </div>
+
+          <div>
+            <label className={"text-[10px] font-black text-gray-400 block mb-1 mt-3"}>ẢNH SẢN PHẨM (URL Drive)</label>
+            <input type="text" value={form.image} onChange={(e) => setForm({...form, image: e.target.value})} className={"w-full bg-[#0a0a0a] border border-[#444] rounded-xl px-3 py-2.5 text-white text-[12px] outline-none focus:border-[#d4af37]"} placeholder="Link ảnh..." />
+          </div>
+        </div>
+
+        <div className={"flex gap-3 mt-5 shrink-0 pt-4 border-t border-[#333]"}>
+          <button onClick={onClose} className={"flex-1 py-3 bg-[#222] text-gray-300 rounded-2xl font-black text-sm active:scale-95 transition-all"}>HỦY</button>
+          <button onClick={handleSave} disabled={disableSave} className={"flex-1 py-3 bg-[#d4af37] text-[#0a0a0a] font-black rounded-2xl text-sm disabled:opacity-50 active:scale-95 transition-all shadow-md"}>
+             {isNew ? 'TẠO MỚI' : 'LƯU THAY ĐỔI'}
+          </button>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+function AddVariantModal({ group, onClose, pushData, data }) {
+  const [variantLabel, setVariantLabel] = React.useState('');
+  const [sku, setSku] = React.useState('');
+  const [costPrice, setCostPrice] = React.useState(group.items[0]?.costPrice || 0);
+  const [price, setPrice] = React.useState(group.items[0]?.price || 0);
+  const [quantity, setQuantity] = React.useState(0);
+  
+  const [unit, setUnit] = React.useState(group.items[0]?.unit || 'Cái');
+  const [importUnit, setImportUnit] = React.useState(group.items[0]?.importUnit || '');
+  const [conversionRate, setConversionRate] = React.useState(group.items[0]?.conversionRate || 1);
+  const [showConversion, setShowConversion] = React.useState(!!group.items[0]?.importUnit);
+  
+  const [skuError, setSkuError] = React.useState('');
+
+  const existingSkus = React.useMemo(() => {
+    const setObj = new Set();
+    if (data && data.Products) {
+        data.Products.forEach(p => {
+            if (p.sku) setObj.add(String(p.sku).trim().toLowerCase());
+        });
+    }
+    return setObj;
+  }, [data]);
+
+  React.useEffect(() => {
+    const current = String(sku || '').trim().toLowerCase();
+    if (current === '') {
+      setSkuError('');
+      return;
+    }
+    if (existingSkus.has(current)) {
+        setSkuError('Mã SKU này đã tồn tại!');
+    } else {
+        setSkuError('');
+    }
+  }, [sku, existingSkus]);
+
+  const baseName = group.baseName;
+  const fullName = variantLabel ? `${baseName} - ${variantLabel}` : baseName;
+  const isDuplicate = skuError !== '';
+
+  const handleAdd = async () => {
+    if (variantLabel.trim() === '') return alert('Vui lòng nhập tên phân loại!');
+    if (sku.trim() === '') return alert('Mã SKU không được để trống!');
+    if (skuError !== '') return alert(skuError);
+
+    try {
+      const newProd = {
+        id: 'PROD_' + Date.now(),
+        sku: sku.trim(),
+        name: fullName.trim(),
+        category: group.items[0]?.category || 'PHỤ KIỆN',
+        sub_category: group.items[0]?.sub_category || '',
+        costPrice: Number(costPrice) || 0,
+        price: Number(price) || 0,
+        quantity: Number(quantity) || 0,
+        unit,
+        importUnit: showConversion ? importUnit : '',
+        conversionRate: showConversion ? (Number(conversionRate) || 1) : 1,
+        image: group.image || group.items[0]?.image || ''
+      };
+
+      await pushData({ Products: [newProd] });
+      onClose();
+    } catch(e) {
+      alert('Lỗi tạo phân loại: ' + e.message);
+    }
+  };
+
+  const disableSave = isDuplicate || variantLabel.trim() === '' || sku.trim() === '';
+
+  return (
+    <div className={"fixed inset-0 bg-black/80 flex items-end sm:items-center justify-center z-[9999] p-4 backdrop-blur-sm"}>
+      <div className={"bg-[#141414] border border-[#333] w-full max-w-md rounded-t-3xl sm:rounded-3xl p-5 shadow-2xl flex flex-col"}>
+        
+        <div className={"flex justify-between items-center mb-3 shrink-0"}>
+          <div>
+            <div className={"font-black text-lg text-[#2563eb]"}>THÊM PHÂN LOẠI MỚI</div>
+            <div className={"text-[#d4af37] font-bold text-sm truncate"}>{baseName}</div>
+          </div>
+          <button onClick={onClose} className={"text-3xl text-gray-500 hover:text-white leading-none"}>×</button>
+        </div>
+
+        <div className={"bg-[#0a0a0a] border border-[#222] rounded-xl p-3 mb-4 text-xs text-gray-400 shrink-0"}>
+          Tên đầy đủ: <span className={"font-black text-white"}>{fullName}</span>
+        </div>
+
+        <div className={"space-y-3 text-sm flex-1"}>
+          <div>
+            <label className={"text-[10px] font-black text-gray-400 block mb-1"}>TÊN PHÂN LOẠI</label>
+            <input autoFocus value={variantLabel} onChange={(e) => setVariantLabel(e.target.value)} className={"w-full bg-[#0a0a0a] border border-[#444] rounded-xl px-3 py-2.5 text-white font-bold outline-none focus:border-[#2563eb]"} placeholder="VD: Màu Trắng" />
+          </div>
+
+          <div>
+             <label className={"text-[10px] font-black text-gray-400 block mb-1"}>MÃ SKU <span className={"text-rose-500"}>*</span></label>
+             <input value={sku} onChange={(e) => setSku(e.target.value)} className={`w-full bg-[#0a0a0a] border ${isDuplicate ? 'border-rose-500' : 'border-[#444]'} rounded-xl px-3 py-2.5 text-[#d4af37] font-black outline-none focus:border-[#d4af37]`} placeholder="SKU-001" />
+             {isDuplicate && <div className={"text-rose-500 text-[10px] font-bold mt-1 flex items-center gap-1"}><i className={"fas fa-exclamation-circle"}></i> {skuError}</div>}
+          </div>
+
+          <div className={"mt-3 p-3 bg-zinc-900/50 rounded-xl border border-white/5"}>
+              <div className="flex justify-between items-center mb-2">
+                  <label className={"text-[10px] font-black text-gray-400 block uppercase tracking-widest"}><i className="fas fa-balance-scale mr-1 text-[#2563eb]"></i> ĐƠN VỊ TÍNH</label>
+                  {!showConversion && (
+                      <button onClick={() => setShowConversion(true)} className="text-[9px] font-black text-emerald-500 bg-emerald-500/10 px-2.5 py-1.5 rounded-lg border border-emerald-500/30 hover:bg-emerald-500 hover:text-black transition-colors active:scale-95"><i className="fas fa-plus mr-1"></i>ĐV QUY ĐỔI</button>
+                  )}
+              </div>
+              
+              <div className="flex gap-3">
+                  <div className="flex-1">
+                      <label className={"text-[9px] font-bold text-gray-500 block mb-1"}>ĐV CƠ BẢN</label>
+                      <input type="text" value={unit} onChange={(e) => setUnit(e.target.value)} className={"w-full bg-[#0a0a0a] border border-[#444] rounded-lg px-3 py-2 text-[#2563eb] font-black outline-none focus:border-[#2563eb] uppercase placeholder-gray-600"} placeholder="VD: CÁI" />
+                  </div>
+                  {showConversion && (
+                      <div className="flex-[2] grid grid-cols-2 gap-2 animate-fade-in pl-3 border-l border-white/10 relative">
+                          <button onClick={() => {setShowConversion(false); setImportUnit(''); setConversionRate(1)}} className="absolute -top-6 right-0 text-[9px] text-rose-500 hover:text-rose-400 font-bold"><i className="fas fa-times"></i> Hủy</button>
+                          <div>
+                              <label className={"text-[9px] font-bold text-emerald-500 block mb-1"}>ĐV NHẬP LÔ</label>
+                              <input type="text" value={importUnit} onChange={(e) => setImportUnit(e.target.value)} className={"w-full bg-[#0a0a0a] border border-emerald-500/30 rounded-lg px-3 py-2 text-emerald-400 font-black outline-none focus:border-emerald-500 uppercase placeholder-gray-600"} placeholder="VD: THÙNG" />
+                          </div>
+                          <div>
+                              <label className={"text-[9px] font-bold text-emerald-500 block mb-1 truncate"}>TỶ LỆ QUY ĐỔI</label>
+                              <div className="flex items-center gap-1.5">
+                                  <input type="number" value={conversionRate} onChange={(e) => setConversionRate(e.target.value)} className={"w-full bg-[#0a0a0a] border border-emerald-500/30 rounded-lg px-3 py-2 text-emerald-400 font-black outline-none focus:border-emerald-500 placeholder-gray-600 text-center"} placeholder="100" />
+                                  <span className="text-[9px] text-gray-500 font-bold uppercase w-10 truncate">{unit || 'CÁI'}</span>
+                              </div>
+                          </div>
+                      </div>
+                  )}
+              </div>
+          </div>
+
+          <div className={"grid grid-cols-3 gap-3"}>
+            <div>
+              <label className={"text-[10px] font-black text-gray-400 block mb-1"}>Giá Vốn</label>
+              <input type="number" value={costPrice} onChange={(e) => setCostPrice(e.target.value)} className={"w-full bg-[#0a0a0a] border border-[#444] rounded-xl px-3 py-2.5 text-white font-black outline-none"} />
+            </div>
+            <div>
+              <label className={"text-[10px] font-black text-gray-400 block mb-1"}>Giá Bán</label>
+              <input type="number" value={price} onChange={(e) => setPrice(e.target.value)} className={"w-full bg-[#0a0a0a] border border-[#444] rounded-xl px-3 py-2.5 text-[#10b981] font-black outline-none"} />
+            </div>
+            <div>
+              <label className={"text-[10px] font-black text-gray-400 block mb-1"}>Tồn kho</label>
+              <input type="number" value={quantity} onChange={(e) => setQuantity(e.target.value)} className={"w-full bg-[#0a0a0a] border border-[#444] rounded-xl px-3 py-2.5 text-[#d4af37] font-black outline-none"} />
+            </div>
+          </div>
+        </div>
+
+        <div className={"flex gap-3 mt-5 shrink-0 pt-4 border-t border-[#333]"}>
+          <button onClick={onClose} className={"flex-1 py-3 bg-[#222] text-gray-300 rounded-2xl font-black text-sm active:scale-95 transition-all"}>HỦY</button>
+          <button onClick={handleAdd} disabled={disableSave} className={"flex-1 py-3 bg-[#2563eb] text-white font-black rounded-2xl text-sm disabled:opacity-50 active:scale-95 transition-all"}>
+              TẠO PHÂN LOẠI
+          </button>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+function InventoryTab({ data, pushData, isAdmin }) {
+  const [catFilter, setCatFilter] = React.useState(typeof CATEGORIES !== 'undefined' ? CATEGORIES[0] : 'PHỤ KIỆN');
+  const [subCatFilter, setSubCatFilter] = React.useState(null); 
+  const [search, setSearch] = React.useState(''); 
+  const [editProd, setEditProd] = React.useState(null); 
+  const [addVarGroup, setAddVarGroup] = React.useState(null);
+  const [showStockRules, setShowStockRules] = React.useState(false);
+  const formatMoney = (val) => Number(val || 0).toLocaleString('vi-VN');
+
+  const uniqueProducts = React.useMemo(() => {
+      const map = new Map();
+      (data.Products || []).forEach(p => {
+          const key = String(p.name || '').toLowerCase().trim();
+          if (!key) return;
+          if (map.has(key)) {
+              const existing = map.get(key);
+              existing.quantity = Number(existing.quantity || 0) + Number(p.quantity || 0);
+              if (p.sku) existing.sku = p.sku;
+              if (Number(p.costPrice) > 0) existing.costPrice = p.costPrice;
+              if (Number(p.price) > 0) existing.price = p.price;
+              if (p.minStock) existing.minStock = p.minStock;
+              if (p.maxStock) existing.maxStock = p.maxStock;
+              existing._allIds = existing._allIds || [existing.id];
+              if (!existing._allIds.includes(p.id)) existing._allIds.push(p.id);
+              map.set(key, existing);
+          } else {
+              map.set(key, { ...p, _allIds: [p.id] });
+          }
+      });
+      return Array.from(map.values());
+  }, [data.Products]);
+
+  const handleExportExcel = () => {
+      const columns = [
+          { key: 'sku', label: 'Mã SKU' },
+          { key: 'name', label: 'Tên Sản Phẩm' },
+          { key: 'category', label: 'Danh Mục' },
+          { key: 'sub_category', label: 'Phân Loại' },
+          { key: 'costPrice', label: 'Giá Vốn' },
+          { key: 'price', label: 'Giá Bán' },
+          { key: 'quantity', label: 'Số Lượng Tồn' },
+          { key: 'unit', label: 'Đơn Vị' },
+          { key: 'minStock', label: 'Tồn Tối Thiểu' },
+          { key: 'maxStock', label: 'Tồn Tối Đa' }
+      ];
+      exportToExcel(uniqueProducts, columns, `Danh_Sach_Ton_Kho_${new Date().toISOString().slice(0,10)}.xlsx`);
+  };
+
+  const totalInventoryValue = uniqueProducts.reduce((sum, p) => sum + (Math.max(0, Number(p.quantity || 0)) * Number(p.costPrice || 0)), 0);
+  const catTotals = { 'LAYOUT': 0, 'BỂ KÍNH': 0, 'PHỤ KIỆN': 0, 'DANH MỤC SẢN XUẤT': 0 };
+  uniqueProducts.forEach(p => { if (catTotals[p.category] !== undefined) catTotals[p.category] += (Math.max(0, Number(p.quantity)) * Number(p.costPrice)); });
+
+  const alerts = React.useMemo(() => {
+      let outOfStock = [];
+      let lowStock = [];
+      uniqueProducts.forEach(p => {
+          const qty = Number(p.quantity || 0);
+          const min = Number(p.minStock || 0);
+          if (qty <= 0) {
+              outOfStock.push(p);
+          } else if (min > 0 && qty <= min) {
+              lowStock.push(p);
+          }
+      });
+      
+      outOfStock.sort((a,b) => String(a.name).localeCompare(String(b.name)));
+      lowStock.sort((a,b) => (Number(a.quantity) - Number(a.minStock)) - (Number(b.quantity) - Number(b.minStock)));
+      return { outOfStock, lowStock };
+  }, [uniqueProducts]);
+
+  const isSearching = search.trim().length > 0;
+  const productsInCat = uniqueProducts.filter(p => p.category === catFilter);
+  const subCatCounts = {};
+  productsInCat.forEach(p => { const sc = (p.sub_category || '').toUpperCase() || 'KHÁC'; subCatCounts[sc] = (subCatCounts[sc] || 0) + 1; });
+
+  const predefinedFolders = typeof SUB_CATEGORIES !== 'undefined' ? (SUB_CATEGORIES[catFilter] || []) : [];
+  const activeFolders = Array.from(new Set([...predefinedFolders, ...Object.keys(subCatCounts)])).filter(f => (subCatCounts[f] || 0) > 0 || predefinedFolders.includes(f));
+
+  const outOfStockInSubCat = (catName) => uniqueProducts.filter(p => p.category === catFilter && ((p.sub_category || '').toUpperCase() || 'KHÁC') === catName && Number(p.quantity) <= 0).length;
+
+  let displayProducts = []; 
+  if (isSearching) { 
+      displayProducts = uniqueProducts.filter(p => (p.name && String(p.name).toLowerCase().includes(search.toLowerCase())) || (p.sku && String(p.sku).toLowerCase().includes(search.toLowerCase())));
+  } else if (subCatFilter) { 
+      displayProducts = productsInCat.filter(p => ((p.sub_category || '').toUpperCase() || 'KHÁC') === subCatFilter);
+  }
+  
+  const groupedProducts = React.useMemo(() => { 
+      const groups = {}; 
+      displayProducts.forEach(p => { 
+          let baseName = p.name || 'Chưa đặt tên'; 
+          let variant = 'Mặc định'; 
+          if (p.name && p.name.includes(' - ')) { 
+              const parts = p.name.split(' - '); 
+              baseName = parts[0].trim(); 
+              variant = parts.slice(1).join(' - ').trim(); 
+          } 
+          if (!groups[baseName]) groups[baseName] = { baseName, image: p.image, items: [] }; 
+          if (p.image && !groups[baseName].image) groups[baseName].image = p.image; 
+          groups[baseName].items.push({ ...p, variantLabel: variant }); 
+      }); 
+      return Object.values(groups); 
+  }, [displayProducts]);
+
+  return (
+      <div className={"space-y-4 pb-12 w-full"}>
+          
+          {/* KHUNG ĐÓNG MỞ: QUY CHUẨN KHO HÀNG */}
+          <div className="bg-[#141414] border border-zinc-800/80 rounded-2xl shadow-sm overflow-hidden">
+              <div 
+                  onClick={() => setShowStockRules(!showStockRules)} 
+                  className="flex justify-between items-center p-4 bg-gradient-to-r from-[#081a30]/50 to-transparent cursor-pointer hover:bg-zinc-800/20 transition-colors"
+              >
+                  <div className="flex items-center gap-2">
+                      <i className="fas fa-clipboard-check text-[#3b82f6] text-[13px]"></i>
+                      <span className="font-black text-[11px] text-[#3b82f6] uppercase tracking-widest">Quy Chuẩn Kho Hàng (Click để xem)</span>
+                  </div>
+                  <div className={`w-6 h-6 rounded-full bg-[#0a0a0a] border border-[#333] flex items-center justify-center text-[10px] text-gray-400 transition-transform duration-300 ${showStockRules ? 'rotate-180 text-white' : ''}`}>
+                      <i className="fas fa-chevron-down"></i>
+                  </div>
+              </div>
+              {showStockRules && (
+                  <div className="p-4 pt-1 border-t border-[#222]/80 bg-[#0c0c0c] animate-fade-in">
+                      <ul className="text-[11px] text-gray-300 font-medium space-y-2.5 pl-1">
+                          <li className="flex items-start gap-2 leading-snug">
+                              <i className="fas fa-check-circle text-[10px] text-[#3b82f6]/70 mt-0.5 shrink-0"></i>
+                              <span>Mã SKU hàng hoá Bể Kính. VD: <b className="text-[#60a5fa] bg-[#3b82f6]/10 px-1.5 py-0.5 rounded ml-1 border border-[#3b82f6]/20">BE202020</b>, <b className="text-[#60a5fa] bg-[#3b82f6]/10 px-1.5 py-0.5 rounded border border-[#3b82f6]/20">BE202020ND</b>, <b className="text-[#60a5fa] bg-[#3b82f6]/10 px-1.5 py-0.5 rounded border border-[#3b82f6]/20">TERA202025</b></span>
+                          </li>
+                          <li className="flex items-start gap-2 leading-snug">
+                              <i className="fas fa-check-circle text-[10px] text-[#3b82f6]/70 mt-0.5 shrink-0"></i>
+                              <span>Mã SKU hàng hoá Layout: VD: <b className="text-[#60a5fa] bg-[#3b82f6]/10 px-1.5 py-0.5 rounded ml-1 border border-[#3b82f6]/20">RUN-003-202020</b>, <b className="text-[#60a5fa] bg-[#3b82f6]/10 px-1.5 py-0.5 rounded border border-[#3b82f6]/20">CV-604040</b></span>
+                          </li>
+                          <li className="flex items-start gap-2 leading-snug">
+                              <i className="fas fa-check-circle text-[10px] text-[#3b82f6]/70 mt-0.5 shrink-0"></i>
+                              <span>Mã SKU của nguyên liệu: VD: <b className="text-[#60a5fa] bg-[#3b82f6]/10 px-1.5 py-0.5 rounded ml-1 border border-[#3b82f6]/20">NLSX-BK-A300</b> <span className="text-gray-500 text-[9px]">(Sillicon A300 bộ phận bể kính)</span></span>
+                          </li>
+                          <li className="flex items-start gap-2 leading-snug">
+                              <i className="fas fa-check-circle text-[10px] text-[#3b82f6]/70 mt-0.5 shrink-0"></i>
+                              <span>Mã SKU vật tư: VD: <b className="text-[#60a5fa] bg-[#3b82f6]/10 px-1.5 py-0.5 rounded ml-1 border border-[#3b82f6]/20">VTSX-GANGTAY</b></span>
+                          </li>
+                          <li className="flex items-start gap-2 leading-snug">
+                              <i className="fas fa-check-circle text-[10px] text-[#3b82f6]/70 mt-0.5 shrink-0"></i>
+                              <span>Kiểm Kho Cuối Kỳ: Mặc định ngày <b className="text-[#60a5fa]">01</b> hàng tháng phải chuẩn <span className="text-[#d4af37] bg-[#d4af37]/10 px-1.5 py-0.5 rounded border border-[#d4af37]/30 text-[9px] ml-1 uppercase">(Quản Lý Kho)</span></span>
+                          </li>
+                          <li className="flex items-start gap-2 leading-snug">
+                              <i className="fas fa-check-circle text-[10px] text-[#3b82f6]/70 mt-0.5 shrink-0"></i>
+                              <span>Kiểm Kho Định Kỳ: Mặc định ngày <b className="text-[#60a5fa]">15</b> hàng tháng <span className="text-[#10b981] bg-[#10b981]/10 px-1.5 py-0.5 rounded border border-[#10b981]/30 text-[9px] ml-1 uppercase">(Kiểm Kho)</span></span>
+                          </li>
+                      </ul>
+                  </div>
+              )}
+          </div>
+
+          {/* PREMIUM STOCK STATS GRID */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              {/* Card 1: Tổng giá trị kho */}
+              <div className="bg-[#141414] border border-zinc-800/60 p-3.5 rounded-2xl flex items-center justify-between shadow-sm relative overflow-hidden col-span-2 lg:col-span-1">
+                  <div className="absolute top-0 right-0 w-16 h-16 bg-[#d4af37]/5 rounded-full blur-xl -mr-4 -mt-4"></div>
+                  <div>
+                      <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">Tổng giá trị kho</span>
+                      <span className="text-[17px] font-black text-[#d4af37] leading-none">{formatMoney(totalInventoryValue)}đ</span>
+                  </div>
+                  <div className="w-8 h-8 rounded-xl bg-yellow-500/10 flex items-center justify-center text-sm text-[#d4af37]"><i className="fas fa-boxes"></i></div>
+              </div>
+
+              {/* Card 2: Tổng số mã */}
+              <div className="bg-[#141414] border border-zinc-800/60 p-3.5 rounded-2xl flex items-center justify-between shadow-sm relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-16 h-16 bg-blue-500/5 rounded-full blur-xl -mr-4 -mt-4"></div>
+                  <div>
+                      <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">Tổng số mã hàng</span>
+                      <span className="text-[17px] font-black text-blue-400 leading-none">{uniqueProducts.length} <span className="text-[10px] text-gray-500 font-bold">mã</span></span>
+                  </div>
+                  <div className="w-8 h-8 rounded-xl bg-blue-500/10 flex items-center justify-center text-sm text-blue-400"><i className="fas fa-barcode"></i></div>
+              </div>
+
+              {/* Card 3: Mã đã hết hàng */}
+              <div className="bg-[#141414] border border-zinc-800/60 p-3.5 rounded-2xl flex items-center justify-between shadow-sm relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-16 h-16 bg-rose-500/5 rounded-full blur-xl -mr-4 -mt-4"></div>
+                  <div>
+                      <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">Mã đã hết hàng</span>
+                      <span className={`text-[17px] font-black leading-none ${alerts.outOfStock.length > 0 ? 'text-rose-500 animate-pulse' : 'text-gray-400'}`}>{alerts.outOfStock.length}</span>
+                  </div>
+                  <div className="w-8 h-8 rounded-xl bg-rose-500/10 flex items-center justify-center text-sm text-rose-500"><i className="fas fa-exclamation-triangle"></i></div>
+              </div>
+
+              {/* Card 4: Dưới định mức min */}
+              <div className="bg-[#141414] border border-zinc-800/60 p-3.5 rounded-2xl flex items-center justify-between shadow-sm relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-16 h-16 bg-amber-500/5 rounded-full blur-xl -mr-4 -mt-4"></div>
+                  <div>
+                      <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">Dưới định mức min</span>
+                      <span className="text-[17px] font-black text-amber-500 leading-none">{alerts.lowStock.length}</span>
+                  </div>
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/10 flex items-center justify-center text-sm text-amber-500"><i className="fas fa-battery-quarter"></i></div>
+              </div>
+          </div>
+
+          {/* HẾT HÀNG và CẦN NHẬP GẤP alert panels removed per user request */}
+
+          {/* SECTION: CATEGORY TOTAL DETAILS COLLAPSED GRID */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+              {['LAYOUT', 'BỂ KÍNH', 'PHỤ KIỆN', 'DANH MỤC SẢN XUẤT'].map(cat => (
+                  <div key={cat} className="bg-[#141414] p-3 rounded-2xl border border-zinc-800/50 text-center shadow-inner relative overflow-hidden">
+                      <div className="text-[8px] font-black text-gray-500 uppercase tracking-wider mb-1 truncate">{cat}</div>
+                      <div className="text-[12px] font-black text-[#d4af37]">{formatMoney(catTotals[cat])}đ</div>
+                  </div>
+              ))}
+          </div>
+
+
+          <div className={"flex justify-between items-center bg-[#141414] p-3 rounded-xl border border-[#2a2a2a]"}>
+              <div className={"flex-1 bg-[#0a0a0a] rounded-xl flex items-center overflow-hidden border border-[#333] focus-within:border-[#d4af37] transition-all"}>
+                  <i className={"fas fa-search text-gray-500 pl-3 text-xs"}></i>
+                  <input placeholder="Tìm tên, mã SKU..." value={search} onChange={(e) => setSearch(e.target.value)} className={"w-full px-3 py-2.5 text-[12px] font-bold outline-none bg-transparent text-white placeholder-gray-600"} />
+                  {search && <button onClick={() => setSearch('')} className={"pr-3 text-gray-400 hover:text-rose-400"}><i className={"fas fa-times-circle"}></i></button>}
+              </div>
+              <div className="flex gap-2 ml-3">
+                  {isAdmin && (
+                      <button onClick={handleExportExcel} className="bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black px-3.5 py-3 rounded-xl shadow-[0_0_15px_rgba(16,185,129,0.2)] active:scale-95 transition-all uppercase tracking-wider flex items-center gap-1 transition-colors">
+                          <i className="fas fa-download"></i> EXCEL
+                      </button>
+                  )}
+                  {(localStorage.getItem('rf_boss') === 'true') && <button onClick={() => setEditProd({})} className={"bg-[#d4af37] hover:bg-[#b8972e] text-[#0a0a0a] text-[11px] font-black px-4 py-3 rounded-xl shadow-[0_0_15px_rgba(212,175,55,0.2)] active:scale-95 transition-all"}><i className={"fas fa-plus mr-1"}></i> MỚI</button>}
+              </div>
+          </div>
+
+          <div className={"flex overflow-x-auto gap-2 pb-1 custom-scrollbar"}>
+              {(typeof CATEGORIES !== 'undefined' ? CATEGORIES : ['LAYOUT', 'BỂ KÍNH', 'PHỤ KIỆN', 'DANH MỤC SẢN XUẤT']).map(c => ( 
+                  <button key={c} onClick={()=>{setCatFilter(c); setSubCatFilter(null); setSearch('');}} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all shadow-sm ${catFilter===c && !isSearching ? 'bg-[#d4af37] text-[#0a0a0a]' : 'bg-[#141414] text-gray-400 border border-[#2a2a2a] hover:bg-[#1a1a1a]'}`}>
+                      {c}
+                  </button> 
+              ))}
+          </div>
+
+          {(isSearching || subCatFilter) ? (
+              <div className={"space-y-3 animate-fade-in"}>
+                  {!isSearching && ( 
+                      <button onClick={()=>setSubCatFilter(null)} className={"text-gray-400 bg-[#141414] px-4 py-2 rounded-xl text-[10px] font-black border border-[#2a2a2a] active:scale-95 hover:bg-[#1a1a1a] transition-colors"}>
+                          <i className={"fas fa-arrow-left mr-1.5"}></i> Trở về danh mục {catFilter}
+                      </button> 
+                  )}
+                  {groupedProducts.length === 0 ? <div className={"text-center py-10 text-gray-600 font-bold text-xs bg-[#141414] rounded-2xl border-2 border-dashed border-[#2a2a2a]"}>Không tìm thấy hàng hoá!</div> : groupedProducts.map((group) => ( <VariantGroupCard key={group.baseName} group={group} setEditProd={setEditProd} setAddVarGroup={setAddVarGroup} pushData={pushData} /> ))}
+              </div>
+          ) : (
+              <div className={"grid grid-cols-2 gap-3 pt-1"}>
+                  {activeFolders.length === 0 ? <div className={"col-span-2 text-center py-10 text-gray-600 font-bold text-xs bg-[#141414] rounded-2xl border-2 border-dashed border-[#2a2a2a]"}>Chưa có danh mục con</div> : activeFolders.map(folder => ( 
+                      <div key={folder} onClick={()=>setSubCatFilter(folder)} className={"bg-[#141414] p-4 rounded-xl border border-[#2a2a2a] cursor-pointer active:scale-95 transition-all flex flex-col items-center text-center relative group hover:border-[#d4af37]/50 shadow-sm"}>
+                          {outOfStockInSubCat(folder) > 0 && (
+                              <div className={"absolute top-2 right-2 bg-rose-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded shadow-sm animate-pulse"}>{outOfStockInSubCat(folder)} hết</div>
+                          )}
+                          <i className={"fas fa-folder text-3xl text-[#d4af37] opacity-80 mb-3 group-hover:scale-110 transition-transform"}></i>
+                          <h4 className={"font-black text-[11px] text-gray-200 uppercase tracking-wide leading-tight mb-1"}>{folder}</h4>
+                          <span className={"text-[9px] font-bold text-gray-500 bg-[#0a0a0a] px-2 py-0.5 rounded border border-[#222]"}>{subCatCounts[folder] || 0} mã hàng</span>
+                      </div> 
+                  ))}
+              </div>
+          )}
+
+          {editProd && (
+              <ProductEditModal prod={editProd} onClose={() => setEditProd(null)} pushData={pushData} currentCat={catFilter} data={data} />
+          )}
+          {addVarGroup && (
+            <AddVariantModal group={addVarGroup} onClose={() => setAddVarGroup(null)} pushData={pushData} data={data} />
+          )}
+      </div>
+  );
+}
+</script>

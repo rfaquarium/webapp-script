@@ -1,0 +1,531 @@
+<script type="text/babel">
+// ==========================================
+// BỘ KHUNG UI/UX CHUYÊN NGHIỆP - TÍCH HỢP LÕI "OPTIMISTIC UI" VÀ FULL TABS
+// ==========================================
+
+function App() {
+  const getDisplayRole = (role) => {
+      if (!role || role === 'TỐI CAO') return role;
+      if (role === 'KẾ TOÁN' || role === 'KIỂM TOÁN') return role;
+      if (role.includes('QUẢN LÝ')) return role;
+      return `QUẢN LÝ ${role}`;
+  };
+  const safeGet = (k,d) => { try { return localStorage.getItem(k)||d; }catch(e){return d;} };
+  const safeSet = (k,v) => { try { localStorage.setItem(k,v); }catch(e){} };
+
+  const [mode, setMode] = React.useState('WORKSPACE');
+  const [activeTab, setActiveTab] = React.useState('dashboard');
+  const [isMenuOpen, setIsMenuOpen] = React.useState(false); 
+  
+  const [isDarkMode, setIsDarkMode] = React.useState(() => safeGet('rf_theme', 'dark') !== 'light');
+  
+  const [currentUser, setCurrentUser] = React.useState(() => safeGet('rf_user', ''));
+  const [isAdmin, setIsAdmin] = React.useState(() => safeGet('rf_admin', 'false') === 'true');
+  const [isBoss, setIsBoss] = React.useState(() => safeGet('rf_boss', 'false') === 'true');
+  const [userRole, setUserRole] = React.useState(() => safeGet('rf_role', ''));
+  
+  const [orders, setOrders] = React.useState([]); 
+  const [prodItems, setProdItems] = React.useState([]); 
+  const [packings, setPackings] = React.useState([]); 
+  const [attendance, setAttendance] = React.useState([]);
+  const [erpData, setErpData] = React.useState({ Products: [], Accounts: [], Suppliers: [], Transactions: [], ImportExport: [], ProfitReports: [] });
+  const [userConfigs, setUserConfigs] = React.useState({}); 
+  const [kpiConfig, setKpiConfig] = React.useState([]);
+  const [documents, setDocuments] = React.useState([]);
+  const [trainings, setTrainings] = React.useState([]);
+
+  const [loading, setLoading] = React.useState(true);
+  const [syncing, setSyncing] = React.useState(false); 
+  
+  const [showBulkImport, setShowBulkImport] = React.useState(false);
+  const [showDocumentUpload, setShowDocumentUpload] = React.useState(false);
+  const [stockHistoryItem, setStockHistoryItem] = React.useState(null);
+  
+  const [toasts, setToasts] = React.useState([]);
+  React.useEffect(() => { safeSet('rf_theme', isDarkMode ? 'dark' : 'light'); }, [isDarkMode]);
+
+  // ===== GEN 2: REACTIVE BADGE COUNTERS =====
+  const pendingOrdersCount = React.useMemo(() => {
+    if (!orders || !orders.length) return 0;
+    return orders.filter(o => {
+      if (!o.status) return false;
+      const s = String(o.status).toUpperCase().trim();
+      return s !== 'ĐÃ GIAO' && s !== 'ĐÃ HỦY' && s !== 'HOÀN THÀNH';
+    }).length;
+  }, [orders]);
+
+  const activeProdCount = React.useMemo(() => {
+    if (!prodItems || !prodItems.length) return 0;
+    return prodItems.filter(p => {
+      if (!p.status) return false;
+      const s = String(p.status).toUpperCase().trim();
+      return s !== 'DONE' && s !== 'ĐÃ XONG' && s !== 'ĐÃ HỦY' && s !== 'HỦY/VỠ' && s !== 'HOÀN KHO ĐẠT' && !p.fulfilledFromStock;
+    }).length;
+  }, [prodItems]);
+
+  const outOfStockCount = React.useMemo(() => {
+    if (!erpData?.Products || !erpData.Products.length) return 0;
+    return erpData.Products.filter(p => {
+      const totalStock = (p.variants || []).reduce((s, v) => s + (parseInt(v.stock) || 0), 0);
+      return totalStock <= 0;
+    }).length;
+  }, [erpData?.Products]);
+
+  const unreadTrainingsCount = React.useMemo(() => {
+    const uRole = localStorage.getItem('rf_role') || '';
+    const uUser = localStorage.getItem('rf_user') || '';
+    if (!uUser) return 0;
+    return (trainings || []).filter(t => {
+      if (t.targetRole !== 'ALL' && t.targetRole !== uRole) return false;
+      let rList = [];
+      try {
+          rList = typeof t.readUsers === 'string' ? JSON.parse(t.readUsers || '[]') : (t.readUsers || []);
+      } catch (e) { rList = []; }
+      return !rList.some(r => r.user === uUser);
+    }).length;
+  }, [trainings, currentUser, userRole]);
+
+  const [confirmModal, setConfirmModal] = React.useState({ visible: false, title: '', message: '', onConfirm: null });
+  const [alertModal, setAlertModal] = React.useState({ visible: false, title: '', message: '' });
+  const [inputModal, setInputModal] = React.useState({ visible: false, title: '', placeholder: '', onConfirm: null });
+
+  const triggerToast = React.useCallback((msg, icon="fa-bell", color="primary") => {
+      const id = Date.now(); setToasts(prev => [...prev, { id, msg, icon, color }]);
+      setTimeout(() => { setToasts(prev => prev.filter(t => t.id !== id)); }, 3500);
+  }, []);
+
+  const closeModals = () => {
+    setConfirmModal({ visible: false, title: '', message: '', onConfirm: null });
+    setAlertModal({ visible: false, title: '', message: '' });
+    setInputModal({ visible: false, title: '', placeholder: '', onConfirm: null });
+  };
+
+  const lastSyncTimeRef = React.useRef(0);
+  
+  const updateStateWithData = React.useCallback((d) => {
+      if (d.orders) setOrders(d.orders); 
+      if (d.prodItems) setProdItems(d.prodItems); 
+      if (d.packings) setPackings(d.packings);
+      if (d.attendance) setAttendance(d.attendance); 
+      if (d.Users) setErpData(prev => ({ ...prev, Users: d.Users }));
+      
+      setErpData(prev => ({ 
+          ...prev, 
+          Products: d.Products || prev.Products || [], 
+          Accounts: d.Accounts || prev.Accounts || [], 
+          Suppliers: d.Suppliers || prev.Suppliers || [], 
+          Transactions: d.Transactions || prev.Transactions || [], 
+          ImportExport: d.ImportExport || prev.ImportExport || [], 
+          ProfitReports: d.ProfitReports || prev.ProfitReports || [],
+          BonusPenalty: d.BonusPenalty || prev.BonusPenalty || [],
+          KPI_Progress: d.KPI_Progress || prev.KPI_Progress || [],
+          kpis: d.kpis || prev.kpis || []
+      }));
+
+      if (d.kpiConfig) { setKpiConfig(d.kpiConfig); window.kpiConfig = d.kpiConfig; }
+      if (d.documents) setDocuments(d.documents);
+      if (d.trainings) setTrainings(d.trainings);
+  }, []);
+
+  const loadData = async (isInitial = false) => {
+    try { 
+        if (isInitial) {
+            const [d, cfg] = await Promise.all([runGAS('getAppData'), runGAS('getUserConfig')]);
+            if (d && !d.error) { 
+                updateStateWithData(d);
+                if (d.serverTime) lastSyncTimeRef.current = d.serverTime;
+            } else if (d && d.error) {
+                triggerToast("Lỗi tải dữ liệu: " + d.error, "fa-times", "danger");
+            }
+            if (cfg) setUserConfigs(cfg);
+        } else {
+            const delta = await runGAS('getAppDataDelta', lastSyncTimeRef.current);
+            if (delta && delta.hasChanges && !delta.error) {
+                updateStateWithData(delta);
+            }
+            if (delta && delta.serverTime) {
+                lastSyncTimeRef.current = delta.serverTime;
+            }
+        }
+    } catch(e) {
+        console.error("Lỗi đồng bộ nhịp đập:", e);
+    } finally {
+        if (isInitial) setLoading(false);
+    }
+  };
+
+  React.useEffect(() => { 
+      loadData(true); 
+      const t = setInterval(() => loadData(false), 20000); 
+      return () => clearInterval(t); 
+  }, []);
+
+  React.useEffect(() => { const h = () => setShowBulkImport(true); window.addEventListener('openBulkImport', h); return () => window.removeEventListener('openBulkImport', h); }, []);
+  React.useEffect(() => { const h = () => setShowDocumentUpload(true); window.addEventListener('openDocumentUpload', h); return () => window.removeEventListener('openDocumentUpload', h); }, []);
+  React.useEffect(() => { const h = (e) => setStockHistoryItem(e.detail); window.addEventListener('openStockHistory', h); return () => window.removeEventListener('openStockHistory', h); }, []);
+  React.useEffect(() => {
+    const h = (e) => {
+      setMode('ERP');
+      setActiveTab('import_export');
+      setTimeout(() => {
+        const event = new CustomEvent('triggerCreateImportTicket', { detail: e.detail });
+        window.dispatchEvent(event);
+      }, 200);
+    };
+    window.addEventListener('openImportExportForm', h);
+    return () => window.removeEventListener('openImportExportForm', h);
+  }, []);
+
+  // ĐỘNG CƠ "OPTIMISTIC UI": XỬ LÝ SIÊU TỐC - ĐÓNG FORM NGAY - LƯU NGẦM KHÔNG CHỜ ĐỢI
+  const pushDeltas = async (payload, successMsg, successIcon) => {
+    if (successMsg) triggerToast(successMsg, successIcon || 'fa-check', 'success');
+
+    const optimisticMerge = (currentArray, newItems, deleteIds) => {
+        let result = [...(currentArray || [])];
+        if (deleteIds && deleteIds.length > 0) {
+            result = result.filter(x => !deleteIds.includes(x.id));
+        }
+        if (newItems && newItems.length > 0) {
+            newItems.forEach(item => {
+                const idx = result.findIndex(x => x.id === item.id);
+                if (idx >= 0) result[idx] = { ...result[idx], ...item };
+                else result.unshift(item);
+            });
+        }
+        return result;
+    };
+
+    const deletes = payload.deletes || {};
+
+    setOrders(prev => optimisticMerge(prev, payload.orders, deletes.Orders || deletes.orders));
+    setProdItems(prev => optimisticMerge(prev, payload.prodItems, deletes.Production || deletes.prodItems));
+    setPackings(prev => optimisticMerge(prev, payload.packings, deletes.Packings || deletes.packings));
+    setAttendance(prev => optimisticMerge(prev, payload.attendance, deletes.Attendance || deletes.attendance));
+    setDocuments(prev => optimisticMerge(prev, payload.documents, deletes.Documents || deletes.documents));
+    setTrainings(prev => optimisticMerge(prev, payload.trainings, deletes.Trainings || deletes.trainings));
+    
+    setErpData(prev => ({
+        ...prev,
+        Products: optimisticMerge(prev.Products, payload.Products, deletes.Products),
+        Accounts: optimisticMerge(prev.Accounts, payload.Accounts, deletes.Accounts),
+        Suppliers: optimisticMerge(prev.Suppliers, payload.Suppliers, deletes.Suppliers),
+        Transactions: optimisticMerge(prev.Transactions, payload.Transactions, deletes.Transactions),
+        ImportExport: optimisticMerge(prev.ImportExport, payload.ImportExport, deletes.ImportExport),
+        ProfitReports: optimisticMerge(prev.ProfitReports, payload.ProfitReports, deletes.ProfitReports),
+        BonusPenalty: optimisticMerge(prev.BonusPenalty, payload.BonusPenalty, deletes.BonusPenalty),
+        KPI_Progress: optimisticMerge(prev.KPI_Progress, payload.KPI_Progress, deletes.KPI_Progress),
+    }));
+
+    setSyncing(true);
+    const syncToServer = async () => {
+        try { 
+            const payloadWithUser = { ...payload, user: currentUser };
+            const d = await runGAS('syncDeltas', payloadWithUser); 
+            if (d && !d.error) { 
+                if (d.serverTime) lastSyncTimeRef.current = d.serverTime;
+                updateStateWithData(d); 
+            } else {
+                triggerToast(d?.error || "Cảnh báo: Không thể lưu ngầm lên Server!", "fa-exclamation-triangle", "danger");
+            }
+        } catch(e) {
+            triggerToast("Mạng không ổn định! Hệ thống sẽ đồng bộ lại sau.", "fa-wifi", 'warning');
+        } finally {
+            setSyncing(false);
+        }
+    };
+
+    syncToServer(); 
+    return Promise.resolve();
+  };
+
+  const pushErpData = (payload) => pushDeltas(payload, "Đã lưu thông tin!", "fa-save");
+
+  // ==================== CẤU TRÚC MENU CHÍNH ====================
+  const menuGroups = [
+      {
+          title: 'VẬN HÀNH',
+          items: [
+              { id: 'dashboard', label: 'Tổng Quan', icon: 'fa-home', mode: 'WORKSPACE' },
+              { id: 'orders', label: 'Đơn Hàng', icon: 'fa-shopping-cart', mode: 'WORKSPACE' },
+              { id: 'production', label: 'Sản Xuất', icon: 'fa-hammer', mode: 'WORKSPACE' },
+              { id: 'hr', label: 'Nhân Sự', icon: 'fa-user-clock', mode: 'WORKSPACE' },
+              { id: 'documents', label: 'Tài Liệu Kỹ Thuật', icon: 'fa-folder-open', mode: 'WORKSPACE' },
+              { id: 'training', label: 'Đào Tạo & Chỉ Thị', icon: 'fa-chalkboard-teacher', mode: 'WORKSPACE' },
+              { id: 'docs', label: 'Hướng Dẫn Sử Dụng', icon: 'fa-book-reader', mode: 'WORKSPACE' } // ĐÃ THÊM TAB NÀY VÀO MENU
+          ]
+      },
+      {
+          title: 'QUẢN LÝ (Kế toán & Kho)',
+          reqAdmin: true,
+          items: [
+              { id: 'business_report', label: 'Báo Cáo KQKD', icon: 'fa-chart-line', mode: 'ERP' }, // <--- THÊM DÒNG NÀY
+              { id: 'warehouse', label: 'Kho Hàng', icon: 'fa-boxes', mode: 'ERP' },
+              { id: 'import_export', label: 'Lịch Sử Kho', icon: 'fa-history', mode: 'ERP' }, 
+              { id: 'cashflow', label: 'Tài Chính', icon: 'fa-wallet', mode: 'ERP' },
+              { id: 'suppliers', label: 'Đối Tác', icon: 'fa-handshake', mode: 'ERP' },
+              { id: 'users', label: 'Phân Quyền', icon: 'fa-user-shield', mode: 'ERP' }
+          ]
+      }
+  ];
+
+  if (loading) return (
+    <div className="fixed inset-0 flex flex-col items-center justify-center bg-[#09090b] text-[#d4af37] z-[9999]" style={{fontFamily: "'Plus Jakarta Sans', sans-serif"}}>
+      <div className="flex flex-col items-center px-8 text-center drop-shadow-2xl">
+        <div className="mb-8 animate-pulse"><i className="fas fa-crown text-5xl drop-shadow-[0_0_15px_rgba(212,175,55,0.6)]"></i></div>
+        <p className="text-[16px] italic font-medium leading-relaxed text-zinc-300 mb-4">"Sự sang trọng nằm ở sự tối giản của trí tuệ."</p>
+        <div className="w-12 h-[1px] bg-[#d4af37] mx-auto mb-4"></div>
+        <p className="text-[10px] tracking-[0.3em] font-black uppercase text-[#d4af37]">RFaquarium Philosophy</p>
+      </div>
+    </div>
+  );
+
+  if (!currentUser) return <Login onLogin={(u, admin, boss, role)=>{
+      safeSet('rf_user',u); setCurrentUser(u); setIsAdmin(admin); setIsBoss(boss); setUserRole(role);
+      triggerToast(`Xin chào ${u.split(' ').pop()} 👋`, 'fa-hand-sparkles', 'primary');
+  }} />;
+  
+  return (
+    <div className={`min-h-screen flex flex-col text-[12px] max-w-md mx-auto relative overflow-hidden transition-colors duration-500 premium-ui ${isDarkMode ? 'is-dark bg-[#000000] text-zinc-100' : 'bg-[#f8fafc] text-gray-900'}`} style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+      <ToastManager toasts={toasts} />
+      
+      {unreadTrainingsCount > 0 && activeTab !== 'training' && (
+          <div onClick={() => { setActiveTab('training'); setMode('WORKSPACE'); }} className="bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-400 hover:to-yellow-500 text-black px-4 py-2.5 font-black text-center text-[11px] uppercase tracking-wider cursor-pointer animate-pulse flex items-center justify-center gap-1.5 shadow-md relative z-[100] border-b border-amber-400/20 active:scale-95 transition-all">
+              <i className="fas fa-exclamation-triangle"></i> Bạn có {unreadTrainingsCount} chỉ thị chưa đọc & xác nhận! Bấm vào đây để xem ngay!
+          </div>
+      )}
+      
+      <style>
+        {`
+          @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap');
+          
+          .premium-ui *:not(i) { 
+            font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif !important; 
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+          }
+          
+          .premium-ui { font-size: 13px; line-height: 1.5; }
+          .premium-ui button, .premium-ui input, .premium-ui select, .premium-ui textarea { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+          
+          /* Theme-specific overrides inside App_Main */
+          .premium-ui:not(.is-dark) main button:hover { background-color: #f1f5f9 !important; border-color: #cbd5e1 !important; }
+          .premium-ui:not(.is-dark) .sticky { background-color: rgba(248, 250, 252, 0.9) !important; border-bottom: 1px solid rgba(0,0,0,0.06) !important; }
+          
+          .premium-ui.is-dark .sticky { background-color: rgba(9, 9, 11, 0.9) !important; border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important; backdrop-filter: blur(20px); }
+          .premium-ui.is-dark main button { border: 1px solid rgba(255,255,255,0.08) !important; background-color: rgba(255,255,255,0.03) !important; color: #e4e4e7 !important; }
+          .premium-ui.is-dark main button:hover { background-color: rgba(255,255,255,0.08) !important; border-color: rgba(255,255,255,0.15) !important; }
+          .premium-ui.is-dark main button:active { transform: scale(0.985); }
+          
+          .premium-ui .fixed.inset-y-0 { box-shadow: 1px 0 0 rgba(0,0,0,0.06) !important; }
+          .premium-ui button.bg-zinc-800\\/50, .premium-ui button.bg-\\[\\#fffbeb\\] { position: relative; }
+          .premium-ui button.bg-zinc-800\\/50::before, .premium-ui button.bg-\\[\\#fffbeb\\]::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 3px; height: 60%; background: #d4af37; border-radius: 0 3px 3px 0; }
+          .premium-ui [class*="rounded-2xl"], .premium-ui [class*="rounded-xl"] { border-radius: 14px !important; }
+          .custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }
+          .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+          .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(212,175,55,0.2); border-radius: 20px; }
+          .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(212,175,55,0.4); }
+          .text-\\[\\#d4af37\\], .text-yellow-600, .text-yellow-700 { color: #d4af37 !important; }
+          .premium-ui input, .premium-ui select, .premium-ui textarea { background-color: inherit; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 14px; font-size: 13px; }
+          .premium-ui.is-dark input, .premium-ui.is-dark select, .premium-ui.is-dark textarea { border-color: rgba(255,255,255,0.1); background-color: #0f0f11; color: #f1f5f9; }
+          .premium-ui [class*="shadow-"], .premium-ui [class*="drop-shadow"] { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important; }
+          .premium-ui.is-dark [class*="shadow-"], .premium-ui.is-dark [class*="drop-shadow"] { box-shadow: none !important; }
+          .premium-ui.is-dark select, .premium-ui.is-dark .form-select, .premium-ui.is-dark .filter-dropdown { background-color: #1a1a1a !important; color: #ffffff !important; border: 1px solid #333333 !important; border-radius: 8px !important; }
+          .btn-status, .tab-button { transition: all 0.25s ease-in-out !important; }
+          .btn-status:hover, .tab-button:hover { opacity: 0.85 !important; transform: translateY(-1px); }
+          
+          .premium-ui input:focus, .premium-ui select:focus, .premium-ui textarea:focus { border-color: #d4af37 !important; box-shadow: 0 0 0 3px rgba(212,175,55,0.15) !important; outline: none !important; }
+          .premium-ui.is-dark input:focus, .premium-ui.is-dark select:focus, .premium-ui.is-dark textarea:focus { box-shadow: 0 0 0 3px rgba(212,175,55,0.2) !important; }
+          .gen2-glass { backdrop-filter: blur(20px) saturate(180%); -webkit-backdrop-filter: blur(20px) saturate(180%); }
+          .gen2-nav-btn { min-width: 56px; }
+          .gen2-nav-badge { animation: badgePop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
+          @keyframes badgePop { 0% { transform: scale(0); } 100% { transform: scale(1); } }
+        `}
+      </style>
+
+      {isMenuOpen && <div className="fixed inset-0 bg-black/40 z-[200] backdrop-blur-sm transition-opacity" onClick={() => setIsMenuOpen(false)}></div>}
+      
+      <div className={`fixed inset-y-0 left-0 w-[280px] z-[210] transform transition-transform duration-400 ease-[cubic-bezier(0.2,0.8,0.2,1)] flex flex-col ${isMenuOpen ? 'translate-x-0' : '-translate-x-full'} ${isDarkMode ? 'bg-[#000000] border-r border-white/10' : 'bg-[#ffffff] border-r border-gray-200'}`}>
+          <div className={`p-5 pt-[28px] border-b flex justify-between items-center ${isDarkMode ? 'border-white/5' : 'border-gray-50'}`}>
+              <div className="flex items-center gap-3">
+                  {typeof RFLogo !== 'undefined' ? (
+                      <RFLogo className="w-9 h-9" size={36} />
+                  ) : (
+                      <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#0284c7]/20 to-black/10 flex items-center justify-center border border-[#0284c7]/30 shadow-sm">
+                          <i className="fas fa-crown text-[#0284c7] text-[16px]"></i>
+                      </div>
+                  )}
+                  <div>
+                      <div className={`font-black text-[13px] tracking-wide ${isDarkMode ? 'text-zinc-100' : 'text-gray-900'}`}>WORKSPACE</div>
+                      <div className="text-[9px] text-[#0284c7] font-black uppercase tracking-widest mt-0.5">Royal V99.6.6</div>
+                  </div>
+              </div>
+              <button onClick={() => setIsMenuOpen(false)} className={`w-8 h-8 flex items-center justify-center rounded-full transition-all active:scale-95 ${isDarkMode ? 'bg-zinc-900 text-zinc-500 hover:text-red-400 hover:bg-zinc-800 border border-white/5' : 'bg-gray-50 text-gray-400 hover:text-red-500 hover:bg-red-50 border border-gray-100'}`}><i className="fas fa-times"></i></button>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto p-4 space-y-5 custom-scrollbar">
+              {menuGroups.map((group, gIdx) => {
+                  if (group.reqAdmin && !isAdmin) return null;
+                  return (
+                      <div key={gIdx}>
+                          <div className={`text-[9px] font-black uppercase tracking-[0.15em] pl-1 mb-3 ${isDarkMode ? 'text-zinc-500' : 'text-gray-400'}`}>{group.title}</div>
+                          <div className="space-y-1.5">
+                          {group.items.map(item => {
+                                  const isActive = activeTab === item.id;
+                                  const activeClass = isDarkMode ? 'bg-zinc-800/50 text-[#d4af37] shadow-sm border border-white/5' : 'bg-[#fffbeb] text-yellow-700 shadow-sm border border-yellow-100';
+                                  const inactiveClass = isDarkMode ? 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200 border border-transparent' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900 border border-transparent';
+                                  return (
+                                  <button key={item.id} onClick={() => { setActiveTab(item.id); setMode(item.mode); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl font-bold text-[12px] transition-all duration-200 active:scale-[0.98] ${isActive ? activeClass : inactiveClass}`}>
+                                      <div className={`w-6 flex justify-center text-[14px] ${isActive ? (isDarkMode ? 'text-[#d4af37]' : 'text-yellow-600') : ''}`}><i className={`fas ${item.icon}`}></i></div>
+                                      <span>{item.label}</span>
+                                      {item.id === 'training' && unreadTrainingsCount > 0 && (
+                                          <span className="ml-auto bg-amber-500 text-black text-[9px] font-black px-1.5 py-0.5 rounded-full animate-pulse tracking-normal">
+                                              {unreadTrainingsCount}
+                                          </span>
+                                      )}
+                                  </button>
+                                  );
+                           })}
+                          </div>
+                      </div>
+                  );
+              })}
+              
+              <div className={`pt-4 border-t mt-2 ${isDarkMode ? 'border-white/5' : 'border-gray-100'}`}>
+                  <button onClick={() => setIsDarkMode(!isDarkMode)} className={`w-full flex items-center justify-between px-3 py-3 rounded-xl font-bold text-[12px] transition-all duration-200 ${isDarkMode ? 'text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'}`}>
+                      <div className="flex items-center gap-3">
+                          <div className="w-6 flex justify-center text-[#d4af37] text-[14px]"><i className={`fas ${isDarkMode ? 'fa-moon' : 'fa-sun text-yellow-500'}`}></i></div>
+                          <span>{isDarkMode ? 'Giao diện: Tối' : 'Giao diện: Sáng'}</span>
+                      </div>
+                      <div className={`w-11 h-6 rounded-full p-1 transition-colors duration-300 shadow-inner flex items-center ${isDarkMode ? 'bg-zinc-800 border border-zinc-700' : 'bg-gray-200 border border-gray-300'}`}>
+                          <div className={`w-4 h-4 rounded-full shadow-md transform transition-transform duration-300 ${isDarkMode ? 'bg-[#d4af37] translate-x-5' : 'bg-white translate-x-0'}`}></div>
+                      </div>
+                  </button>
+              </div>
+          </div>
+
+          <div className={`p-4 border-t flex items-center gap-3 ${isDarkMode ? 'border-white/5 bg-zinc-950/50' : 'border-gray-50 bg-gray-50/50'}`}>
+              <Avatar name={currentUser} userConfigs={userConfigs} className={`w-10 h-10 border-2 shadow-md ${isDarkMode ? 'border-zinc-700' : 'border-white'}`} />
+              <div className="flex-1 min-w-0">
+                  <div className={`font-extrabold text-[13px] truncate ${isDarkMode ? 'text-zinc-100' : 'text-gray-900'}`}>{currentUser.split(' ').pop()}</div>
+                  <div className={`text-[10px] font-black uppercase tracking-wider mt-0.5 ${isAdmin ? 'text-[#d4af37]' : (isDarkMode ? 'text-zinc-500' : 'text-gray-500')}`}>
+                      {isAdmin ? (isBoss ? 'TỐI CAO' : getDisplayRole(userRole)) : 'Nhân sự'}
+                  </div>
+              </div>
+              
+              <button onClick={() => {
+                  if(window.confirm('Bạn muốn đăng xuất?')) {
+                      localStorage.removeItem('rf_user');
+                      localStorage.removeItem('rf_admin');
+                      localStorage.removeItem('rf_boss');
+                      localStorage.removeItem('rf_role');
+                      setIsMenuOpen(false);
+                      setIsAdmin(false);
+                      setIsBoss(false);
+                      setUserRole('');
+                      setCurrentUser(''); 
+                  }
+              }} className={`w-9 h-9 rounded-full border flex items-center justify-center transition-all active:scale-95 ${isDarkMode ? 'bg-zinc-900 border-red-500/20 text-red-400 hover:bg-red-500/20' : 'bg-white border-red-100 text-red-500 hover:bg-red-50 shadow-sm'}`}>
+              {typeof LucideIcon !== 'undefined' ? <LucideIcon name="log-out" size={17} /> : <i className="fas fa-sign-out-alt"></i>}
+              </button>
+          </div>
+      </div>
+
+      <div className={`p-3.5 pt-[28px] sticky top-0 z-50 flex justify-between items-center max-w-md mx-auto w-full mb-3 transition-all duration-300 rounded-b-2xl gen2-glass ${isDarkMode ? 'bg-[#000000]/80 border-b border-white/[0.07]' : 'bg-[#f8fafc]/90 border-b border-gray-200'}`}>
+        <div className="flex items-center gap-3">
+          <button onClick={() => setIsMenuOpen(true)} className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all active:scale-95 ${isDarkMode ? 'bg-zinc-900 text-zinc-300 border border-white/5 hover:bg-zinc-800' : 'bg-white text-gray-600 border border-gray-100 hover:bg-gray-50 shadow-sm'}`}>{typeof LucideIcon !== 'undefined' ? <LucideIcon name="menu" size={20} /> : <i className="fas fa-bars text-lg"></i>}</button>
+          
+          <div className="flex flex-col justify-center cursor-pointer" onClick={() => { 
+            if(!isAdmin) {
+               const p = prompt('Nhập Mã Quản Lý để mở khóa hệ thống:');
+               if (!p) return;
+               
+               const userConfig = userConfigs?.pins ? userConfigs.pins[p] : null;
+               if (userConfig) {
+                   const roleName = userConfig.role;
+                   const isB = roleName === 'TỐI CAO';
+                   const isManager = ['TỐI CAO', 'SẢN XUẤT', 'KHO VẬN', 'BÁN HÀNG', 'NHÂN SỰ', 'KẾ TOÁN', 'KIỂM TOÁN'].includes(roleName);
+                   if (isManager) {
+                       setIsAdmin(true);
+                       setIsBoss(isB); setUserRole(roleName);
+                       safeSet('rf_admin', 'true'); safeSet('rf_boss', isB ? 'true' : 'false'); safeSet('rf_role', roleName);
+                       triggerToast(`Đã mở khóa quyền: ${roleName} (${userConfig.name})`, 'fa-user-shield', 'success');
+                   } else {
+                       alert(`Mã này là của ${userConfig.name} (Quyền: ${roleName}), không có chức năng Quản Lý!`);
+                   }
+               } else {
+                   alert('Mã PIN không tồn tại trong hệ thống!');
+               }
+            } else {
+               if(window.confirm(`Khóa phiên làm việc của Quản Lý ${userRole}?`)) { 
+                   setIsAdmin(false);
+                   setIsBoss(false); setUserRole('');
+                   setMode('WORKSPACE'); setActiveTab('dashboard'); 
+                   safeSet('rf_admin', 'false'); safeSet('rf_boss', 'false'); safeSet('rf_role', '');
+                   triggerToast('Đã khóa lại hệ thống', 'fa-user-lock', 'primary');
+               }
+            }
+          }}>
+             <span className={`text-[9px] font-black uppercase tracking-wider mb-0.5 ${isDarkMode ? 'text-zinc-500' : 'text-gray-400'}`}>{mode === 'ERP' ? 'Kế Toán & Kho Vận' : 'Hệ Thống Nội Bộ'}</span>
+             <span className={`font-extrabold text-[15px] leading-none flex items-center ${isDarkMode ? 'text-zinc-100' : 'text-gray-900'}`}>
+                {isAdmin ? (isBoss ? 'Workspace Pro' : getDisplayRole(userRole)) : 'Workspace'} 
+                {isAdmin && <i className={`fas fa-shield-check ml-1.5 text-[11px] ${isBoss ? 'text-[#d4af37]' : 'text-[#10b981]'}`}></i>}
+             </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+            {isAdmin && (
+                <div className="mr-1 animate-fade-in">
+                    <div className="text-[9px] font-black text-[#d4af37] uppercase tracking-wider bg-[#d4af37]/10 px-2 py-1 rounded-lg border border-[#d4af37]/30 shadow-sm">
+                        {isBoss ? 'TỐI CAO' : getDisplayRole(userRole)}
+                    </div>
+                </div>
+            )}
+            {syncing ? <i className="fas fa-sync animate-spin text-sm text-[#d4af37] w-9 h-9 flex items-center justify-center"></i> : <Avatar name={currentUser} userConfigs={userConfigs} className={`w-9 h-9 border-2 ${isAdmin ? 'border-[#d4af37]/40 shadow-[0_0_10px_rgba(212,175,55,0.25)]' : (isDarkMode ? 'border-zinc-700 shadow-sm' : 'border-white shadow-sm')}`} />}
+        </div>
+      </div>
+
+      <main className="flex-1 w-full p-3 pb-6 overflow-y-auto custom-scrollbar relative z-10">
+        <ErrorBoundary>
+          {mode === 'WORKSPACE' ? (
+              <>
+                {activeTab === 'dashboard' && typeof DashboardTab !== 'undefined' && <DashboardTab attendance={attendance || []} records={attendance || []} prodItems={prodItems || []} currentUser={currentUser} packings={packings || []} users={typeof USERS !== 'undefined' ? USERS : (userConfigs?.users || [])} orders={orders || []} kpiConfig={typeof kpiConfig !== 'undefined' ? kpiConfig : []} erpData={erpData || {}} kpis={erpData?.BonusPenalty || []} importExport={erpData?.ImportExport || []} userConfigs={userConfigs} erpProducts={erpData?.Products || []} pushDeltas={pushDeltas} triggerToast={triggerToast} />}
+                {activeTab === 'orders' && typeof OrdersTab !== 'undefined' && <OrdersTab orders={orders || []} prodItems={prodItems || []} packings={packings || []} erpProducts={erpData?.Products || []} erpData={erpData || {}} isAdmin={isAdmin} currentUser={currentUser} pushDeltas={pushDeltas} userConfigs={userConfigs} triggerToast={triggerToast} kpiConfig={typeof kpiConfig !== 'undefined' ? kpiConfig : []} />}
+                {activeTab === 'production' && typeof ProductionTab !== 'undefined' && <ProductionTab orders={orders || []} prodItems={prodItems || []} erpProducts={erpData?.Products || []} currentUser={currentUser} pushDeltas={pushDeltas} userConfigs={userConfigs} triggerToast={triggerToast} kpiConfig={typeof kpiConfig !== 'undefined' ? kpiConfig : []} />}
+                {activeTab === 'hr' && typeof HRTab !== 'undefined' && <HRTab attendance={attendance || []} erpData={erpData || {}} userConfigs={userConfigs} prodItems={prodItems || []} packings={packings || []} pushDeltas={pushDeltas} triggerToast={triggerToast} />}
+                {activeTab === 'documents' && typeof DocumentsTab !== 'undefined' && <DocumentsTab documents={documents} isAdmin={isAdmin} pushDeltas={pushDeltas} triggerToast={triggerToast} />}
+                {activeTab === 'training' && typeof TrainingTab !== 'undefined' && <TrainingTab trainings={trainings} pushDeltas={pushDeltas} triggerToast={triggerToast} isAdmin={isAdmin} userConfigs={userConfigs} />}
+                {activeTab === 'docs' && typeof DocsTab !== 'undefined' && <DocsTab />}
+              </>
+          ) : (
+              <>
+                {activeTab === 'warehouse' && typeof InventoryTab !== 'undefined' && <InventoryTab data={erpData || {}} pushData={pushErpData} isAdmin={isAdmin} />}
+                {activeTab === 'import_export' && typeof ImportExportTab !== 'undefined' && <ImportExportTab data={erpData} importExport={erpData?.ImportExport || []} pushData={pushErpData} isAdmin={isAdmin} erpProducts={erpData?.Products || []} />}
+                {activeTab === 'cashflow' && typeof FinanceTab !== 'undefined' && <FinanceTab orders={orders || []} erpData={erpData || {}} pushDeltas={pushDeltas} triggerToast={triggerToast} isAdmin={isAdmin} />}
+                {activeTab === 'business_report' && typeof BusinessReportTab !== 'undefined' && <BusinessReportTab erpData={erpData || {}} pushDeltas={pushDeltas} triggerToast={triggerToast} />}
+                {activeTab === 'suppliers' && typeof SuppliersTab !== 'undefined' && <SuppliersTab data={erpData || {}} pushData={pushErpData} triggerToast={triggerToast} isAdmin={isAdmin} />}
+                {activeTab === 'users' && typeof UserManagementTab !== 'undefined' && <UserManagementTab data={erpData || {}} userConfigs={userConfigs} currentUser={currentUser} pushData={pushErpData} isAdmin={isAdmin} triggerToast={triggerToast} />}
+              </>
+          )}
+        </ErrorBoundary>
+      </main>
+
+      {/* GỌI TRỢ LÝ AI RA SÂN KHẤU */}
+      {typeof AIAssistant !== 'undefined' && <AIAssistant />}
+
+      {/* CÁC MODAL TOÀN CỤC CHẠY NGẦM */}
+      {showBulkImport && typeof BulkImportModal !== 'undefined' && <BulkImportModal onClose={()=>setShowBulkImport(false)} pushDeltas={pushDeltas} existingOrders={orders} products={erpData.Products} />}
+      {showDocumentUpload && typeof DocumentUploadModal !== 'undefined' && <DocumentUploadModal onClose={() => setShowDocumentUpload(false)} pushDeltas={pushDeltas} triggerToast={triggerToast} />}
+      {stockHistoryItem && typeof StockHistoryModal !== 'undefined' && <StockHistoryModal product={stockHistoryItem} onClose={() => setStockHistoryItem(null)} importExport={erpData?.ImportExport} />}
+
+      <>
+        {typeof ConfirmModal !== 'undefined' && <ConfirmModal visible={confirmModal.visible} title={confirmModal.title} message={confirmModal.message} onConfirm={() => { if (confirmModal.onConfirm) confirmModal.onConfirm(); closeModals(); }} onCancel={closeModals} />}
+        {typeof AlertModal !== 'undefined' && <AlertModal visible={alertModal.visible} title={alertModal.title} message={alertModal.message} onClose={closeModals} />}
+        {typeof InputModal !== 'undefined' && <InputModal visible={inputModal.visible} title={inputModal.title} placeholder={inputModal.placeholder} onConfirm={(value) => { if (inputModal.onConfirm) inputModal.onConfirm(value); closeModals(); }} onCancel={closeModals} />}
+      </>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<ErrorBoundary><App /></ErrorBoundary>);
+</script>

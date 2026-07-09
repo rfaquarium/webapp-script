@@ -1,0 +1,553 @@
+<script type="text/babel">
+// =========================================================================
+// 👤 FILE: Tab_UserManagement.txt
+// CHỨC NĂNG: Quản lý tài khoản, phân quyền chi tiết, hợp đồng và bảo mật (Nâng cấp)
+// =========================================================================
+
+// Danh sách các quyền hạn chi tiết trong hệ thống
+const PERMISSION_LIST = [
+    { id: 'VIEW_DASHBOARD', label: 'Xem bảng điều khiển', icon: 'fa-chart-pie' },
+    { id: 'MANAGE_ORDERS', label: 'Quản lý Đơn hàng', icon: 'fa-shopping-cart' },
+    { id: 'MANAGE_PROD', label: 'Quản lý Sản xuất', icon: 'fa-hammer' },
+    { id: 'MANAGE_WH', label: 'Quản lý Kho vận', icon: 'fa-boxes' },
+    { id: 'MANAGE_FINANCE', label: 'Kế toán & Tài chính', icon: 'fa-wallet' },
+    { id: 'MANAGE_HR', label: 'Nhân sự & Lương', icon: 'fa-user-clock' },
+    { id: 'SYS_ADMIN', label: 'Cài đặt Hệ thống', icon: 'fa-cogs' }
+];
+
+// -------------------------------------------------------------------------
+// 1. MODAL THÊM / SỬA TÀI KHOẢN CHI TIẾT (UserFormModal)
+// -------------------------------------------------------------------------
+function UserFormModal({ user, onClose, pushData, data, userConfigs, isBoss, currentUser, triggerToast }) {
+    const isNew = !user;
+    const isSelf = user && user.name === currentUser;
+    const oldName = user?.name || '';
+    
+    // Lấy lương hiện tại từ userConfigs.salaries
+    const currentSalary = userConfigs?.salaries?.[oldName]?.baseSalary || userConfigs?.salaries?.[oldName]?.['Lương Cơ Bản'] || '';
+
+    const [formTab, setFormTab] = React.useState('BASIC'); // BASIC, PERM, HR
+    
+    const [form, setForm] = React.useState({
+        name: oldName,
+        role: user?.role || 'SẢN XUẤT',
+        title: user?.title || 'Thợ Sản Xuất',
+        pin: user?.pin || '',
+        avatar: user?.avatar || '',
+        phone: user?.phone || '',
+        address: user?.address || '',
+        empType: user?.empType || 'Chính Thức',
+        salary: currentSalary,
+        permissions: user?.permissions || []
+    });
+    
+    const [isSaving, setIsSaving] = React.useState(false);
+    const [isDeleting, setIsDeleting] = React.useState(false);
+
+    const ROLES = ['TỐI CAO', 'QUẢN LÝ', 'KẾ TOÁN', 'KHO VẬN', 'BÁN HÀNG', 'SẢN XUẤT', 'NHÂN SỰ', 'CHƯA PHÂN QUYỀN'];
+
+    const togglePermission = (permId) => {
+        if (!isBoss && !isSelf) return;
+        setForm(prev => {
+            const perms = prev.permissions.includes(permId) 
+                ? prev.permissions.filter(p => p !== permId)
+                : [...prev.permissions, permId];
+            return { ...prev, permissions: perms };
+        });
+    };
+
+    const clearPermissions = () => {
+        if (!window.confirm("Bạn có chắc muốn thu hồi toàn bộ quyền của nhân sự này?")) return;
+        setForm(prev => ({ ...prev, role: 'CHƯA PHÂN QUYỀN', permissions: [] }));
+        triggerToast('Đã xoá bỏ mọi quyền thao tác', 'fa-eraser', 'warning');
+    };
+
+    const formatMoneyInput = (val) => {
+        const num = String(val || '').replace(/[^0-9]/g, '');
+        return num.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+    };
+
+    const handleSave = async () => {
+        if (!form.name.trim()) return triggerToast('Vui lòng nhập tên!', 'fa-exclamation', 'warning');
+        if (isBoss && !form.pin.trim()) return triggerToast('Mã PIN không được để trống!', 'fa-exclamation', 'warning');
+        if (isBoss && form.pin.length < 4) return triggerToast('Mã PIN tối thiểu 4 số!', 'fa-exclamation', 'warning');
+        
+        setIsSaving(true);
+        try {
+            let updatedPins = { ...(userConfigs?.pins || {}) };
+            let updatedTitles = { ...(userConfigs?.titles || {}) };
+            let updatedSalaries = { ...(userConfigs?.salaries || {}) };
+            
+            // Xử lý đổi PIN hoặc Đổi tên
+            if (!isNew && isBoss) {
+                if (user.pin !== form.pin) delete updatedPins[user.pin];
+                if (oldName !== form.name.trim()) {
+                    delete updatedTitles[oldName];
+                    if(updatedSalaries[oldName]) {
+                        updatedSalaries[form.name.trim()] = updatedSalaries[oldName];
+                        delete updatedSalaries[oldName];
+                    }
+                }
+            }
+
+            const finalPin = isBoss ? form.pin : (user?.pin || '');
+            const newName = form.name.trim();
+
+            // Cập nhật Object chính
+            updatedPins[finalPin] = {
+                name: newName,
+                role: form.role,
+                title: form.title,
+                avatar: form.avatar,
+                phone: form.phone,
+                address: form.address,
+                empType: form.empType,
+                permissions: form.permissions
+            };
+            
+            // Cập nhật cấu trúc phụ trợ
+            updatedTitles[newName] = form.title;
+            
+            // Đồng bộ lương trực tiếp cho Bảng lương
+            const numSalary = Number(String(form.salary).replace(/[^0-9]/g, '')) || 0;
+            updatedSalaries[newName] = {
+                ...(updatedSalaries[newName] || {}),
+                baseSalary: numSalary,
+                'Lương Cơ Bản': numSalary // Backup field
+            };
+
+            const newUserConfigs = {
+                ...userConfigs,
+                pins: updatedPins,
+                titles: updatedTitles,
+                salaries: updatedSalaries,
+                users: Object.values(updatedPins).map(u => u.name || u['Tên Nhân Sự'])
+            };
+
+            await pushData({ UserConfigs: [newUserConfigs] });
+            triggerToast(isNew ? 'Thêm tài khoản thành công!' : 'Cập nhật hồ sơ thành công!', 'fa-check', 'success');
+            onClose();
+        } catch (e) {
+            triggerToast('Lỗi khi lưu tài khoản', 'fa-times', 'danger');
+        }
+        setIsSaving(false);
+    };
+
+    const handleDelete = async () => {
+        if (!window.confirm(`Xoá vĩnh viễn tài khoản ${user.name}? KHÔNG THỂ HOÀN TÁC!`)) return;
+        setIsDeleting(true);
+        try {
+            let updatedPins = { ...(userConfigs?.pins || {}) };
+            let updatedTitles = { ...(userConfigs?.titles || {}) };
+            let updatedSalaries = { ...(userConfigs?.salaries || {}) };
+            
+            delete updatedPins[user.pin];
+            delete updatedTitles[oldName];
+
+            const newUserConfigs = {
+                ...userConfigs,
+                pins: updatedPins,
+                titles: updatedTitles,
+                salaries: updatedSalaries,
+                users: Object.values(updatedPins).map(u => u.name || u['Tên Nhân Sự'])
+            };
+
+            await pushData({ UserConfigs: [newUserConfigs] });
+            triggerToast('Đã xoá tài khoản!', 'fa-check', 'success');
+            onClose();
+        } catch (e) {
+            triggerToast('Lỗi khi xoá', 'fa-times', 'danger');
+        }
+        setIsDeleting(false);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-[#0a0a0a]/90 flex items-center justify-center z-[9999] p-4 backdrop-blur-sm animate-fade-in" onClick={() => { if(!isSaving && !isDeleting) onClose(); }}>
+            <div className="bg-[#141414] border border-[#333] w-full max-w-sm rounded-[24px] p-5 shadow-2xl relative overflow-hidden flex flex-col animate-slide-up" onClick={e => e.stopPropagation()}>
+                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-[#3b82f6] to-transparent opacity-50"></div>
+                
+                <div className="flex justify-between items-center mb-4 border-b border-[#222] pb-3">
+                    <h3 className="font-black text-[#3b82f6] text-[14px] uppercase tracking-wider">
+                        <i className={`fas ${isNew ? 'fa-user-plus' : 'fa-id-card'} mr-2`}></i> 
+                        {isNew ? 'Thêm nhân sự mới' : 'Hồ sơ điện tử'}
+                    </h3>
+                    <button onClick={onClose} disabled={isSaving || isDeleting} className="w-8 h-8 rounded-full bg-[#1a1a1a] text-gray-400 hover:text-rose-500 flex items-center justify-center transition-colors border border-[#333]"><i className="fas fa-times"></i></button>
+                </div>
+
+                {/* TABS TRONG MODAL */}
+                <div className="flex gap-1 bg-[#0a0a0a] p-1 rounded-xl border border-[#222] mb-4 shrink-0">
+                    <button onClick={() => setFormTab('BASIC')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${formTab === 'BASIC' ? 'bg-[#3b82f6] text-white shadow-sm' : 'text-gray-500 hover:text-white'}`}>Cơ Bản</button>
+                    <button onClick={() => setFormTab('HR')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${formTab === 'HR' ? 'bg-amber-500 text-black shadow-sm' : 'text-gray-500 hover:text-white'}`}>Hợp Đồng</button>
+                    <button onClick={() => setFormTab('PERM')} className={`flex-1 py-2 text-[10px] font-black uppercase rounded-lg transition-all ${formTab === 'PERM' ? 'bg-emerald-500 text-black shadow-sm' : 'text-gray-500 hover:text-white'}`}>Quyền Hạn</button>
+                </div>
+
+                <div className="space-y-4 max-h-[50vh] overflow-y-auto custom-scrollbar pr-1 pb-2">
+                    
+                    {/* 1. THÔNG TIN CƠ BẢN */}
+                    {formTab === 'BASIC' && (
+                        <div className="space-y-4 animate-fade-in">
+                            <div className="flex justify-center mb-2">
+                                <div className="w-16 h-16 rounded-2xl bg-[#0a0a0a] border border-[#333] flex items-center justify-center overflow-hidden shadow-inner relative">
+                                    {form.avatar ? <img src={form.avatar} alt="avatar" className="w-full h-full object-cover" /> : <i className="fas fa-user-tie text-2xl text-gray-600"></i>}
+                                </div>
+                            </div>
+                            <div>
+                                <label className="text-[9px] font-black text-gray-500 block mb-1.5 uppercase tracking-widest">HỌ TÊN NHÂN SỰ (*)</label>
+                                <input type="text" value={form.name} onChange={e => setForm({...form, name: e.target.value})} disabled={isSaving || isDeleting || (!isNew && !isBoss && !isSelf)} className="w-full p-2.5 bg-[#0a0a0a] border border-[#333] text-white font-bold rounded-xl outline-none focus:border-[#3b82f6]" placeholder="Nhập tên nhân sự..." />
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-[9px] font-black text-gray-500 block mb-1.5 uppercase tracking-widest">CHỨC DANH</label>
+                                    <input type="text" value={form.title} onChange={e => setForm({...form, title: e.target.value})} disabled={isSaving || isDeleting || (!isNew && !isBoss && !isSelf)} className="w-full p-2.5 bg-[#0a0a0a] border border-[#333] text-[#d4af37] font-bold rounded-xl outline-none focus:border-[#3b82f6]" placeholder="VD: Thợ Cân Nước" />
+                                </div>
+                                <div>
+                                    <label className="text-[9px] font-black text-gray-500 block mb-1.5 uppercase tracking-widest flex items-center gap-1">MÃ PIN ĐĂNG NHẬP</label>
+                                    <input type="text" value={isBoss ? form.pin : '****'} onChange={e => setForm({...form, pin: e.target.value.replace(/[^0-9]/g, '')})} disabled={!isBoss || isSaving || isDeleting} maxLength="6" className={`w-full p-2.5 bg-[#0a0a0a] border border-[#333] font-black rounded-xl outline-none focus:border-[#3b82f6] text-center tracking-widest ${!isBoss ? 'text-gray-600 cursor-not-allowed opacity-75' : 'text-[#10b981]'}`} placeholder="Nhập mã PIN" />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="text-[9px] font-black text-gray-500 block mb-1.5 uppercase tracking-widest">ĐƯỜNG DẪN ẢNH ĐẠI DIỆN</label>
+                                <input type="text" value={form.avatar} onChange={e => setForm({...form, avatar: e.target.value})} disabled={isSaving || isDeleting || (!isNew && !isBoss && !isSelf)} className="w-full p-2.5 bg-[#0a0a0a] border border-[#333] text-gray-400 text-xs rounded-xl outline-none focus:border-[#3b82f6]" placeholder="Nhập url hình đại diện..." />
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 2. THÔNG TIN HỢP ĐỒNG & LƯƠNG */}
+                    {formTab === 'HR' && (
+                        <div className="space-y-4 animate-fade-in">
+                            <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 mb-1 flex items-start gap-2 text-[10px] text-amber-500 leading-relaxed font-bold">
+                                <i className="fas fa-exclamation-triangle mt-0.5 shrink-0"></i>
+                                <span>Mức lương này tự động liên kết với Bảng Tính Lương thuộc Phân Hệ HR. Vui lòng cập nhật cẩn trọng.</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-[9px] font-black text-gray-500 block mb-1.5 uppercase tracking-widest">SỐ ĐIỆN THOẠI</label>
+                                    <input type="tel" value={form.phone} onChange={e => setForm({...form, phone: e.target.value})} disabled={!isBoss && !isSelf} className="w-full p-2.5 bg-[#0a0a0a] border border-[#333] text-white font-bold rounded-xl outline-none focus:border-amber-500" placeholder="Số di động..." />
+                                </div>
+                                <div>
+                                    <label className="text-[9px] font-black text-gray-500 block mb-1.5 uppercase tracking-widest">CƠ CHẾ LAO ĐỘNG</label>
+                                    <select value={form.empType} onChange={e => setForm({...form, empType: e.target.value})} disabled={!isBoss} className={`w-full p-2.5 bg-[#0a0a0a] border border-[#333] font-bold rounded-xl outline-none focus:border-amber-500 cursor-pointer ${form.empType === 'Chính Thức' ? 'text-[#10b981]' : 'text-amber-400'}`}>
+                                        <option value="Chính Thức">Chính Thức</option>
+                                        <option value="Part-time">Part-time</option>
+                                        <option value="Thử Việc">Thử Việc</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div>
+                                <label className="text-[9px] font-black text-gray-500 block mb-1.5 uppercase tracking-widest">ĐỊA CHỈ THƯỜNG TRÚ</label>
+                                <textarea rows="2" value={form.address} onChange={e => setForm({...form, address: e.target.value})} disabled={!isBoss && !isSelf} className="w-full p-2.5 bg-[#0a0a0a] border border-[#333] text-white font-medium rounded-xl outline-none focus:border-amber-500 text-xs custom-scrollbar" placeholder="Nhập địa chỉ nhà..."></textarea>
+                            </div>
+                            <div>
+                                <label className="text-[9px] font-black text-gray-500 block mb-1.5 uppercase tracking-widest flex justify-between items-center">LƯƠNG CƠ BẢN (VNĐ)</label>
+                                <input type="text" value={formatMoneyInput(form.salary)} onChange={e => setForm({...form, salary: e.target.value})} disabled={!isBoss} className="w-full p-2.5 bg-[#141414] border border-[#444] text-[#d4af37] text-[16px] font-black rounded-xl outline-none focus:border-amber-500 text-right shadow-inner" placeholder="0" />
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 3. PHÂN QUYỀN HỆ THỐNG */}
+                    {formTab === 'PERM' && (
+                        <div className="space-y-4 animate-fade-in">
+                            <div>
+                                <label className="text-[9px] font-black text-gray-500 block mb-1.5 uppercase tracking-widest">NHÓM VAI TRÒ GỐC (ROLE)</label>
+                                <select disabled={!isBoss} value={form.role} onChange={e => setForm({...form, role: e.target.value})} className="w-full p-2.5 bg-[#0a0a0a] border border-[#333] text-white font-bold rounded-xl outline-none focus:border-emerald-500 cursor-pointer">
+                                    {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                                </select>
+                            </div>
+
+                            <div className="bg-[#0a0a0a] rounded-xl border border-[#222] overflow-hidden">
+                                <div className="bg-[#141414] p-3 border-b border-[#222] flex justify-between items-center">
+                                    <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">Quyền hạn thao tác</span>
+                                    {isBoss && <button onClick={clearPermissions} className="text-[8px] font-black bg-rose-500/10 text-rose-400 px-2 py-1 rounded border border-rose-500/25 hover:bg-rose-500 hover:text-white transition-all uppercase">Thu hồi tất cả</button>}
+                                </div>
+                                <div className="p-2 divide-y divide-zinc-900">
+                                    {PERMISSION_LIST.map(perm => {
+                                        const isChecked = form.permissions.includes(perm.id);
+                                        return (
+                                            <div key={perm.id} onClick={() => togglePermission(perm.id)} className={`flex items-center justify-between py-2 cursor-pointer transition-colors hover:bg-zinc-950 ${!isBoss ? 'cursor-not-allowed opacity-75' : ''}`}>
+                                                <div className="flex items-center gap-2.5">
+                                                    <div className={`w-6 h-6 rounded-lg flex items-center justify-center border transition-all ${isChecked ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 shadow-sm' : 'bg-[#141414] border-[#333] text-gray-600'}`}><i className={`fas ${perm.icon} text-[10px]`}></i></div>
+                                                    <span className={`text-[11px] font-bold ${isChecked ? 'text-gray-200' : 'text-gray-650'}`}>{perm.label}</span>
+                                                </div>
+                                                <div className={`w-7 h-4 rounded-full flex items-center px-0.5 transition-colors duration-250 ${isChecked ? 'bg-emerald-500' : 'bg-[#333]'}`}>
+                                                    <div className={`w-3 h-3 bg-white rounded-full shadow transform transition-transform duration-250 ${isChecked ? 'translate-x-3.5' : 'translate-x-0'}`}></div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {isSelf && !isBoss && (
+                        <div className="mt-2 text-[9px] font-bold text-amber-500 bg-amber-500/10 p-2 rounded-lg border border-amber-500/20 leading-relaxed">
+                            <i className="fas fa-info-circle mr-1"></i> Bạn đang tự xem hồ sơ cá nhân. Chỉ Tài khoản có vai trò Quản lý mới có quyền điều chỉnh Mức lương và phân quyền hệ thống.
+                        </div>
+                    )}
+                </div>
+
+                <div className="pt-4 mt-3 border-t border-[#222] flex gap-2">
+                    {!isNew && isBoss && !isSelf && (
+                        <button onClick={handleDelete} disabled={isDeleting || isSaving} title="Xoá vĩnh viễn" className="px-3 bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-black border border-rose-500/25 rounded-xl transition-all flex items-center justify-center shrink-0 active:scale-95">
+                            {isDeleting ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-trash-alt text-[12px]"></i>}
+                        </button>
+                    )}
+                    <button onClick={onClose} disabled={isSaving || isDeleting} className="flex-1 py-3 bg-[#222] hover:bg-[#333] text-gray-400 hover:text-white font-black rounded-xl transition-all text-[11px] uppercase tracking-wider">Đóng</button>
+                    
+                    {(isBoss || isSelf) && (
+                        <button onClick={handleSave} disabled={isSaving || isDeleting} className="flex-[2] py-3 bg-[#3b82f6] hover:bg-blue-600 text-white font-black rounded-xl transition-all flex items-center justify-center gap-1.5 text-[11px] uppercase tracking-wider shadow-md">
+                            {isSaving ? <><i className="fas fa-spinner fa-spin"></i> Đang lưu...</> : <><i className="fas fa-save"></i> Lưu hồ sơ</>}
+                        </button>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// -------------------------------------------------------------------------
+// 2. GIAO DIỆN CHÍNH TAB QUẢN TRỊ TÀI KHOẢN (UserManagementTab)
+// -------------------------------------------------------------------------
+function UserManagementTab({ data, pushData, isAdmin, userConfigs, currentUser, triggerToast }) {
+    const [showUserModal, setShowUserModal] = React.useState(false);
+    const [editingUser, setEditingUser] = React.useState(null);
+    const [searchTerm, setSearchTerm] = React.useState('');
+    const [roleFilter, setRoleFilter] = React.useState('TẤT CẢ');
+
+    const isBoss = localStorage.getItem('rf_boss') === 'true';
+
+    const pinsDict = userConfigs?.pins || {};
+    const users = React.useMemo(() => {
+        return Object.keys(pinsDict).map(pin => {
+            const u = pinsDict[pin];
+            const name = u.name || u['Tên Nhân Sự'] || '';
+            const currentSalary = userConfigs?.salaries?.[name]?.baseSalary || userConfigs?.salaries?.[name]?.['Lương Cơ Bản'] || 0;
+            return {
+                id: name,
+                name: name,
+                role: u.role || u['Phân Quyền'] || 'CHƯA PHÂN QUYỀN',
+                pin: pin,
+                title: u.title || u['Chức Danh'] || '',
+                avatar: u.avatar || u['Avatar'] || '',
+                phone: u.phone || '',
+                address: u.address || '',
+                empType: u.empType || 'Chính Thức',
+                salary: currentSalary,
+                permissions: u.permissions || []
+            };
+        });
+    }, [pinsDict, userConfigs?.salaries]);
+
+    // TÍNH TOÁN CÁC CHỈ SỐ NHÂN SỰ CAO CẤP
+    const stats = React.useMemo(() => {
+        const total = users.length;
+        const official = users.filter(u => u.empType === 'Chính Thức').length;
+        const totalSalary = users.reduce((sum, u) => sum + (Number(u.salary) || 0), 0);
+        
+        // KIỂM TRA BẢO MẬT MÃ PIN (MÃ YẾU / MÃ PIN RỖNG)
+        const weakPinList = ['1234', '0000', '1111', '123456', '8888', '9999', '12345'];
+        let insecureCount = 0;
+        let blankPins = 0;
+        users.forEach(u => {
+            const p = String(u.pin || '').trim();
+            if (!p) { blankPins++; insecureCount++; }
+            else if (weakPinList.includes(p)) { insecureCount++; }
+        });
+
+        return {
+            total,
+            official,
+            totalSalary,
+            insecureCount,
+            blankPins
+        };
+    }, [users]);
+
+    const rolesList = React.useMemo(() => {
+        return ['TẤT CẢ', ...new Set(users.map(u => u.role).filter(Boolean))];
+    }, [users]);
+
+    const filteredUsers = React.useMemo(() => {
+        return users.filter(u => {
+            const matchName = u.name.toLowerCase().includes(searchTerm.toLowerCase());
+            const matchRole = roleFilter === 'TẤT CẢ' || u.role === roleFilter;
+            return matchName && matchRole;
+        }).sort((a, b) => {
+            if (a.role === 'TỐI CAO') return -1;
+            if (b.role === 'TỐI CAO') return 1;
+            return a.name.localeCompare(b.name);
+        });
+    }, [users, searchTerm, roleFilter]);
+
+    const renderSafeAvatar = (user, className) => {
+        if (user.avatar) return <img src={user.avatar} className={`${className} object-cover`} alt="avatar" />;
+        return <div className={`${className} flex items-center justify-center bg-[#3b82f6] text-white font-black overflow-hidden uppercase select-none`}>{user.name.charAt(0)}</div>;
+    };
+
+    const getRoleStyle = (role) => {
+        switch(role) {
+            case 'TỐI CAO': return 'bg-rose-500/10 text-rose-500 border-rose-500/20';
+            case 'KẾ TOÁN': return 'bg-amber-500/10 text-amber-500 border-amber-500/20';
+            case 'KHO VẬN': return 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20';
+            case 'QUẢN LÝ': return 'bg-purple-500/10 text-purple-400 border-purple-500/20';
+            case 'BÁN HÀNG': return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
+            case 'CHƯA PHÂN QUYỀN': return 'bg-[#111] text-gray-500 border-[#222] opacity-60';
+            default: return 'bg-[#1a1a1a] text-gray-400 border-[#333]';
+        }
+    };
+
+    return (
+        <div className="space-y-5 animate-fade-in pb-12 w-full">
+            
+            {/* 1. KHUNG THỐNG KÊ QUÂN SỰ & QUỸ LƯƠNG */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="bg-[#141414] p-4 rounded-2xl border border-blue-500/20 shadow-sm flex items-center justify-between">
+                    <div>
+                        <span className="text-[8px] font-black text-blue-400 uppercase tracking-widest block mb-1">TỔNG NHÂN SỰ</span>
+                        <span className="text-[20px] font-black text-blue-500 leading-none">{stats.total} <span className="text-[10px] text-gray-500">người</span></span>
+                    </div>
+                    <div className="w-10 h-10 rounded-full bg-blue-500/10 text-blue-400 flex items-center justify-center text-sm border border-blue-500/20"><i className="fas fa-users"></i></div>
+                </div>
+
+                <div className="bg-[#141414] p-4 rounded-2xl border border-emerald-500/20 shadow-sm flex items-center justify-between">
+                    <div>
+                        <span className="text-[8px] font-black text-emerald-400 uppercase tracking-widest block mb-1">CHÍNH THỨC</span>
+                        <span className="text-[20px] font-black text-emerald-400 leading-none">{stats.official} <span className="text-[10px] text-gray-500">nhân sự</span></span>
+                    </div>
+                    <div className="w-10 h-10 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center text-sm border border-emerald-500/20"><i className="fas fa-user-check"></i></div>
+                </div>
+
+                <div className="bg-[#141414] p-4 rounded-2xl border border-amber-500/20 shadow-sm flex items-center justify-between">
+                    <div>
+                        <span className="text-[8px] font-black text-amber-400 uppercase tracking-widest block mb-1">LƯƠNG CƠ BẢN DỰ KIẾN</span>
+                        <span className="text-[17px] font-black text-amber-500 leading-none">{stats.totalSalary.toLocaleString('vi-VN')}đ</span>
+                    </div>
+                    <div className="w-10 h-10 rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center text-sm border border-amber-500/20"><i className="fas fa-money-bill-wave"></i></div>
+                </div>
+
+                <div className={`bg-[#141414] p-4 rounded-2xl border shadow-sm flex items-center justify-between ${stats.insecureCount > 0 ? 'border-rose-500/25' : 'border-zinc-800'}`}>
+                    <div>
+                        <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">MÃ PIN AN NINH</span>
+                        {stats.insecureCount > 0 ? (
+                            <span className="text-[16px] font-black text-rose-500 leading-none animate-pulse">{stats.insecureCount} Tài khoản yếu</span>
+                        ) : (
+                            <span className="text-[16px] font-black text-emerald-400 leading-none"><i className="fas fa-shield-alt mr-1"></i>An toàn</span>
+                        )}
+                    </div>
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm border ${stats.insecureCount > 0 ? 'bg-rose-500/10 text-rose-500 border-rose-500/20' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'}`}><i className={`fas ${stats.insecureCount > 0 ? 'fa-shield-virus' : 'fa-user-shield'}`}></i></div>
+                </div>
+            </div>
+
+            {/* CẢNH BÁO AN NINH MÃ PIN KHI CÓ SỰ CỐ */}
+            {isBoss && stats.insecureCount > 0 && (
+                <div className="bg-rose-950/15 border border-rose-900/40 p-4 rounded-2xl flex gap-3 items-start animate-fade-in shadow-inner">
+                    <i className="fas fa-exclamation-triangle text-rose-500 text-[18px] shrink-0 mt-0.5"></i>
+                    <div>
+                        <h4 className="font-black text-[12px] text-rose-400 uppercase tracking-wide">Cảnh Báo Bảo Mật PIN Hệ Thống</h4>
+                        <p className="text-[10px] text-gray-400 leading-relaxed mt-1">Phát hiện có <b className="text-rose-400">{stats.insecureCount} tài khoản</b> chưa cài đặt mã PIN hoặc đang sử dụng các mã PIN dễ đoán (Ví dụ: 0000, 1111, 1234, ...). Yêu cầu quản lý cập nhật lại mã PIN bảo mật để tránh rò rỉ dữ liệu.</p>
+                    </div>
+                </div>
+            )}
+
+            {/* 2. THANH CÔNG CỤ TÌM KIẾM, HÀNH ĐỘNG */}
+            <div className="bg-[#141414] border border-[#2a2a2a] p-4 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="relative flex-1">
+                    <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-500"></i>
+                    <input type="text" placeholder="Tìm kiếm tên nhân sự..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-11 pr-4 py-3 bg-[#0a0a0a] rounded-xl border border-[#222] font-bold text-[12px] outline-none focus:border-[#3b82f6] text-white shadow-inner transition-colors" />
+                </div>
+                {isBoss && (
+                    <button onClick={() => { setEditingUser(null); setShowUserModal(true); }} className="bg-[#3b82f6] hover:bg-blue-600 text-white px-5 py-3 rounded-xl font-black text-[11px] uppercase tracking-wider flex items-center justify-center gap-1.5 active:scale-95 transition-all shadow-[0_0_15px_rgba(59,130,246,0.2)] whitespace-nowrap">
+                        <i className="fas fa-plus"></i> Thêm Nhân Sự
+                    </button>
+                )}
+            </div>
+
+            {/* 3. BỘ LỌC CHỨC VỤ QUICK PILLS */}
+            <div className="flex overflow-x-auto gap-2 pb-1.5 custom-scrollbar">
+                {rolesList.map(r => (
+                    <button key={r} onClick={() => setRoleFilter(r)} className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all shadow-sm ${roleFilter === r ? 'bg-[#3b82f6] text-white' : 'bg-[#141414] text-gray-400 border border-[#2a2a2a] hover:bg-zinc-800'}`}>
+                        {r} <span className="ml-1 text-[8px] font-bold opacity-60">({r === 'TẤT CẢ' ? users.length : users.filter(u => u.role === r).length})</span>
+                    </button>
+                ))}
+            </div>
+
+            {/* 4. DANH SÁCH THẺ NHÂN SỰ */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {filteredUsers.map(user => {
+                    const isSelf = user.name === currentUser;
+                    const isWeakPin = ['1234', '0000', '1111', '123456', '8888', '9999', '12345'].includes(String(user.pin).trim()) || !user.pin;
+
+                    return (
+                        <div key={user.pin} className={`bg-[#141414] p-4 rounded-2xl border transition-all shadow-sm flex flex-col justify-between ${isSelf ? 'border-[#3b82f6] shadow-[0_0_15px_rgba(59,130,246,0.1)]' : 'border-[#2a2a2a] hover:border-zinc-700'}`}>
+                            <div className="flex items-start justify-between gap-2">
+                                <div className="flex items-center gap-3.5 min-w-0">
+                                    {renderSafeAvatar(user, "w-12 h-12 rounded-xl shadow-inner border border-[#2a2a2a] shrink-0")}
+                                    <div className="min-w-0">
+                                        <div className="font-black text-[14px] text-white leading-tight mb-1 flex items-center gap-1.5">
+                                            <span className="truncate">{user.name}</span>
+                                            {isSelf && <span className="text-[7px] font-black bg-amber-500/10 text-amber-500 border border-amber-500/20 px-1.5 py-0.5 rounded-full uppercase tracking-wider shrink-0">Bạn</span>}
+                                            {isBoss && isWeakPin && (
+                                                <span className="text-[7px] font-black bg-rose-500/10 text-rose-500 border border-rose-500/20 px-1.5 py-0.5 rounded-full uppercase tracking-wider shrink-0 animate-pulse" title="Lỗi PIN yếu hoặc trống PIN"><i className="fas fa-shield-virus"></i> Yếu</span>
+                                            )}
+                                        </div>
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                            <span className={`text-[8px] font-black px-1.5 py-0.5 rounded border uppercase tracking-wider ${getRoleStyle(user.role)}`}>{user.role}</span>
+                                            {user.title && <span className="text-[8px] font-black text-[#d4af37] bg-[#2a1a08] px-1.5 py-0.5 rounded border border-amber-500/15 truncate max-w-[120px]"><i className="fas fa-tag opacity-60 mr-1 text-[7px]"></i>{user.title}</span>}
+                                            <span className={`text-[8px] font-black px-1.5 py-0.5 rounded border ${user.empType === 'Chính Thức' ? 'bg-[#10b981]/5 text-[#10b981] border-[#10b981]/15' : 'bg-gray-800/40 text-gray-500 border-[#222]'}`}>{user.empType}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                {(isBoss || isSelf) && (
+                                    <button onClick={() => { setEditingUser(user); setShowUserModal(true); }} className="w-8 h-8 bg-[#0a0a0a] rounded-lg flex items-center justify-center text-gray-500 hover:text-white hover:bg-[#3b82f6]/20 border border-[#2a2a2a] hover:border-[#3b82f6]/30 transition-all shrink-0 active:scale-95">
+                                        <i className="fas fa-user-edit text-[11px]"></i>
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* HIỂN THỊ CÁC QUYỀN HẠN PHỤ TRỢ (CHỈ DÀNH CHO ACCOUNT CÓ PERMISSIONS) */}
+                            {user.permissions && user.permissions.length > 0 && (
+                                 <div className="mt-3 pt-3 border-t border-[#222] flex gap-1 flex-wrap">
+                                     {user.permissions.map(p => {
+                                         const permData = PERMISSION_LIST.find(pl => pl.id === p);
+                                         return permData ? (
+                                            <span key={p} className="text-[8px] font-bold bg-[#0a0a0a] text-gray-400 border border-zinc-800 px-1.5 py-0.5 rounded-md flex items-center gap-1"><i className={`fas ${permData.icon} text-emerald-500/70 text-[7px]`}></i> {permData.label}</span>
+                                         ) : null;
+                                     })}
+                                 </div>
+                            )}
+
+                            {/* THÔNG TIN LIÊN HỆ GỌI NHANH */}
+                            {user.phone && (
+                                <div className="mt-2 text-[10px] text-gray-500 font-bold flex items-center gap-1.5 pl-0.5">
+                                    <i className="fas fa-phone-alt text-[8px] text-zinc-600"></i>
+                                    <a href={`tel:${user.phone}`} className="text-gray-400 hover:text-[#3b82f6] hover:underline font-mono">{user.phone}</a>
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
+                {filteredUsers.length === 0 && (
+                    <div className="col-span-1 md:col-span-2 text-center py-12 bg-[#141414] rounded-2xl border border-[#2a2a2a] text-gray-500 font-bold text-[11px] flex flex-col items-center justify-center">
+                        <i className="fas fa-users-slash text-3xl mb-3 opacity-25"></i>
+                        <span>Không tìm thấy hồ sơ nhân sự trùng khớp</span>
+                    </div>
+                )}
+            </div>
+
+            {showUserModal && (
+                <UserFormModal 
+                    user={editingUser} 
+                    onClose={() => setShowUserModal(false)} 
+                    pushData={pushData} 
+                    data={data} 
+                    userConfigs={userConfigs} 
+                    isBoss={isBoss} 
+                    currentUser={currentUser} 
+                    triggerToast={triggerToast} 
+                />
+            )}
+        </div>
+    );
+}
+</script>

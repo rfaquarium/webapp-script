@@ -1,0 +1,349 @@
+<script type="text/babel">
+// ==========================================
+// 1. COMPONENT HỆ THỐNG & TIỆN ÍCH CORE
+// ==========================================
+
+const getDrivePreviewUrl = (url) => {
+    if (!url) return '';
+    const match = url.match(/[-\w]{25,}/);
+    if (match) return `https://drive.google.com/file/d/${match[0]}/preview`;
+    return url;
+};
+
+const RFLogo = ({ className = "w-10 h-10", size = 40 }) => (
+  <svg width={size} height={size} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    <defs>
+      <linearGradient id="sharkFinGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+        <stop offset="0%" stopColor="#1e3a8a" />
+        <stop offset="40%" stopColor="#0284c7" />
+        <stop offset="70%" stopColor="#06b6d4" />
+        <stop offset="100%" stopColor="#38bdf8" />
+      </linearGradient>
+    </defs>
+    <path 
+      d="M25,80 C25,80 30,45 50,30 C65,18 80,25 78,35 C75,45 60,52 65,65 C70,78 78,80 78,80 C50,80 37,80 25,80 Z" 
+      fill="url(#sharkFinGrad)" 
+      style={{ filter: "drop-shadow(0px 3px 6px rgba(6, 182, 212, 0.4))" }}
+    />
+  </svg>
+);
+
+class ErrorBoundary extends React.Component {
+    constructor(props) { super(props); this.state = { hasError: false, error: null }; }
+    static getDerivedStateFromError(error) { return { hasError: true, error }; }
+    render() { 
+        if (this.state.hasError) {
+            return (
+                <div className="p-6 bg-[#0a0a0a] text-red-500 min-h-screen flex flex-col justify-center items-center">
+                    <i className="fas fa-exclamation-triangle text-5xl mb-4 text-rose-500 animate-pulse"></i>
+                    <h1 className="font-black text-xl text-[#f5f5f5] mb-2 tracking-widest uppercase">Lỗi Hệ Thống!</h1>
+                    <p className="text-[12px] text-gray-500 mb-6 text-center max-w-sm">Hệ thống ghi nhận sự cố khi tải giao diện. Vui lòng làm mới lại trang.</p>
+                    <button onClick={()=>window.location.reload()} className="bg-rose-600 text-white px-6 py-3 font-black text-[12px] rounded-xl tracking-widest uppercase shadow-md active:scale-95 transition-all">
+                        <i className="fas fa-sync-alt mr-2"></i> Tải lại App
+                    </button>
+                    <pre className="mt-8 text-[10px] bg-[#141414] border border-[#333] text-rose-400 p-4 rounded-xl max-w-md w-full overflow-auto whitespace-pre-wrap">{this.state.error.toString()}</pre>
+                </div>
+            );
+        }
+        return this.props.children;
+    }
+}
+
+// ==========================================
+// TRỢ LÝ AI (GEMINI) - RICH FISH AQUARIUM
+// ==========================================
+function AIAssistant() {
+    const [isOpen, setIsOpen] = React.useState(false);
+    const [input, setInput] = React.useState('');
+    const [isLoading, setIsLoading] = React.useState(false);
+    const messagesEndRef = React.useRef(null);
+    const [messages, setMessages] = React.useState([
+        { 
+            sender: 'ai', 
+            text: 'Xin chào! Tớ là Trợ lý AI của Rich Fish Aquarium. Cậu cần hỗ trợ gì về quy trình, lệnh sản xuất hay cách sử dụng App?', 
+            time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) 
+        }
+    ]);
+
+    // Tự động cuộn xuống tin nhắn mới nhất
+    React.useEffect(() => {
+        if (messagesEndRef.current) {
+            messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+        }
+    }, [messages, isOpen, isLoading]);
+
+    const handleSend = async () => {
+        if (!input.trim()) return;
+        const userText = input.trim();
+        const currentTime = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+
+        // Đẩy tin nhắn của User lên màn hình
+        setMessages(prev => [...prev, { sender: 'user', text: userText, time: currentTime }]);
+        setInput('');
+        setIsLoading(true);
+        trackAction("Hỏi Trợ Lý AI", userText);
+        try {
+            // Lấy danh tính người đang hỏi từ bộ nhớ
+            const userName = localStorage.getItem('rf_user') || 'Nhân sự';
+            const userRole = localStorage.getItem('rf_role') || 'Không rõ';
+
+            // Gửi qua Trạm Kiểm Duyệt ở Backend
+            const responseText = await runGAS('askAssistant', userText, userName, userRole);
+
+            // Nhận kết quả và hiển thị
+            setMessages(prev => [...prev, { 
+                sender: 'ai', 
+                text: responseText, 
+                time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) 
+            }]);
+        } catch (error) {
+            setMessages(prev => [...prev, { 
+                sender: 'ai', 
+                text: '⚠️ Trạm kiểm duyệt bị mất kết nối! Vui lòng kiểm tra lại mạng hoặc báo cho Boss.', 
+                time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) 
+            }]);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleKeyDown = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleSend();
+        }
+    };
+
+    return (
+        <div className="fixed bottom-5 right-5 z-[999] flex flex-col items-end animate-fade-in pointer-events-none">
+            {/* Cửa sổ Chat */}
+            {isOpen && (
+                <div className="bg-white/70 backdrop-blur-2xl border border-sky-100/50 w-[340px] sm:w-[360px] max-w-[calc(100vw-2.5rem)] h-[480px] rounded-[24px] shadow-[0_20px_50px_rgba(14,165,233,0.15)] mb-4 flex flex-col overflow-hidden pointer-events-auto transition-all transform origin-bottom-right">
+                    
+                    {/* Header */}
+                    <div className="bg-sky-50/50 border-b border-sky-100/50 p-4 flex justify-between items-center relative">
+                        <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-transparent via-[#0284c7] to-transparent"></div>
+                        <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-sky-100 border border-sky-200/50 flex items-center justify-center text-[#0284c7]">
+                                <LucideIcon name="bot" size={18} />
+                            </div>
+                            <div>
+                                <h3 className="font-black text-[#0f172a] text-[12px] uppercase tracking-widest leading-none">Trợ Lý Ảo</h3>
+                                <p className="text-[9px] text-emerald-600 font-bold mt-1 flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Sẵn sàng
+                                </p>
+                            </div>
+                        </div>
+                        <button onClick={() => setIsOpen(false)} className="text-slate-400 hover:text-rose-500 w-8 h-8 flex items-center justify-center rounded-lg hover:bg-sky-100/50 transition-colors">
+                            <i className="fas fa-times text-sm"></i>
+                        </button>
+                    </div>
+
+                    {/* Vùng tin nhắn */}
+                    <div className="flex-1 p-4 overflow-y-auto custom-scrollbar space-y-4">
+                        {messages.map((msg, idx) => (
+                            <div key={idx} className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
+                                <div className={`max-w-[85%] p-3 rounded-2xl text-[12px] font-semibold leading-relaxed whitespace-pre-wrap ${
+                                    msg.sender === 'user' 
+                                    ? 'bg-sky-100/60 text-[#0f172a] border border-sky-200/40 rounded-br-sm' 
+                                    : 'bg-white/80 text-[#0f172a] border border-sky-100/50 rounded-bl-sm shadow-sm'
+                                }`}>
+                                    {msg.text}
+                                </div>
+                                <span className="text-[9px] text-slate-400 font-bold mt-1 px-1">
+                                    {msg.sender === 'ai' && <i className="fas fa-bolt text-[#0284c7] mr-1"></i>}
+                                    {msg.time}
+                                </span>
+                            </div>
+                        ))}
+                        {isLoading && (
+                            <div className="flex items-start">
+                                <div className="bg-white/80 border border-sky-100/50 p-3 rounded-2xl rounded-bl-sm text-[#0284c7]">
+                                    <i className="fas fa-circle-notch fa-spin"></i>
+                                </div>
+                            </div>
+                        )}
+                        <div ref={messagesEndRef} />
+                    </div>
+
+                    {/* Khung nhập liệu */}
+                    <div className="p-3 bg-sky-50/30 border-t border-sky-100/50">
+                        <div className="relative flex items-center">
+                            <textarea 
+                                value={input}
+                                onChange={(e) => setInput(e.target.value)}
+                                onKeyDown={handleKeyDown}
+                                disabled={isLoading}
+                                placeholder="Nhập câu hỏi..."
+                                className="w-full bg-white/80 border border-sky-200/60 text-[#0f172a] text-[12px] rounded-xl pl-3 pr-10 py-3 outline-none focus:border-[#0284c7] transition-colors resize-none overflow-hidden h-[45px] disabled:opacity-50"
+                                rows="1"
+                            />
+                            <button 
+                                onClick={handleSend}
+                                disabled={!input.trim() || isLoading}
+                                className="absolute right-2 text-[#0284c7] w-8 h-8 flex items-center justify-center hover:bg-sky-100/60 rounded-lg transition-colors disabled:opacity-50 disabled:hover:bg-transparent"
+                            >
+                                <i className="fas fa-paper-plane text-[14px]"></i>
+                            </button>
+                        </div>
+                        <div className="text-center mt-2 text-[8px] text-slate-400 uppercase tracking-widest font-black">
+                            Powered by Gemini 1.5 Flash
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Nút Bong Bóng Gọi Trợ Lý */}
+            <button 
+                onClick={() => setIsOpen(!isOpen)}
+                className={`relative w-14 h-14 rounded-full flex items-center justify-center shadow-[0_10px_25px_rgba(2,132,199,0.25)] transition-all duration-300 pointer-events-auto border-2 ${
+                    isOpen 
+                    ? 'bg-white border-sky-200 text-slate-400 rotate-90 scale-90' 
+                    : 'bg-gradient-to-br from-[#0284c7] via-sky-400 to-[#38bdf8] border-sky-100 text-white hover:scale-105 hover:shadow-[0_15px_30px_rgba(2,132,199,0.4)]'
+                }`}
+            >
+                {isOpen ? (
+                    <i className="fas fa-times text-2xl"></i>
+                ) : (
+                    <>
+                        {/* Hào quang tỏa ra xung quanh */}
+                        <div className="absolute inset-0 rounded-full bg-sky-400 animate-ping opacity-30"></div>
+                        
+                        {/* Biểu tượng robot dễ thương AI */}
+                        <span className="text-white relative z-10 flex items-center justify-center drop-shadow-md"><LucideIcon name="bot" size={28} /></span>
+                        
+                        {/* Chấm đỏ nhấp nháy báo hiệu AI đang thức */}
+                        <div className="absolute top-0 right-0 w-3.5 h-3.5 bg-rose-500 border-2 border-sky-100 rounded-full animate-pulse z-20 shadow-sm"></div>
+                    </>
+                )}
+            </button>
+        </div>
+    );
+}
+
+const trackAction = (action, details = '') => {
+    const userName = localStorage.getItem('rf_user') || 'Ẩn danh';
+    const userRole = localStorage.getItem('rf_role') || 'Không rõ';
+    google.script.run
+        .withSuccessHandler(() => { console.log("Đã lưu vết hành vi: ", action); })
+        .withFailureHandler((err) => { console.error("Lỗi lưu vết: ", err); })
+        .logBehavior(userName, userRole, action, details);
+};
+
+function ToastManager({ toasts }) { 
+    if(toasts.length === 0) return null;
+    return ( 
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[9999] flex flex-col items-center gap-3 pointer-events-none w-[90%] max-w-sm"> 
+            {toasts.map(t => {
+                let bgColors = "bg-[#141414]/95 border-[#333] text-[#f5f5f5]";
+                if(t.color === 'success') bgColors = "bg-[#064e3b]/95 border-[#10b981]/50 text-[#34d399]";
+                if(t.color === 'danger') bgColors = "bg-[#4c0519]/95 border-[#e11d48]/50 text-[#fb7185]";
+                if(t.color === 'primary') bgColors = "bg-[#1e3a8a]/95 border-[#3b82f6]/50 text-[#60a5fa]";
+                if(t.color === 'warning') bgColors = "bg-[#78350f]/95 border-[#f59e0b]/50 text-[#fbbf24]";
+                
+                return (
+                    <div key={t.id} className={`animate-slide-down flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.5)] border ${bgColors} text-[12px] font-bold tracking-wide w-full backdrop-blur-xl`}> 
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center bg-black/20 shrink-0`}><i className={`fas ${t.icon}`}></i></div> 
+                        <span className="flex-1 leading-snug">{t.msg}</span> 
+                    </div> 
+                );
+            })} 
+        </div> 
+    ) 
+}
+
+function Avatar({ name, userConfigs, className="" }) { 
+    const [hasError, setHasError] = React.useState(false);
+    let id = null;
+    try {
+        if (userConfigs && name) {
+            const cleanName = String(name).trim().toLowerCase();
+            const sourceMap = userConfigs.avatars ? userConfigs.avatars : userConfigs;
+            if (sourceMap[name]) {
+                id = sourceMap[name];
+            } else {
+                const nameParts = cleanName.split(/[\s.]+/).filter(Boolean);
+                const mainName = nameParts[nameParts.length - 1];
+                const firstLetter = nameParts[0]?.[0];
+                const matchedKey = Object.keys(sourceMap).find(key => {
+                    const keyParts = String(key).trim().toLowerCase().split(/[\s.]+/).filter(Boolean);
+                    return keyParts[keyParts.length - 1] === mainName && keyParts[0]?.[0] === firstLetter;
+                });
+                if (matchedKey) id = sourceMap[matchedKey];
+            }
+        }
+    } catch(e) {}
+
+    let cleanId = id;
+    if (id && String(id).includes('drive.google.com')) {
+        const match = String(id).match(/[-\w]{25,}/);
+        if (match) cleanId = match[0];
+    }
+
+    if (cleanId && !hasError) { 
+        return <img src={`https://drive.google.com/thumbnail?id=${cleanId}&sz=w150`} className={`object-cover rounded-full shadow-sm bg-[#1a1a1a] ${className}`} alt={name} onError={() => setHasError(true)} />;
+    } 
+    return <div className={`flex items-center justify-center rounded-full bg-[#111] text-[#666] border border-[#333] ${className}`}><i className="fas fa-user text-[10px]"></i></div>;
+}
+
+function TimePicker24h({ value, onChange, label }) { 
+    const currentH = value ? value.split(':')[0] : '';
+    const currentM = value ? value.split(':')[1] : ''; 
+    const hours = Array.from({length:24}, (_,i) => String(i).padStart(2,'0'));
+    const mins = Array.from({length:60}, (_,i) => String(i).padStart(2,'0')); 
+    return ( 
+        <div className="flex flex-col"> 
+            {label && <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">{label}</label>} 
+            <div className="flex items-center gap-1.5"> 
+                <select value={currentH} onChange={e=>onChange(`${e.target.value}:${currentM||'00'}`)} className="flex-1 py-2.5 rounded-xl border border-[#333] bg-[#0a0a0a] text-sm font-bold text-[#f5f5f5] outline-none focus:border-[#d4af37] appearance-none text-center shadow-sm transition-colors"> 
+                    <option value="">Giờ</option> 
+                    {hours.map(h => <option key={`h${h}`} value={h}>{h}h</option>)} 
+                </select> 
+                <span className="text-gray-500 font-black">:</span> 
+                <select value={currentM} onChange={e=>onChange(`${currentH||'00'}:${e.target.value}`)} className="flex-1 py-2.5 rounded-xl border border-[#333] bg-[#0a0a0a] text-sm font-bold text-[#f5f5f5] outline-none focus:border-[#d4af37] appearance-none text-center shadow-sm transition-colors"> 
+                    <option value="">Phút</option> 
+                    {mins.map(m => <option key={`m${m}`} value={m}>{m}p</option>)} 
+                </select> 
+            </div> 
+        </div> 
+    ) 
+}
+
+function NavBtn({ icon, label, active, onClick }) { 
+    return ( 
+        <button onClick={onClick} className="flex flex-col items-center justify-center w-16 pt-2 pb-1 transition-all relative group active:scale-95"> 
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center mb-1 transition-all duration-300 ${active ? 'bg-[#d4af37]/20 text-[#d4af37] scale-110 shadow-[0_0_10px_rgba(212,175,55,0.3)]' : 'text-gray-500 group-hover:text-gray-300'}`}> 
+                <i className={`fas ${icon} text-lg`}></i> 
+            </div> 
+            <span className={`text-[8px] font-black tracking-wider uppercase transition-colors ${active ? 'text-[#d4af37]' : 'text-gray-500 group-hover:text-gray-300'}`}>{label}</span> 
+            {active && <div className="absolute -bottom-1 w-1 h-1 rounded-full bg-[#d4af37]"></div>}
+        </button> 
+    );
+}
+
+function TimeFilter({ filter, setFilter, start, setStart, end, setEnd }) { 
+    const isInvalidRange = start && end && start > end;
+    return ( 
+        <div className="bg-[#141414] p-3 rounded-2xl border border-[#2a2a2a] shadow-sm mb-3"> 
+            <div className="flex gap-1.5 overflow-x-auto custom-scrollbar pb-1"> 
+                {['Tất Cả', 'Hôm Nay', 'Tháng Này', 'Tuỳ Chỉnh'].map(f => ( 
+                    <button key={f} onClick={()=>setFilter(f)} className={`flex-shrink-0 px-4 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all shadow-sm ${filter===f ? 'bg-[#2563eb] text-white border border-[#1d4ed8]' : 'bg-[#1a1a1a] text-gray-400 border border-[#333] hover:text-white'}`}>{f}</button> 
+                ))} 
+            </div> 
+            {filter === 'Tuỳ Chỉnh' && ( 
+                <div className="flex flex-col gap-2 mt-3 pt-3 border-t border-[#222] animate-fade-in"> 
+                    <div className="flex gap-2">
+                        <div className="flex-1"><label className="text-[9px] text-gray-500 font-black uppercase tracking-wider block mb-1">Từ ngày</label><input type="date" className="w-full p-2.5 bg-[#0a0a0a] border border-[#333] text-gray-200 rounded-xl text-xs font-bold outline-none focus:border-[#2563eb] transition-colors" value={start} onChange={e=>setStart(e.target.value)} /></div> 
+                        <div className="flex-1"><label className="text-[9px] text-gray-500 font-black uppercase tracking-wider block mb-1">Đến ngày</label><input type="date" className="w-full p-2.5 bg-[#0a0a0a] border border-[#333] text-gray-200 rounded-xl text-xs font-bold outline-none focus:border-[#2563eb] transition-colors" value={end} onChange={e=>setEnd(e.target.value)} /></div> 
+                    </div> 
+                    {isInvalidRange && (
+                        <div className="text-rose-500 text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 mt-1 animate-pulse">
+                            <i className="fas fa-exclamation-triangle"></i> Từ ngày không thể lớn hơn Đến ngày!
+                        </div>
+                    )}
+                </div> 
+            )} 
+        </div> 
+    ) 
+}
+</script>

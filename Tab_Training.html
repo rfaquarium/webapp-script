@@ -1,0 +1,344 @@
+<script type="text/babel">
+// =========================================================================
+// 💬 FILE: Tab_Training.html
+// CHỨC NĂNG: Kênh Đào Tạo & Thông Báo Nội Bộ (Slack/Discord Style)
+// TÍCH HỢP: Xác nhận đọc tài liệu, kiểm tra trạng thái đọc của nhân sự.
+// =========================================================================
+
+function TrainingTab({ trainings = [], pushDeltas, triggerToast, isAdmin, userConfigs }) {
+  const isBoss = localStorage.getItem('rf_boss') === 'true';
+  const currentUser = localStorage.getItem('rf_user') || '';
+  const userRole = localStorage.getItem('rf_role') || '';
+  
+  const [showAddForm, setShowAddForm] = React.useState(false);
+  const [title, setTitle] = React.useState('');
+  const [content, setContent] = React.useState('');
+  const [targetRole, setTargetRole] = React.useState('ALL');
+  const [isSending, setIsSending] = React.useState(false);
+  
+  const [selectedDoc, setSelectedDoc] = React.useState(null); // Để boss xem báo cáo người đã đọc
+
+  // Lọc tài liệu/thông báo phù hợp với vai trò của nhân sự hiện tại
+  const visibleTrainings = React.useMemo(() => {
+      return (trainings || [])
+          .filter(t => {
+              if (isAdmin || isBoss) return true; // Quản lý thấy hết
+              if (t.targetRole === 'ALL') return true;
+              return t.targetRole === userRole;
+          })
+          .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  }, [trainings, isAdmin, isBoss, userRole]);
+
+  // Phân tích danh sách người đã đọc của một tài liệu
+  const readReport = React.useMemo(() => {
+      if (!selectedDoc) return null;
+      let readList = [];
+      try {
+          readList = typeof selectedDoc.readUsers === 'string' 
+              ? JSON.parse(selectedDoc.readUsers || '[]') 
+              : (selectedDoc.readUsers || []);
+      } catch (e) {
+          readList = [];
+      }
+      
+      // Lấy toàn bộ danh sách nhân sự từ cấu hình hệ thống để đối chiếu người chưa đọc
+      const allUsers = Object.values(userConfigs?.pins || {}).map(u => u.name);
+      const readNames = readList.map(r => r.user);
+      const unreadNames = allUsers.filter(name => !readNames.includes(name) && name !== 'admin' && name !== 'Boss');
+
+      return {
+          readList,
+          unreadNames
+      };
+  }, [selectedDoc, userConfigs]);
+
+  const handleCreateTraining = async () => {
+      if (!title.trim() || !content.trim()) {
+          triggerToast('Vui lòng điền đầy đủ tiêu đề và nội dung!', 'fa-exclamation-triangle', 'warning');
+          return;
+      }
+      setIsSending(true);
+      try {
+          const newDoc = {
+              id: 'TRN_' + Date.now(),
+              title: title.trim(),
+              content: content.trim(),
+              targetRole: targetRole,
+              createdAt: new Date().toISOString(),
+              createdBy: currentUser,
+              readUsers: '[]'
+          };
+          await pushDeltas({ trainings: [newDoc] }, 'Đã đăng tài liệu đào tạo mới!', 'fa-paper-plane');
+          setTitle('');
+          setContent('');
+          setTargetRole('ALL');
+          setShowAddForm(false);
+          triggerToast('Đăng tải thành công!', 'fa-check', 'success');
+      } catch(e) {
+          triggerToast('Lỗi khi gửi tài liệu!', 'fa-times', 'danger');
+      }
+      setIsSending(false);
+  };
+
+  const handleMarkAsRead = async (doc) => {
+      let readList = [];
+      try {
+          readList = typeof doc.readUsers === 'string' 
+              ? JSON.parse(doc.readUsers || '[]') 
+              : (doc.readUsers || []);
+      } catch (e) {
+          readList = [];
+      }
+
+      if (readList.some(r => r.user === currentUser)) {
+          return; // Đã đọc rồi
+      }
+
+      const updatedRead = [...readList, {
+          user: currentUser,
+          readAt: new Date().toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
+      }];
+
+      const updatedDoc = {
+          ...doc,
+          readUsers: JSON.stringify(updatedRead)
+      };
+
+      try {
+          await pushDeltas({ trainings: [updatedDoc] }, 'Đã xác nhận đọc tài liệu!', 'fa-check-circle');
+          triggerToast('Đã xác nhận!', 'fa-thumbs-up', 'success');
+      } catch(e) {
+          triggerToast('Lỗi xác nhận!', 'fa-times', 'danger');
+      }
+  };
+
+  const handleDeleteTraining = async (doc) => {
+      if (!window.confirm(`Xác nhận xoá tài liệu đào tạo "${doc.title}"?`)) return;
+      try {
+          await pushDeltas({ deletes: { Trainings: [doc.id] } }, 'Đã xoá tài liệu đào tạo!', 'fa-trash');
+          triggerToast('Đã xoá thành công!', 'fa-trash', 'success');
+          if (selectedDoc && selectedDoc.id === doc.id) {
+              setSelectedDoc(null);
+          }
+      } catch(e) {
+          triggerToast('Lỗi khi xoá!', 'fa-times', 'danger');
+      }
+  };
+
+  const getUserAvatarLetter = (name) => {
+      return String(name || 'B').trim().split(' ').pop().charAt(0).toUpperCase();
+  };
+
+  return (
+    <div className="space-y-4 animate-fade-in pb-12 w-full">
+      {/* HEADER TABS CHAT STYLE */}
+      <div className="bg-gradient-to-r from-[#1e293b]/70 to-[#0f172a]/95 border border-zinc-800 p-4 rounded-2xl flex items-center justify-between shadow-md relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-[#3b82f6]/5 rounded-full blur-xl -mr-6 -mt-6"></div>
+          <div>
+              <div className="flex items-center gap-2 mb-1">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Kênh thông báo & đào tạo trực tuyến</span>
+              </div>
+              <h2 className="font-black text-white text-base tracking-wide uppercase">💬 Đào Tạo & Chỉ Thị Nội Bộ</h2>
+          </div>
+          {isAdmin && (
+              <button 
+                  onClick={() => setShowAddForm(!showAddForm)}
+                  className="bg-[#3b82f6] hover:bg-blue-600 text-white font-black text-[11px] px-4 py-2.5 rounded-xl shadow-lg active:scale-95 transition-all flex items-center gap-1.5 uppercase"
+              >
+                  <i className={`fas ${showAddForm ? 'fa-times' : 'fa-plus'}`}></i> {showAddForm ? 'Đóng form' : 'Gửi chỉ thị'}
+              </button>
+          )}
+      </div>
+
+      {/* FORM GỬI CHỈ THỊ (Dành riêng cho Quản lý) */}
+      {showAddForm && isAdmin && (
+          <div className="bg-[#141414] border border-[#333] p-4 rounded-2xl space-y-3.5 shadow-2xl animate-fade-in">
+              <div className="font-black text-[11px] text-[#3b82f6] uppercase tracking-widest border-b border-zinc-800 pb-2"><i className="fas fa-edit mr-1"></i> Soạn thảo chỉ thị/đào tạo mới</div>
+              
+              <div>
+                  <label className="text-[9px] font-black text-gray-500 block mb-1 uppercase tracking-wider">Tiêu Đề Lệnh / Bài học *</label>
+                  <input 
+                      type="text" 
+                      value={title} 
+                      onChange={e => setTitle(e.target.value)} 
+                      className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-2 text-white font-bold outline-none focus:border-[#3b82f6]" 
+                      placeholder="VD: Quy trình Đóng gói chống vỡ Layout" 
+                  />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                  <div>
+                      <label className="text-[9px] font-black text-gray-500 block mb-1 uppercase tracking-wider">Đối tượng bắt buộc đọc</label>
+                      <select 
+                          value={targetRole} 
+                          onChange={e => setTargetRole(e.target.value)} 
+                          className="w-full bg-[#0a0a0a] border border-[#333] text-white rounded-xl px-3 py-2 outline-none font-bold"
+                      >
+                          <option value="ALL">Tất cả nhân sự (ALL)</option>
+                          <option value="THỢ SẢN XUẤT">Thợ Sản Xuất</option>
+                          <option value="KHO VẬN">Bộ Phận Kho Vận</option>
+                          <option value="BÁN HÀNG">Sale / Bán Hàng</option>
+                          <option value="KẾ TOÁN">Bộ phận Kế toán</option>
+                      </select>
+                  </div>
+                  <div className="flex items-end text-zinc-500 text-[10px] leading-tight pb-2.5">
+                      <i className="fas fa-info-circle mr-1"></i> Nhân viên thuộc nhóm này sẽ bị cảnh báo nhắc nhở nếu chưa đọc.
+                  </div>
+              </div>
+
+              <div>
+                  <label className="text-[9px] font-black text-gray-500 block mb-1 uppercase tracking-wider">Nội dung chi tiết (Đào tạo / Chỉ thị)*</label>
+                  <textarea 
+                      value={content} 
+                      onChange={e => setContent(e.target.value)} 
+                      rows={6}
+                      className="w-full bg-[#0a0a0a] border border-[#333] text-white font-medium rounded-xl p-3 outline-none focus:border-[#3b82f6] leading-relaxed custom-scrollbar text-[12px]" 
+                      placeholder="Ghi nội dung chỉ thị, các quy định, nội quy xưởng tại đây. Viết xuống dòng để dễ đọc..."
+                  />
+              </div>
+
+              <div className="flex gap-2 justify-end pt-2">
+                  <button onClick={() => setShowAddForm(false)} className="px-4 py-2 rounded-xl text-[10px] font-black text-gray-400 bg-[#222] hover:bg-[#333] transition-colors uppercase">Hủy</button>
+                  <button 
+                      onClick={handleCreateTraining} 
+                      disabled={isSending}
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[10px] px-6 py-2 rounded-xl active:scale-95 shadow-md transition-colors uppercase flex items-center gap-1.5"
+                  >
+                      {isSending ? <><i className="fas fa-spinner fa-spin"></i> Đang gửi...</> : <><i className="fas fa-paper-plane"></i> Phát loa ngay</>}
+                  </button>
+              </div>
+          </div>
+      )}
+
+      {/* DANH SÁCH BÀI ĐĂNG CHAT-STYLE */}
+      <div className="space-y-4">
+          {visibleTrainings.length === 0 ? (
+              <div className="text-center py-12 bg-[#141414] rounded-3xl border-2 border-dashed border-[#222] text-[#555] font-bold">
+                  <i className="fas fa-comment-slash text-4xl mb-3 opacity-30"></i>
+                  <p className="text-[12px]">Hiện tại chưa có thông báo hoặc tài liệu đào tạo nào.</p>
+              </div>
+          ) : (
+              visibleTrainings.map(doc => {
+                  let readList = [];
+                  try {
+                      readList = typeof doc.readUsers === 'string' ? JSON.parse(doc.readUsers || '[]') : (doc.readUsers || []);
+                  } catch (e) {
+                      readList = [];
+                  }
+                  
+                  const hasRead = readList.some(r => r.user === currentUser);
+                  const isCreator = doc.createdBy === currentUser;
+                  
+                  return (
+                      <div key={doc.id} className="bg-[#141414] border border-[#2a2a2a] rounded-2xl p-4 shadow-sm hover:border-[#333] transition-colors flex gap-3 relative group">
+                          {/* SENDER AVATAR */}
+                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#d4af37]/20 to-black border border-[#d4af37]/30 flex items-center justify-center text-amber-500 font-extrabold text-[12px] shrink-0 uppercase select-none">
+                              {getUserAvatarLetter(doc.createdBy)}
+                          </div>
+                          
+                          {/* BUBBLE CONTENT */}
+                          <div className="flex-1 min-w-0 space-y-2">
+                              {/* Meta Info */}
+                              <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-black text-white text-[12px]">{doc.createdBy || 'Quản trị viên'}</span>
+                                  <span className="text-[9px] bg-[#d4af37]/15 text-[#d4af37] px-1.5 py-0.2 rounded border border-[#d4af37]/25 font-black uppercase tracking-wider">ADMIN</span>
+                                  <span className="text-[9px] bg-blue-500/10 text-blue-400 px-1.5 py-0.2 rounded border border-blue-500/20 font-bold font-mono">Gửi: {doc.targetRole === 'ALL' ? 'Toàn xưởng' : doc.targetRole}</span>
+                                  <span className="text-[9px] text-zinc-500 ml-auto font-mono">{new Date(doc.createdAt).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}</span>
+                              </div>
+
+                              {/* Bubble Body */}
+                              <div className="bg-[#0a0a0c] border border-zinc-900 rounded-2xl p-3.5 space-y-2 text-zinc-200">
+                                  <h3 className="font-extrabold text-[13px] text-[#f5f5f5] tracking-wide border-b border-zinc-900 pb-1.5">{doc.title}</h3>
+                                  <p className="text-[12px] leading-relaxed whitespace-pre-line text-zinc-300 font-medium font-sans">{doc.content}</p>
+                              </div>
+
+                              {/* Interactive Action Area */}
+                              <div className="flex items-center justify-between gap-3 pt-1 flex-wrap">
+                                  {/* Trạng thái đã đọc của user hiện tại */}
+                                  {hasRead ? (
+                                      <div className="flex items-center gap-1.5 text-emerald-400 text-[10px] font-black uppercase tracking-wider bg-emerald-500/10 px-3 py-1 rounded-xl border border-emerald-500/20 shadow-sm animate-fade-in">
+                                          <i className="fas fa-check-double"></i> Đã đọc & xác nhận
+                                      </div>
+                                  ) : (
+                                      <button 
+                                          onClick={() => handleMarkAsRead(doc)}
+                                          className="bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-400 hover:to-yellow-500 text-black font-black text-[11px] px-5 py-2.5 rounded-xl shadow-[0_0_15px_rgba(245,158,11,0.25)] active:scale-95 transition-all flex items-center gap-1.5 uppercase animate-pulse border border-amber-400/50"
+                                      >
+                                          <i className="fas fa-file-signature text-xs"></i> 👉 Tôi đã đọc & hiểu rõ nội quy
+                                      </button>
+                                  )}
+
+                                  {/* Tác vụ quản lý chỉ thị */}
+                                  <div className="flex items-center gap-1.5 ml-auto">
+                                      {isAdmin && (
+                                          <button 
+                                              onClick={() => setSelectedDoc(selectedDoc && selectedDoc.id === doc.id ? null : doc)}
+                                              className={`text-[9px] font-black px-2.5 py-1.5 rounded-lg border transition-all flex items-center gap-1 uppercase ${selectedDoc && selectedDoc.id === doc.id ? 'bg-[#3b82f6] border-[#3b82f6] text-white' : 'bg-[#222]/80 border-[#333] text-gray-400 hover:text-white'}`}
+                                              title="Xem ai đã đọc"
+                                          >
+                                              <i className="fas fa-eye"></i> {selectedDoc && selectedDoc.id === doc.id ? 'Ẩn báo cáo' : `Xem ai đã đọc (${readList.length})`}
+                                          </button>
+                                      )}
+                                      
+                                      {isAdmin && (
+                                          <button 
+                                              onClick={() => handleDeleteTraining(doc)}
+                                              className="text-[9px] text-gray-500 hover:text-rose-500 bg-[#222]/80 border border-[#333] hover:border-rose-500/30 px-2.5 py-1.5 rounded-lg transition-colors flex items-center gap-1 uppercase"
+                                              title="Xoá bài viết"
+                                          >
+                                              <i className="fas fa-trash"></i> Xoá
+                                          </button>
+                                      )}
+                                  </div>
+                              </div>
+
+                              {/* BÁO CÁO NHÂN SỰ ĐÃ ĐỌC (Boss Report) */}
+                              {selectedDoc && selectedDoc.id === doc.id && readReport && (
+                                  <div className="bg-[#0c0c0e] border border-zinc-800 rounded-2xl p-3 space-y-3 mt-3 animate-slide-up">
+                                      <div className="font-black text-[10px] text-zinc-400 uppercase tracking-widest border-b border-zinc-800 pb-1.5"><i className="fas fa-chart-pie mr-1 text-[#3b82f6]"></i> Báo cáo xem chỉ thị / đào tạo</div>
+                                      
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[11px]">
+                                          <div>
+                                              <div className="font-black text-emerald-400 mb-1.5">ĐÃ XÁC NHẬN ({readReport.readList.length}):</div>
+                                              {readReport.readList.length === 0 ? (
+                                                  <div className="text-zinc-600 italic text-[10px]">Chưa có nhân sự nào đọc.</div>
+                                              ) : (
+                                                  <div className="space-y-1 max-h-[120px] overflow-y-auto custom-scrollbar pr-1">
+                                                      {readReport.readList.map((r, ri) => (
+                                                          <div key={ri} className="flex justify-between items-center bg-[#18181b]/50 px-2 py-1 rounded text-zinc-300 font-bold border border-[#222]">
+                                                              <span>• {r.user}</span>
+                                                              <span className="text-[8px] text-zinc-500 font-mono">{r.readAt}</span>
+                                                          </div>
+                                                      ))}
+                                                  </div>
+                                              )}
+                                          </div>
+                                          <div>
+                                              <div className="font-black text-rose-400 mb-1.5">CHƯA ĐỌC ({readReport.unreadNames.length}):</div>
+                                              {readReport.unreadNames.length === 0 ? (
+                                                  <div className="text-emerald-500 font-black text-[10px]">✓ Tất cả nhân sự đã đọc & xác nhận!</div>
+                                              ) : (
+                                                  <div className="space-y-1 max-h-[120px] overflow-y-auto custom-scrollbar pr-1 text-zinc-400 font-bold">
+                                                      {readReport.unreadNames.map((name, ni) => (
+                                                          <div key={ni} className="bg-[#1a0f0f] border border-rose-900/10 px-2 py-1 rounded text-rose-300 flex items-center justify-between">
+                                                              <span>• {name}</span>
+                                                              <span className="text-[8px] font-black text-rose-500 bg-rose-500/10 px-1 py-0.2 rounded border border-rose-500/20 uppercase tracking-widest">Chưa đọc</span>
+                                                          </div>
+                                                      ))}
+                                                  </div>
+                                              )}
+                                          </div>
+                                      </div>
+                                  </div>
+                              )}
+                          </div>
+                      </div>
+                  );
+              })
+          )}
+      </div>
+    </div>
+  );
+}
+</script>

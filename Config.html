@@ -1,0 +1,516 @@
+<script>
+// ==========================================
+// CONFIG.TXT - SINGLE SOURCE OF TRUTH CHO TOÀN BỘ HẰNG SỐ + HÀM TIỆN ÍCH
+// ==========================================
+// File này là nguồn duy nhất cho constants và utility functions.
+// KHÔNG duplicate các hàm parseDateTimeSafe, extractTime, formatMoney... ở file khác.
+// Nếu cần thêm hàm mới → thêm vào đây.
+// ==========================================
+
+// ==========================================
+// 1. HẰNG SỐ CẤU HÌNH GỐC
+// ==========================================
+const SALARY_PER_HOUR = 20000;
+const USERS = ['Nguyễn Ngọc Tiến', 'Nguyễn Thị Huyền Trang', 'Nguyễn Hoàng Dương', 'Lại Trường Tâm', 'Nguyễn Thế Hoàng Anh', 'Nguyễn Diệu Linh', 'Nguyễn Thị Diệu Hương'];
+const USER_PINS = { 'Nguyễn Ngọc Tiến': '826193', 'Nguyễn Thị Huyền Trang': '174920', 'Nguyễn Hoàng Dương': '592038', 'Lại Trường Tâm': '381047', 'Nguyễn Thế Hoàng Anh': '649281', 'Nguyễn Diệu Linh': '472859', 'Nguyễn Thị Diệu Hương': '284015' };
+const ADMIN_PIN = '268';
+const CHANNELS = ['Shopee VN', 'Tiktok Shop', 'Bán Lẻ', 'Bán Sỉ', 'Cộng Tác Viên', 'Shopee SG', 'Shopee MA', 'Shopee TH', 'Shopee PH', 'Bảo Hành'];
+const ORDER_STATUS = { AUTO_SCAN: 'Quét Tự Động', PENDING_PROD: 'Chờ Sản Xuất', READY_PACK: 'Sẵn sàng đóng gói', PENDING_HANDOVER: 'Chờ Bàn Giao', HANDED_OVER: 'Đã Bàn Giao', CANCELLED: 'Đơn Huỷ' };
+const CATEGORIES = ['LAYOUT', 'BỂ KÍNH', 'PHỤ KIỆN', 'DANH MỤC SẢN XUẤT', 'HÀNG HỎNG VỠ'];
+const SUB_CATEGORIES = { 'LAYOUT': ['LINH THÚ', 'VÁCH SUỐI', 'HẺM NÚI', 'NATURE', 'NHẤT TRỤ', 'TRĂNG', 'BONSAI', 'CẦU VỒNG', 'BIOTOP CUỘI', 'HANG ĐỘNG', 'RỪNG', 'ĐẢO BAY', 'CỔNG VÒM', 'COVER'], 'BỂ KÍNH': ['BỂ MINI', 'TERRARIUM', 'BÁN CẠN', 'BỂ BETTA', 'BỂ NÂNG ĐÁY'], 'PHỤ KIỆN': ['CÁT, PHÂN NỀN', 'BƠM LỌC', 'VẬT LIỆU LỌC', 'ĐÈN LED', 'THỨC ĂN', 'PHỤ KIỆN KHÁC'], 'DANH MỤC SẢN XUẤT': ['NGUYÊN LIỆU LAYOUT', 'NGUYÊN LIỆU BỂ KÍNH', 'NGUYÊN LIỆU ĐÓNG GÓI', 'VẬT TƯ SẢN XUẤT'] };
+const CAT_THU = ['Bán Hàng', 'COD Đối Tác Giao Hàng', 'Sàn TMĐT', 'Đầu Tư', 'Thu Khác', 'Bán Phế Liệu'];
+const CAT_CHI = ['Nguyên Liệu Sản Xuất', 'Vật Tư Sản Xuất', 'Quảng Cáo & Marketing', 'Thanh Toán Hoá Đơn', 'Phần Mềm Dịch Vụ', 'Cước Vận Chuyển', 'Bảo Hành Đơn Hàng', 'Lương Nhân Sự', 'Công Cụ Máy Móc', 'Trang Thiết Bị', 'Khác'];
+
+// ==========================================
+// 2. CÁC HÀM TIỆN ÍCH XỬ LÝ (LOGIC & THỜI GIAN)
+// ==========================================
+const parseDateTimeSafe = (val) => {
+    const now = new Date();
+    const defaultDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    if (!val) return { date: defaultDate, time: '00:00', fullStr: `${defaultDate} 00:00`, timestamp: 0 };
+    let str = String(val).trim();
+    
+    let datePart = defaultDate;
+    const dateMatch = str.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+    if (dateMatch) {
+        datePart = `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`;
+    } else {
+        const reverseDateMatch = str.match(/(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+        if (reverseDateMatch) {
+            datePart = `${reverseDateMatch[3]}-${reverseDateMatch[2].padStart(2, '0')}-${reverseDateMatch[1].padStart(2, '0')}`;
+        }
+    }
+    
+    let timePart = '00:00';
+    const timeMatch = str.match(/([0-1]?[0-9]|2[0-3]):([0-5][0-9])/);
+    if (timeMatch) {
+        timePart = `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}`;
+    }
+    
+    const [y, m, d] = datePart.split('-').map(Number);
+    const [hr, min] = timePart.split(':').map(Number);
+    const ts = new Date(y, m - 1, d, hr, min, 0).getTime();
+    
+    return {
+        date: datePart,
+        time: timePart,
+        fullStr: `${datePart} ${timePart}`,
+        timestamp: isNaN(ts) ? 0 : ts
+    };
+};
+
+const formatDateTime = (val) => {
+    if (!val) return '';
+    const obj = parseDateTimeSafe(val);
+    if (!obj || !obj.date) return String(val);
+    const [y, m, d] = obj.date.split('-');
+    return `${obj.time} ${d}/${m}`;
+};
+
+const getLocalISODate = () => { 
+    try {
+        const tzOffset = (new Date()).getTimezoneOffset() * 60000;
+        return new Date(Date.now() - tzOffset).toISOString().slice(0, -1); 
+    } catch(e) {
+        return new Date().toISOString();
+    }
+};
+
+const formatMoney = (m) => new Intl.NumberFormat('vi-VN').format(m || 0) + 'đ';
+
+const extractTime = (val) => { 
+    if(!val) return '';
+    let s = String(val).replace(/'/g, '').trim(); 
+    if(s.includes('T')) { let p = s.split('T')[1]; if(p) return p.substring(0,5); } 
+    let match = s.match(/\d{1,2}:\d{2}/); 
+    if (match) return match[0].padStart(5, '0'); 
+    return '';
+};
+
+const calcDurationMins = (start, end) => { 
+    let s = extractTime(start);
+    let e = extractTime(end); 
+    if(!s || !e || !s.includes(':') || !e.includes(':')) return 0; 
+    let [sh, sm] = s.split(':').map(Number);
+    let [eh, em] = e.split(':').map(Number); 
+    let m = (eh*60 + em) - (sh*60 + sm); return m > 0 ? m : 0; 
+};
+
+const formatTotalTime = (mins) => { 
+    if (mins <= 0) return '0h';
+    const h = Math.floor(mins/60); const m = Math.round(mins % 60); 
+    return `${h}h${m > 0 ? m+'p' : ''}`; 
+};
+
+const checkIsPast = (recordDate, isMorning) => { 
+    const now = new Date();
+    const tzOffset = now.getTimezoneOffset() * 60000; 
+    const localNow = new Date(now.getTime() - tzOffset); 
+    const today = localNow.toISOString().split('T')[0];
+    const currentHour = now.getHours(); 
+    if (!recordDate || recordDate < today) return true; 
+    if (recordDate === today) return isMorning ? currentHour >= 12 : currentHour >= 18; 
+    return false; 
+};
+
+const isDateInRange = (dateStr, filter, startStr, endStr) => {
+    if (!dateStr) return false;
+    const f = String(filter).trim().toLowerCase();
+    if (f === 'tất cả' || f === 'tất cả vị trí') return true;
+
+    const parseAdvancedDate = (val) => {
+        if (!val) return null;
+        let str = String(val).trim();
+        let y = null, m = null, d = null;
+        
+        const matchYMD = str.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+        if (matchYMD) {
+            y = parseInt(matchYMD[1]);
+            m = parseInt(matchYMD[2]);
+            d = parseInt(matchYMD[3]);
+        } else {
+            const matchDMY = str.match(/(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+            if (matchDMY) {
+                d = parseInt(matchDMY[1]);
+                m = parseInt(matchDMY[2]);
+                y = parseInt(matchDMY[3]);
+            }
+        }
+        if (!y || !m || !d) return null;
+        return { year: y, month: m, day: d, dateObj: new Date(y, m - 1, d) };
+    };
+
+    const parsed = parseAdvancedDate(dateStr);
+    if (!parsed) return false;
+
+    const now = new Date();
+    const tYear = now.getFullYear();
+    const tMonth = now.getMonth() + 1;
+    const tDay = now.getDate();
+
+    if (f === 'hôm nay') {
+        return parsed.year === tYear && parsed.month === tMonth && parsed.day === tDay;
+    }
+    if (f === 'hôm qua') {
+        const yesterday = new Date(tYear, tMonth - 1, tDay - 1);
+        return parsed.year === yesterday.getFullYear() && 
+               parsed.month === (yesterday.getMonth() + 1) && 
+               parsed.day === yesterday.getDate();
+    }
+    if (f === 'tháng này') {
+        return parsed.year === tYear && parsed.month === tMonth;
+    }
+    if (f === 'tháng trước') {
+        const lastMonth = new Date(tYear, tMonth - 2, 1);
+        return parsed.year === lastMonth.getFullYear() && parsed.month === (lastMonth.getMonth() + 1);
+    }
+    if (f === 'tuần này') {
+        const todayObj = new Date(tYear, tMonth - 1, tDay);
+        const dayOfWeek = todayObj.getDay();
+        const diffToMonday = todayObj.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+        const monday = new Date(todayObj.setDate(diffToMonday));
+        monday.setHours(0,0,0,0);
+        
+        const targetDate = parsed.dateObj;
+        targetDate.setHours(0,0,0,0);
+        return targetDate >= monday && targetDate <= new Date(tYear, tMonth - 1, tDay, 23, 59, 59);
+    }
+    if (f === 'tùy chọn' && startStr && endStr) {
+        const startParsed = parseAdvancedDate(startStr);
+        const endParsed = parseAdvancedDate(endStr);
+        if (!startParsed || !endParsed) return false;
+        
+        const tDate = parsed.dateObj.getTime();
+        const sDate = startParsed.dateObj.getTime();
+        const eDate = endParsed.dateObj.getTime() + (24 * 60 * 60 * 1000 - 1);
+        return tDate >= sDate && tDate <= eDate;
+    }
+    return true;
+};
+
+const getShiftStatus = (inTime, outTime, isMorning, leaveType, recordDate) => {
+  const actIn = extractTime(inTime);
+  const actOut = extractTime(outTime); const isPast = checkIsPast(recordDate, isMorning);
+  if (leaveType) return { text: leaveType, color: 'text-primary bg-primaryLight font-bold', mins: 0 };
+  if (!actIn && !actOut) { 
+      if (isPast) return { text: 'Nghỉ không phép', color: 'text-danger bg-red-50 font-black', mins: 0 };
+      return { text: 'Chưa chấm', color: 'text-gray-400 bg-gray-100', mins: 0 };
+  }
+  const lateLimit = isMorning ? '08:10' : '14:10'; const halfDayLimit = isMorning ? '09:00' : '14:30'; const earlyLimit = isMorning ? '11:45' : '17:45';
+  let mins = calcDurationMins(actIn, actOut);
+  const isLate = actIn && actIn > lateLimit; const isVeryLate = actIn && actIn > halfDayLimit;
+  const isEarly = actOut && actOut < earlyLimit;
+  if (isVeryLate && actOut) return { text: 'Muộn >1h (-0.5 Công)', color: 'text-danger bg-red-50 font-black', mins };
+  if (isVeryLate && !actOut) return { text: 'Muộn >1h (Đang làm)', color: 'text-accent bg-orange-50 font-black', mins: 0 };
+  if (!actOut && isPast) return { text: 'Quên chấm ra', color: 'text-danger bg-red-50 font-bold', mins: 0 };
+  if (!actOut) return { text: 'Đang làm...', color: 'text-primary bg-primaryLight font-bold animate-pulse', mins: 0 };
+  if (isLate && isEarly) return { text: 'Muộn & Về sớm', color: 'text-accent bg-orange-50 font-bold', mins };
+  if (isLate) return { text: 'Đi muộn', color: 'text-accent bg-orange-50 font-bold', mins };
+  if (isEarly) return { text: 'Về sớm', color: 'text-accent bg-orange-50 font-bold', mins };
+  return { text: 'Đúng giờ', color: 'text-success bg-green-50 font-bold', mins };
+};
+
+const getAutoDeadline = (ch) => { 
+    const d = new Date();
+    const h = d.getHours(); const m = d.getMinutes(); 
+    let add = 0; let th = 18;
+    if (String(ch).includes('Shopee') || String(ch).includes('Tiktok')) { 
+        if (h > 17 || (h === 17 && m >= 30)) { add = 1; th = 12; } else if (h < 8) { add = 0; th = 12; } 
+    } else if (String(ch) === 'Bán Lẻ' || String(ch) === 'Cộng Tác Viên' || String(ch) === 'Nội Bộ') {
+        add = 2;
+    } else if (String(ch) === 'Bán Sỉ') {
+        add = 5;
+    }
+    d.setDate(d.getDate() + add); d.setHours(th, 0, 0, 0);
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); 
+};
+
+const checkTimeFilter = (dateStr, mode) => { 
+    if (!dateStr || mode === 'Tất Cả') return true;
+    const tzOffset = (new Date()).getTimezoneOffset() * 60000; 
+    const now = new Date(Date.now() - tzOffset); 
+    const todayStr = now.toISOString().split('T')[0];
+    now.setDate(now.getDate() - 1); const yestStr = now.toISOString().split('T')[0]; 
+    now.setDate(now.getDate() + 1); const thisMonthStr = now.toISOString().slice(0, 7); 
+    now.setMonth(now.getMonth() - 1);
+    const lastMonthStr = now.toISOString().slice(0, 7); 
+    if (mode === 'Hôm Nay') return String(dateStr).startsWith(todayStr); 
+    if (mode === 'Hôm Qua') return String(dateStr).startsWith(yestStr);
+    if (mode === 'Tháng Này') return String(dateStr).startsWith(thisMonthStr); 
+    if (mode === 'Tháng Trước') return String(dateStr).startsWith(lastMonthStr); 
+    return true; 
+};
+
+function getSopAndReward(item, phaseName, kpiConfig = [], channel = '') {
+  if (!item?.name || !kpiConfig?.length) {
+    return { time: 30, reward: 0 };
+  }
+
+  const itemName = String(item.name).toLowerCase().trim();
+  const phase = String(phaseName || '').toLowerCase();
+
+  let matchedRow = null;
+
+  // 1. Thử match theo tên hàng trước
+  matchedRow = kpiConfig.find(row => {
+    const rowName = String(row['Tên Hàng'] || '').toLowerCase().trim();
+    return rowName && itemName.includes(rowName);
+  });
+
+  // 2. Match theo size cho Layout (sửa lại để khớp bảng mới)
+  if (!matchedRow) {
+    const sizeMatch = itemName.match(/(\d{2,3})[x×]/);
+    const size = sizeMatch ? parseInt(sizeMatch[1]) : 0;
+
+    if (size > 0) {
+      matchedRow = kpiConfig.find(row => {
+        const rowName = String(row['Tên Hàng'] || '').toLowerCase();
+
+        // Chỉ xét hàng Layout
+        if (!rowName.includes('layout') && !rowName.includes('lay-')) return false;
+
+        // Match linh hoạt hơn
+        if (size >= 130) return rowName.includes('130-150') || rowName.includes('130');
+        if (size >= 110) return rowName.includes('110-120') || rowName.includes('120');
+        if (size >= 70)  return rowName.includes('70-100');
+        if (size >= 50)  return rowName.includes('50-60');
+        if (size >= 40)  return rowName.includes('40cm') || rowName.includes('lay-40');
+        if (size >= 30)  return rowName.includes('30cm') || rowName.includes('lay-30');
+        if (size >= 20)  return rowName.includes('20cm') || rowName.includes('lay-20');
+        return false;
+      });
+    }
+  }
+
+  // 3. Match hàng Đặc biệt
+  if (!matchedRow) {
+    const special = ['rồng', 'đại bàng', 'phượng hoàng', 'cá voi', 'khủng long', 'tê giác'];
+    if (special.some(kw => itemName.includes(kw))) {
+      matchedRow = kpiConfig.find(row =>
+        String(row['Tên Hàng'] || '').toLowerCase().includes('đặc biệt') ||
+        String(row['Tên Hàng'] || '').toLowerCase().includes('special')
+      );
+    }
+  }
+
+  if (!matchedRow) {
+    return { time: 30, reward: 0 };
+  }
+
+  // Xác định thưởng theo phase
+  let reward = 0;
+  let time = 30;
+
+  if (phase.includes('cắt') || phase.includes('dán') || phase.includes('dựng') || phase === 'v1') {
+    reward = Number(matchedRow['Tiền Khâu 1']) || 0;
+    time = Number(matchedRow['Thời gian Khâu 1']) || 30;
+  } 
+  else if (phase.includes('gọt') || phase.includes('keo') || phase.includes('gia cố') || phase === 'v2') {
+    reward = Number(matchedRow['Tiền Khâu 2']) || 0;
+    time = Number(matchedRow['Thời gian Khâu 2']) || 30;
+  } 
+  else if (phase.includes('đóng gói') || phase.includes('pack')) {
+    reward = Number(matchedRow['Thưởng Đóng Gói']) || 0;
+  }
+
+  return { time, reward };
+}
+
+function getPackingReward(itemName, kpiConfig) {
+  if (!itemName || !kpiConfig || kpiConfig.length === 0) return 1000;
+  const rawName = String(itemName).toLowerCase().trim();
+
+  const normalizeName = (name) => {
+    return name.replace(/ver\.?\s*\d+/gi, '').replace(/-\s*size\s*\d+/gi, '').replace(/rừng|đảo|bonsai|trang|cover|nature/gi, '').replace(/[-\s]+/g, ' ').trim();
+  };
+
+  const normalizedItem = normalizeName(rawName);
+  let matchedRow = kpiConfig.find(row => {
+    const rowName = normalizeName(String(row['Tên Hàng'] || ''));
+    return rowName && (normalizedItem === rowName || normalizedItem.includes(rowName) || rowName.includes(normalizedItem));
+  });
+
+  if (!matchedRow) {
+    const sizeMatch = rawName.match(/(\d{2,3})[x×]/);
+    const size = sizeMatch ? parseInt(sizeMatch[1]) : 0;
+
+    if (size > 0) {
+      matchedRow = kpiConfig.find(row => {
+        const rowName = String(row['Tên Hàng'] || '').toLowerCase();
+        if (size >= 130) return rowName.includes('130');
+        if (size >= 110) return rowName.includes('110') || rowName.includes('120');
+        if (size >= 70)  return rowName.includes('70');
+        if (size >= 50)  return rowName.includes('50');
+        if (size >= 40)  return rowName.includes('40');
+        if (size >= 30)  return rowName.includes('30');
+        if (size >= 20)  return rowName.includes('20');
+        return false;
+      });
+    }
+  }
+
+  if (!matchedRow) return 1000;
+  return Number(matchedRow['Thưởng Đóng Gói']) || 1000;
+}
+
+const runGAS = (func, ...args) => new Promise((resolve, reject) => { 
+    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[func](...args); 
+});
+
+const resizeImage = (file) => new Promise((resolve, reject) => { 
+    const reader = new FileReader(); 
+    reader.onload = (e) => { 
+        const img = new Image(); 
+        img.onload = () => { 
+            try {
+                const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d'); 
+                const MAX_WIDTH = 800; let width = img.width; let height = img.height; 
+                if (width > MAX_WIDTH) { height = Math.round((height * MAX_WIDTH) / width); width = MAX_WIDTH; } 
+                canvas.width = width; canvas.height = height; ctx.drawImage(img, 0, 0, width, height); 
+                resolve(canvas.toDataURL('image/jpeg', 0.6)); 
+            } catch (err) {
+                reject(err);
+            }
+        }; 
+        img.onerror = (err) => reject(new Error("Lỗi tải hình ảnh"));
+        img.src = e.target.result; 
+    }; 
+    reader.onerror = (err) => reject(err);
+    reader.readAsDataURL(file); 
+});
+
+function getFullFromName(name, userConfigs) {
+    if (!name) return "";
+    let dbNames = [];
+    try {
+        if (userConfigs && userConfigs.avatars) dbNames = Object.keys(userConfigs.avatars);
+        else if (userConfigs && typeof userConfigs === 'object') dbNames = Object.keys(userConfigs);
+    } catch(e) {}
+    if (dbNames.length === 0) return name;
+    if (dbNames.includes(name)) return name;
+    try {
+        const cleanName = String(name).trim().toLowerCase();
+        const nameParts = cleanName.split(/[\s.]+/).filter(Boolean);
+        const mainName = nameParts[nameParts.length - 1];
+        const firstLetter = nameParts[0]?.[0];
+        const matchedFull = dbNames.find(dbName => {
+            const dbParts = String(dbName).trim().toLowerCase().split(/[\s.]+/).filter(Boolean);
+            return dbParts[dbParts.length - 1] === mainName && dbParts[0]?.[0] === firstLetter;
+        });
+        return matchedFull || name;
+    } catch(e) { return name; }
+}
+
+function getUserTitle(name, userConfigs) {
+    if (!name || !userConfigs || !userConfigs.titles) return "";
+    try {
+        if (userConfigs.titles[name]) return userConfigs.titles[name];
+        const cleanName = String(name).trim().toLowerCase();
+        const nameParts = cleanName.split(/[\s.]+/).filter(Boolean);
+        const mainName = nameParts[nameParts.length - 1];
+        const firstLetter = nameParts[0]?.[0];
+        const matchedKey = Object.keys(userConfigs.titles).find(key => {
+            const keyParts = String(key).trim().toLowerCase().split(/[\s.]+/).filter(Boolean);
+            return keyParts[keyParts.length - 1] === mainName && keyParts[0]?.[0] === firstLetter;
+        });
+        return matchedKey ? userConfigs.titles[matchedKey] : "";
+    } catch(e) { return ""; }
+}
+
+const getChannelBadge = (channel) => { 
+    const ch = String(channel || '').toLowerCase();
+    if (ch.includes('tiktok')) return 'bg-[#000000] text-white border border-[#333]';
+    if (ch.includes('shopee vn')) return 'bg-[#ee4d2d] text-white';
+    if (ch.includes('shopee ma')) return 'bg-[#facc15] text-black';
+    if (ch.includes('shopee sg')) return 'bg-[#ef4444] text-white';
+    if (ch.includes('shopee th')) return 'bg-[#3b82f6] text-white';
+    if (ch.includes('shopee ph')) return 'bg-[#a855f7] text-white';
+    if (ch.includes('bán lẻ')) return 'bg-[#10b981] text-white';
+    if (ch.includes('bán sỉ')) return 'bg-[#059669] text-white';
+    if (ch.includes('cộng tác viên')) return 'bg-[#ec4899] text-white';
+    if (ch.includes('bảo hành') || ch.includes('sửa chữa')) return 'bg-[#64748b] text-white';
+    if (ch.includes('shopee')) return 'bg-[#ee4d2d] text-white'; 
+    return 'bg-[#2563eb] text-white'; 
+};
+
+const deleteOrderHandler = async (order, prods, pack, erpData, erpProducts, pushDeltas, triggerToast) => {
+  if(!window.confirm('XOÁ VĨNH VIỄN đơn này và HOÀN TRẢ toàn bộ tồn kho (nếu có)?')) return;
+  const localCode = (order.orderCode || '').split(' | MVĐ: ')[0];
+  const prodIdsToDelete = (prods || []).map(p => p.id);
+  
+  const relatedLogs = (erpData?.ImportExport || []).filter(log => log.note && log.note.includes(localCode));
+  const logsToDelete = relatedLogs.map(l => l.id);
+  
+  let updatedProducts = [];
+  if (relatedLogs.length > 0) {
+      let diffMap = new Map();
+      relatedLogs.forEach(log => {
+          try {
+              const items = JSON.parse(log.itemsData || '[]');
+              items.forEach(item => {
+                  let p = (erpProducts || []).find(x => x.name === item.name);
+                  if (p) {
+                      let currentEntry = diffMap.get(p.id) || { product: p, diff: 0 };
+                      let change = Number(item.qty) || 0;
+                      if (log.type === 'Xuất') {
+                          currentEntry.diff += change;
+                      } else if (log.type === 'Nhập') {
+                          currentEntry.diff -= change;
+                      }
+                      diffMap.set(p.id, currentEntry);
+                  }
+              });
+          } catch(e) {}
+      });
+      
+      diffMap.forEach((entry, prodId) => {
+          if (entry.diff !== 0) {
+              updatedProducts.push({
+                  id: prodId,
+                  quantity: Math.max(0, Number(entry.product.quantity || 0) + entry.diff),
+                  _diff: entry.diff
+              });
+          }
+      });
+  }
+
+  // ĐÃ FIX: CHỮ CÁI ĐẦU PHẢI VIẾT HOA ĐỂ MÁY CHỦ NHẬN LỆNH
+  const payload = {
+      deletes: {
+          Orders: [order.id],
+          Production: prodIdsToDelete
+      }
+  };
+  if (logsToDelete.length > 0) payload.deletes.ImportExport = logsToDelete;
+  if (pack && pack.id) payload.deletes.Packings = [pack.id];
+  if (updatedProducts.length > 0) payload.Products = updatedProducts; 
+
+  try {
+      await pushDeltas(payload, 'Đã xóa đơn và hoàn trả tồn kho!', 'fa-trash');
+  } catch(e) {
+      if(typeof triggerToast === 'function') triggerToast('Lỗi xóa đơn!', 'fa-times', 'danger');
+  }
+};
+
+const exportToExcel = (items, columns, filename = 'export.xlsx') => {
+  if (typeof XLSX === 'undefined') {
+    alert('Thư viện Excel (SheetJS) chưa được tải xong, vui lòng thử lại sau!');
+    return;
+  }
+  const data = items.map(item => {
+    const row = {};
+    columns.forEach(c => {
+      let val = item[c.key];
+      if (c.formatter && typeof c.formatter === 'function') {
+        val = c.formatter(val, item);
+      }
+      row[c.label] = val !== undefined && val !== null ? String(val) : '';
+    });
+    return row;
+  });
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Data");
+  XLSX.writeFile(wb, filename);
+};
+</script>

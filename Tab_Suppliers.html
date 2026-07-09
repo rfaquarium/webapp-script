@@ -1,0 +1,544 @@
+<script type="text/babel">
+// =========================================================================
+// 🤝 FILE: Tab_Suppliers.txt
+// CHỨC NĂNG: Quản lý đối tác, nhà cung cấp, công nợ và thanh toán (Giao diện nâng cấp)
+// =========================================================================
+
+function SuppliersTab({ data, pushData, isAdmin }) {
+    const [searchTerm, setSearchTerm] = React.useState('');
+    const [debtFilter, setDebtFilter] = React.useState('ALL'); // ALL, DEBT, NO_DEBT
+    const [showAddModal, setShowAddModal] = React.useState(false);
+    const [expandedIds, setExpandedIds] = React.useState({});
+    const [isSaving, setIsSaving] = React.useState(false);
+    const [historyFilters, setHistoryFilters] = React.useState({}); // supId -> ALL, UNPAID
+
+    const [newSup, setNewSup] = React.useState({ name: '', phone: '', category: 'HÀNG HOÁ' });
+    const [payingLog, setPayingLog] = React.useState(null);
+    const [payAccId, setPayAccId] = React.useState('');
+    const [payAmount, setPayAmount] = React.useState('');
+    const [editingLog, setEditingLog] = React.useState(null);
+    const [editNote, setEditNote] = React.useState('');
+    const [editTotal, setEditTotal] = React.useState('');
+
+    const CATEGORIES = ['HÀNG HOÁ', 'NGUYÊN LIỆU & VẬT TƯ', 'CÔNG CỤ MÁY MÓC', 'NỘI BỘ', 'KHÁC'];
+    const suppliers = data.Suppliers || [];
+
+    // TÍNH TOÁN CÁC CHỈ SỐ DASHBOARD
+    const stats = React.useMemo(() => {
+        let totalDebt = 0;
+        let unpaidBills = 0;
+        suppliers.forEach(s => totalDebt += (Number(s.totalDebt) || 0));
+
+        (data.ImportExport || []).forEach(log => {
+            if (log.type === 'Nhập' && !log.isPaid && Number(log.totalAmount) > 0) {
+                unpaidBills++;
+            }
+        });
+
+        const currentMonthStr = new Date().toISOString().slice(0, 7); // YYYY-MM
+        const paidThisMonth = (data.Transactions || [])
+            .filter(t => t.type === 'Chi' && t.category === 'Thanh Toán Hoá Đơn' && t.date && t.date.startsWith(currentMonthStr))
+            .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+
+        return {
+            totalDebt,
+            totalPartners: suppliers.length,
+            unpaidBills,
+            paidThisMonth
+        };
+    }, [suppliers, data.ImportExport, data.Transactions]);
+
+    // PHÂN LOẠI & LỌC ĐỐI TÁC
+    const groupedSuppliers = React.useMemo(() => {
+        const groups = {};
+        CATEGORIES.forEach(cat => groups[cat] = []);
+
+        suppliers.forEach(sup => {
+            // Lọc từ khoá tìm kiếm
+            const matchSearch = !searchTerm || 
+                sup.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                (sup.phone || '').includes(searchTerm);
+            if (!matchSearch) return;
+
+            // Lọc trạng thái nợ
+            const debt = Number(sup.totalDebt || 0);
+            if (debtFilter === 'DEBT' && debt <= 0) return;
+            if (debtFilter === 'NO_DEBT' && debt > 0) return;
+
+            const cat = CATEGORIES.includes(sup.category) ? sup.category : 'KHÁC';
+            groups[cat].push(sup);
+        });
+        return groups;
+    }, [suppliers, searchTerm, debtFilter]);
+
+    const getImportHistory = (supName) => {
+        const imports = (data.ImportExport || []).filter(log => log.type === 'Nhập' && log.target === supName);
+        return imports.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+    };
+
+    const toggleExpand = (id) => setExpandedIds(prev => ({ ...prev, [id]: !prev[id] }));
+    const toggleHistoryFilter = (supId, filterType) => setHistoryFilters(prev => ({ ...prev, [supId]: filterType }));
+    const displayMoney = (val) => Number(val || 0).toLocaleString('vi-VN');
+
+    const getSupplierIcon = (category) => {
+        switch(category) {
+            case 'HÀNG HOÁ': return <i className="fas fa-boxes text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.4)]"></i>;
+            case 'NGUYÊN LIỆU & VẬT TƯ': return <i className="fas fa-cubes text-amber-400 drop-shadow-[0_0_8px_rgba(245,158,11,0.4)]"></i>;
+            case 'CÔNG CỤ MÁY MÓC': return <i className="fas fa-cogs text-blue-400 drop-shadow-[0_0_8px_rgba(59,130,246,0.4)]"></i>;
+            case 'NỘI BỘ': return <i className="fas fa-building text-purple-400 drop-shadow-[0_0_8px_rgba(168,85,247,0.4)]"></i>;
+            default: return <i className="fas fa-handshake text-gray-400"></i>;
+        }
+    };
+
+    const handleSaveSup = async () => {
+        if (!newSup.name.trim()) return alert('Vui lòng nhập Tên đối tác/Nhà cung cấp!');
+        setIsSaving(true);
+        try {
+            await pushData({ Suppliers: [{ id: 'SUP_' + Date.now(), name: newSup.name, phone: newSup.phone, category: newSup.category, totalDebt: 0 }] });
+            setShowAddModal(false);
+            setNewSup({ name: '', phone: '', category: 'HÀNG HOÁ' });
+        } catch (e) { alert('Gặp lỗi khi tạo đối tác: ' + e.message); }
+        setIsSaving(false);
+    };
+
+    const handleDeleteSup = async (sup) => {
+        if (Number(sup.totalDebt || 0) > 0) {
+            return alert('Không thể xóa đối tác đang còn công nợ chưa chi trả!');
+        }
+        if (!window.confirm(`Bạn có chắc muốn XÓA VĨNH VIỄN đối tác: [${sup.name}]?`)) return;
+        setIsSaving(true);
+        try {
+            await pushData({ deletes: { Suppliers: [sup.id] } });
+        } catch (e) { alert('Gặp lỗi khi xóa đối tác: ' + e.message); }
+        setIsSaving(false);
+    };
+
+    const openPaymentModal = (log, sup) => {
+        setPayingLog({ log, sup });
+        setPayAmount(log.totalAmount || 0);
+        setPayAccId('');
+    };
+
+    const handleConfirmPayment = async () => {
+        const amountToPay = Number(payAmount);
+        if (!payAccId) return alert('Vui lòng chọn quỹ tiền để trừ!');
+        if (amountToPay <= 0) return alert('Số tiền thanh toán phải lớn hơn 0!');
+
+        setIsSaving(true);
+        try {
+            const acc = (data.Accounts || []).find(a => a.id === payAccId);
+            const sup = payingLog.sup;
+            const log = payingLog.log;
+            
+            const newTransaction = {
+                id: 'TX_' + Date.now(), type: 'Chi', category: 'Thanh Toán Hoá Đơn', amount: amountToPay,
+                fromAccount: payAccId, toAccount: '', title: `Thanh toán phiếu nhập: ${log.id}`,
+                date: new Date().toISOString().slice(0, 16).replace('T', ' '),
+                note: `Chi trả tiền nhập hàng cho đối tác ${sup.name}`
+            };
+
+            await pushData({
+                Transactions: [newTransaction],
+                Accounts: [{ ...acc, balance: Number(acc.balance) - amountToPay }],
+                Suppliers: [{ ...sup, totalDebt: Number(sup.totalDebt) - amountToPay }],
+                ImportExport: [{ ...log, isPaid: true, paidAt: new Date().toISOString() }]
+            });
+            setPayingLog(null);
+        } catch (e) { alert('Lỗi thanh toán: ' + e.message); }
+        setIsSaving(false);
+    };
+
+    const openEditModal = (log) => {
+        setEditingLog(log);
+        setEditNote(log.note || '');
+        setEditTotal(log.totalAmount || 0);
+    };
+
+    const handleConfirmEdit = async () => {
+        setIsSaving(true);
+        try {
+            await pushData({ ImportExport: [{ ...editingLog, note: editNote, totalAmount: Number(editTotal) }] });
+            setEditingLog(null);
+        } catch (e) { alert('Lỗi sửa phiếu: ' + e.message); }
+        setIsSaving(false);
+    };
+
+    const handlePrintReceipt = (log, sup) => {
+        const printContent = `
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>In Phiếu Chi</title>
+                <style>
+                    @page { margin: 0; size: 58mm auto; }
+                    body { font-family: 'Courier New', Courier, monospace; width: 58mm; margin: 0; padding: 10px 5px; font-size: 11px; color: #000; line-height: 1.4; box-sizing: border-box; }
+                    .text-center { text-align: center; }
+                    .text-right { text-align: right; }
+                    .bold { font-weight: bold; }
+                    .border-bottom { border-bottom: 1px dashed #000; margin: 6px 0; padding-bottom: 6px; }
+                    .title { font-size: 14px; margin-bottom: 4px; }
+                    .row { display: flex; justify-content: space-between; }
+                </style>
+            </head>
+            <body>
+                <div class="text-center bold title">RICH FISH AQUARIUM</div>
+                <div class="text-center" style="font-size: 10px;">Cá Cảnh & Phụ Kiện Thủy Sinh</div>
+                <div class="border-bottom"></div>
+                <div class="text-center bold" style="font-size: 15px; margin: 5px 0;">PHIẾU CHI TIỀN</div>
+                <div class="border-bottom"></div>
+                <div><span class="bold">Số phiếu:</span> ${log.id}</div>
+                <div><span class="bold">Ngày lập:</span> ${new Date().toLocaleString('vi-VN')}</div>
+                <div><span class="bold">Người nhận:</span> ${sup.name}</div>
+                <div class="border-bottom"></div>
+                <div class="bold">Lý do chi:</div>
+                <div style="font-size: 10px;">Thanh toán phiếu nhập hàng [${log.id}]. ${log.note || ''}</div>
+                <div class="border-bottom"></div>
+                <div class="row bold" style="font-size: 13px;">
+                    <span>TỔNG TIỀN:</span>
+                    <span>${Number(log.totalAmount).toLocaleString('vi-VN')}đ</span>
+                </div>
+                <div class="border-bottom"></div>
+                <div class="row" style="margin-top: 15px; font-size: 10px; font-weight: bold;">
+                    <div class="text-center" style="width: 50%;">Người Lập<br><br><br>Ký tên</div>
+                    <div class="text-center" style="width: 50%;">Người Nhận<br><br><br>Ký tên</div>
+                </div>
+                <div style="margin-top: 40px; text-align: center; font-size: 10px; border-top: 1px solid #000; padding-top: 5px;">
+                    Cảm ơn quý khách!
+                </div>
+            </body>
+            </html>
+        `;
+        const win = window.open('', '_blank');
+        win.document.write(printContent);
+        win.document.close();
+        win.focus();
+        setTimeout(() => {
+            win.print();
+            win.close();
+        }, 800);
+    };
+
+    return (
+        <div className="space-y-5 animate-fade-in pb-10 w-full relative">
+            
+            {/* 1. KHUNG THỐNG KÊ DASHBOARD CAO CẤP */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="bg-[#141414] p-4 rounded-2xl border border-rose-500/20 shadow-sm relative overflow-hidden flex items-center justify-between">
+                    <div className="absolute top-0 right-0 w-16 h-16 bg-rose-500/5 rounded-full blur-xl pointer-events-none"></div>
+                    <div>
+                        <span className="text-[9px] font-black text-rose-400 uppercase tracking-widest block mb-1">CÔNG NỢ CẦN TRẢ</span>
+                        <span className="text-[20px] font-black text-rose-500 leading-none">{displayMoney(stats.totalDebt)}đ</span>
+                    </div>
+                    <div className="w-10 h-10 rounded-full bg-rose-500/10 text-rose-500 border border-rose-500/20 flex items-center justify-center text-sm"><i className="fas fa-hand-holding-usd"></i></div>
+                </div>
+
+                <div className="bg-[#141414] p-4 rounded-2xl border border-blue-500/20 shadow-sm relative overflow-hidden flex items-center justify-between">
+                    <div className="absolute top-0 right-0 w-16 h-16 bg-blue-500/5 rounded-full blur-xl pointer-events-none"></div>
+                    <div>
+                        <span className="text-[9px] font-black text-blue-400 uppercase tracking-widest block mb-1">TỔNG SỐ ĐỐI TÁC</span>
+                        <span className="text-[20px] font-black text-blue-400 leading-none">{stats.totalPartners} <span className="text-[10px] text-gray-500">nhà CC</span></span>
+                    </div>
+                    <div className="w-10 h-10 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center justify-center text-sm"><i className="fas fa-user-tie"></i></div>
+                </div>
+
+                <div className="bg-[#141414] p-4 rounded-2xl border border-amber-500/20 shadow-sm relative overflow-hidden flex items-center justify-between">
+                    <div className="absolute top-0 right-0 w-16 h-16 bg-amber-500/5 rounded-full blur-xl pointer-events-none"></div>
+                    <div>
+                        <span className="text-[9px] font-black text-amber-400 uppercase tracking-widest block mb-1">ĐƠN CHƯA CHI TRẢ</span>
+                        <span className="text-[20px] font-black text-amber-500 leading-none">{stats.unpaidBills} <span className="text-[10px] text-gray-500">phiếu</span></span>
+                    </div>
+                    <div className="w-10 h-10 rounded-full bg-amber-500/10 text-amber-500 border border-amber-500/20 flex items-center justify-center text-sm"><i className="fas fa-file-invoice-dollar"></i></div>
+                </div>
+
+                <div className="bg-[#141414] p-4 rounded-2xl border border-emerald-500/20 shadow-sm relative overflow-hidden flex items-center justify-between">
+                    <div className="absolute top-0 right-0 w-16 h-16 bg-emerald-500/5 rounded-full blur-xl pointer-events-none"></div>
+                    <div>
+                        <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest block mb-1">ĐÃ CHI THÁNG NÀY</span>
+                        <span className="text-[20px] font-black text-emerald-400 leading-none">{displayMoney(stats.paidThisMonth)}đ</span>
+                    </div>
+                    <div className="w-10 h-10 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center text-sm"><i className="fas fa-wallet"></i></div>
+                </div>
+            </div>
+
+            {/* 2. THANH CÔNG CỤ TÌM KIẾM, BỘ LỌC NÂNG CAO */}
+            <div className="bg-[#141414] border border-[#2a2a2a] p-4 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex flex-wrap items-center gap-3">
+                    {/* BỘ LỌC CÔNG NỢ NHANH */}
+                    <div className="bg-[#0a0a0a] rounded-xl border border-[#2a2a2a] p-1 flex">
+                        <button onClick={() => setDebtFilter('ALL')} className={`px-4 py-2 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all ${debtFilter === 'ALL' ? 'bg-[#10b981] text-[#0a0a0a]' : 'text-gray-400 hover:text-white'}`}>TẤT CẢ</button>
+                        <button onClick={() => setDebtFilter('DEBT')} className={`px-4 py-2 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all flex items-center gap-1.5 ${debtFilter === 'DEBT' ? 'bg-rose-600 text-white shadow-md shadow-rose-950/20' : 'text-gray-400 hover:text-white'}`}><i className="fas fa-exclamation-circle text-[10px]"></i> CÓ NỢ</button>
+                        <button onClick={() => setDebtFilter('NO_DEBT')} className={`px-4 py-2 text-[10px] font-black uppercase tracking-wider rounded-lg transition-all ${debtFilter === 'NO_DEBT' ? 'bg-[#222] text-gray-300' : 'text-gray-400 hover:text-white'}`}>KHÔNG NỢ</button>
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-3 w-full md:w-auto">
+                    <div className="relative flex-1 md:w-64">
+                        <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-[12px]"></i>
+                        <input type="text" placeholder="Tìm kiếm đối tác..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl pl-9 pr-4 py-2.5 text-[12px] font-bold text-white outline-none focus:border-[#10b981] shadow-inner transition-colors" />
+                        {searchTerm && <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white text-xs"><i className="fas fa-times-circle"></i></button>}
+                    </div>
+                    <button onClick={() => setShowAddModal(true)} className="px-5 py-3 bg-[#10b981] hover:bg-emerald-500 text-[#0a0a0a] font-black text-[11px] tracking-wider rounded-xl transition-all shadow-[0_0_15px_rgba(16,185,129,0.2)] active:scale-95 whitespace-nowrap uppercase flex items-center gap-1.5">
+                        <i className="fas fa-plus"></i> Mới
+                    </button>
+                </div>
+            </div>
+
+            {/* 3. HIỂN THỊ DANH SÁCH THEO PHÂN LOẠI */}
+            <div className="space-y-6">
+                {CATEGORIES.map(category => {
+                    const groupData = groupedSuppliers[category] || [];
+                    if (groupData.length === 0) return null;
+
+                    return (
+                        <div key={category} className="space-y-3 animate-fade-in">
+                            <div className="flex items-center gap-2 pl-1">
+                                <div className="w-2.5 h-2.5 rounded-full bg-[#10b981] shadow-[0_0_8px_rgba(16,185,129,0.8)]"></div>
+                                <span className="font-black text-[11px] text-gray-300 uppercase tracking-widest">{category}</span>
+                                <span className="text-[9px] text-gray-500 font-bold bg-[#1a1a1a] px-2 py-0.5 rounded-full border border-[#333]">{groupData.length}</span>
+                            </div>
+
+                            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                                {groupData.map(sup => {
+                                    const isExpanded = expandedIds[sup.id];
+                                    const importHistory = getImportHistory(sup.name);
+                                    const hasDebt = Number(sup.totalDebt) > 0;
+
+                                    // Lấy số phiếu chưa thanh toán của nhà cung cấp này
+                                    const pendingBillsCount = importHistory.filter(h => !h.isPaid && Number(h.totalAmount) > 0).length;
+
+                                    // Lọc lịch sử trong card
+                                    const currentHistoryFilter = historyFilters[sup.id] || 'ALL';
+                                    const displayHistory = currentHistoryFilter === 'UNPAID' 
+                                        ? importHistory.filter(log => !log.isPaid && Number(log.totalAmount) > 0)
+                                        : importHistory;
+
+                                    return (
+                                        <div key={sup.id} className="bg-[#141414] rounded-2xl border border-[#2a2a2a] shadow-sm hover:border-[#444] transition-all overflow-hidden flex flex-col">
+                                            
+                                            {/* CARD BODY CLICK TỐI ƯU TRẢI NGHIỆM */}
+                                            <div onClick={() => toggleExpand(sup.id)} className="p-4 flex items-center justify-between cursor-pointer group select-none">
+                                                <div className="flex items-center gap-3 min-w-0 flex-1">
+                                                    <div className="w-10 h-10 rounded-xl bg-[#0a0a0a] border border-[#333] flex items-center justify-center text-[16px] shadow-inner transition-transform group-hover:scale-105 shrink-0">
+                                                        {getSupplierIcon(sup.category)}
+                                                    </div>
+                                                    <div className="min-w-0 flex-1 pr-2">
+                                                        <div className="font-black text-[14px] text-[#f5f5f5] leading-tight mb-1 truncate">{sup.name}</div>
+                                                        <div className="text-[10px] text-gray-500 font-bold flex items-center gap-2">
+                                                            {sup.phone ? (
+                                                                <a href={`tel:${sup.phone}`} onClick={e => e.stopPropagation()} className="text-gray-400 hover:text-[#10b981] flex items-center gap-1 bg-[#0a0a0a] px-1.5 py-0.5 rounded border border-[#333] transition-colors"><i className="fas fa-phone-alt text-[9px]"></i> {sup.phone}</a>
+                                                            ) : (
+                                                                <span className="text-gray-600">Chưa có SĐT</span>
+                                                            )}
+                                                            {pendingBillsCount > 0 && (
+                                                                <span className="text-[8px] font-black bg-amber-500/10 text-amber-500 border border-amber-500/20 px-1.5 py-0.5 rounded-full">{pendingBillsCount} phiếu nợ</span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div className="flex items-center gap-3 shrink-0">
+                                                    <div className="text-right">
+                                                        <div className="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-0.5">CÔNG NỢ</div>
+                                                        <div className={`text-[15px] font-black leading-none ${hasDebt ? 'text-rose-500' : 'text-emerald-500'}`}>
+                                                            {displayMoney(sup.totalDebt)}đ
+                                                        </div>
+                                                    </div>
+
+                                                    {/* NÚT XÓA KHI KHÔNG CÒN NỢ */}
+                                                    {isAdmin && !hasDebt && (
+                                                        <button onClick={(e) => { e.stopPropagation(); handleDeleteSup(sup); }} className="w-8 h-8 rounded-lg bg-[#0a0a0a] border border-[#2a2a2a] text-gray-500 hover:text-rose-500 hover:border-rose-500/20 transition-all flex items-center justify-center active:scale-95" title="Xoá đối tác">
+                                                            <i className="fas fa-trash text-[11px]"></i>
+                                                        </button>
+                                                    )}
+
+                                                    <div className={`w-8 h-8 flex items-center justify-center rounded-xl transition-colors ${isExpanded ? 'bg-[#10b981] text-black' : 'bg-[#222] text-gray-400 group-hover:bg-[#333]'}`}>
+                                                        <i className={`fas fa-chevron-${isExpanded ? 'up' : 'down'} text-[10px]`}></i>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* KHU VỰC CHI TIẾT KHI MỞ RỘNG CARD */}
+                                            {isExpanded && (
+                                                <div className="bg-[#0a0a0a] border-t border-[#222] p-4 space-y-3 shadow-inner">
+                                                    <div className="flex items-center justify-between border-b border-[#222] pb-2 mb-1">
+                                                        <div className="text-[10px] font-black text-[#10b981] uppercase tracking-widest flex items-center gap-1.5">
+                                                            <i className="fas fa-history"></i> Lịch Sử Phiếu Nhập Hàng
+                                                        </div>
+
+                                                        {/* SUB-FILTER LỊCH SỬ KHO */}
+                                                        {importHistory.length > 0 && (
+                                                            <div className="flex bg-[#141414] rounded-lg border border-[#222] p-0.5">
+                                                                <button onClick={() => toggleHistoryFilter(sup.id, 'ALL')} className={`px-2.5 py-1 text-[8px] font-black uppercase tracking-wider rounded transition-all ${currentHistoryFilter === 'ALL' ? 'bg-[#222] text-white' : 'text-gray-500 hover:text-gray-300'}`}>TẤT CẢ ({importHistory.length})</button>
+                                                                <button onClick={() => toggleHistoryFilter(sup.id, 'UNPAID')} className={`px-2.5 py-1 text-[8px] font-black uppercase tracking-wider rounded transition-all ${currentHistoryFilter === 'UNPAID' ? 'bg-rose-500/10 text-rose-400' : 'text-gray-500 hover:text-rose-400'}`}>CHƯA TRẢ ({pendingBillsCount})</button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    
+                                                    {displayHistory.length === 0 ? (
+                                                        <div className="text-center py-6 text-gray-600 italic text-[10px] font-bold bg-[#141414] rounded-xl border border-[#222]">
+                                                            {currentHistoryFilter === 'UNPAID' ? 'Không có đơn nhập nào chưa thanh toán.' : 'Chưa có lịch sử nhập hàng nào.'}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="max-h-[300px] overflow-y-auto custom-scrollbar pr-1 space-y-2">
+                                                            {displayHistory.map(log => {
+                                                                const isNeedPayment = !log.isPaid && hasDebt && Number(log.totalAmount) > 0;
+
+                                                                return (
+                                                                    <div key={log.id} className="bg-[#141414] p-3 rounded-xl border border-[#222] hover:border-[#333] transition-colors flex flex-col group relative">
+                                                                        <div className="flex justify-between items-start mb-2">
+                                                                            <div>
+                                                                                <div className="flex items-center gap-2 mb-1.5">
+                                                                                    <span className="font-bold text-[11px] text-gray-300 font-mono tracking-wide">{log.id}</span>
+                                                                                    <span className="text-[8px] text-gray-500 bg-[#0a0a0a] border border-[#2a2a2a] px-1.5 py-0.5 rounded font-bold">
+                                                                                        {String(log.date).slice(0, 16).replace('T', ' ')}
+                                                                                    </span>
+                                                                                </div>
+                                                                                <div className="text-[10px] text-gray-400 font-medium italic line-clamp-1">{log.note || 'Không có ghi chú'}</div>
+                                                                            </div>
+                                                                            <div className="flex flex-col items-end shrink-0 pl-3">
+                                                                                <span className="font-black text-[13px] text-white tracking-tight mb-1">
+                                                                                    {displayMoney(log.totalAmount)}<span className="text-[9px] text-gray-500 ml-0.5">đ</span>
+                                                                                </span>
+                                                                                {isNeedPayment ? (
+                                                                                    <span className="text-[8px] font-black bg-rose-500/10 text-rose-400 border border-rose-500/30 px-2 py-0.5 rounded shadow-sm animate-pulse">CHƯA TRẢ</span>
+                                                                                ) : (
+                                                                                    <span className="text-[8px] font-black bg-emerald-500/10 text-emerald-500 border border-emerald-500/30 px-2 py-0.5 rounded shadow-sm">HOÀN TẤT</span>
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
+
+                                                                        <div className="mt-1 pt-2 border-t border-[#222] flex justify-end gap-2">
+                                                                            {isNeedPayment ? (
+                                                                                <>
+                                                                                    <button onClick={(e) => { e.stopPropagation(); openEditModal(log); }} className="px-3 py-1.5 bg-[#222] hover:bg-amber-500/20 text-gray-400 hover:text-amber-400 border border-[#333] hover:border-amber-500/30 rounded-lg text-[9px] font-black transition-all flex items-center gap-1 shadow-sm">
+                                                                                        <i className="fas fa-pen text-[8px]"></i> Sửa phiếu
+                                                                                    </button>
+                                                                                    <button onClick={(e) => { e.stopPropagation(); openPaymentModal(log, sup); }} className="px-3 py-1.5 bg-[#10b981]/20 hover:bg-[#10b981] text-[#10b981] hover:text-[#0a0a0a] border border-[#10b981]/30 rounded-lg text-[9px] font-black transition-all flex items-center gap-1 shadow-sm">
+                                                                                        <i className="fas fa-money-bill-wave text-[8px]"></i> Chi trả ngay
+                                                                                    </button>
+                                                                                </>
+                                                                            ) : (
+                                                                                <button onClick={(e) => { e.stopPropagation(); handlePrintReceipt(log, sup); }} className="px-3 py-1.5 bg-[#3b82f6]/10 hover:bg-[#3b82f6]/20 text-[#60a5fa] border border-[#3b82f6]/30 rounded-lg text-[9px] font-black transition-all flex items-center gap-1 shadow-sm">
+                                                                                    <i className="fas fa-print text-[8px]"></i> In phiếu chi
+                                                                                </button>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+
+            {/* MODAL THÊM ĐỐI TÁC */}
+            {showAddModal && (
+                <div className="fixed inset-0 bg-[#0a0a0a]/90 z-[300] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in" onClick={() => setShowAddModal(false)}>
+                    <div className="bg-[#141414] w-full max-w-sm rounded-[24px] p-5 border border-[#333] shadow-2xl flex flex-col relative overflow-hidden animate-slide-up" onClick={e => e.stopPropagation()}>
+                        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-[#10b981] to-transparent opacity-50"></div>
+                        <div className="flex justify-between items-center mb-5 border-b border-[#222] pb-3">
+                            <h3 className="font-black text-[#10b981] text-[15px] uppercase tracking-wider"><i className="fas fa-user-tie mr-2"></i> Thêm đối tác mới</h3>
+                            <button onClick={() => setShowAddModal(false)} disabled={isSaving} className="w-8 h-8 bg-[#1a1a1a] rounded-full text-gray-400 hover:text-rose-500 border border-[#333] transition-colors"><i className="fas fa-times"></i></button>
+                        </div>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="text-[10px] font-black text-gray-500 uppercase block mb-1.5">TÊN ĐỐI TÁC / NHÀ CUNG CẤP (*)</label>
+                                <input type="text" value={newSup.name} onChange={e => setNewSup({...newSup, name: e.target.value})} disabled={isSaving} className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-3 text-[12px] text-white font-bold outline-none focus:border-[#10b981]" placeholder="Nhập tên đối tác..." />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-black text-gray-500 uppercase block mb-1.5">SỐ ĐIỆN THOẠI</label>
+                                <input type="text" value={newSup.phone} onChange={e => setNewSup({...newSup, phone: e.target.value})} disabled={isSaving} className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-3 text-[12px] text-white font-bold outline-none focus:border-[#10b981]" placeholder="Nhập SĐT..." />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-black text-gray-500 uppercase block mb-1.5">PHÂN LOẠI NHÓM ĐỐI TÁC</label>
+                                <select disabled={isSaving} value={newSup.category} onChange={e => setNewSup({...newSup, category: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-3 text-[12px] text-[#10b981] font-black outline-none focus:border-[#10b981] cursor-pointer">
+                                    {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                                </select>
+                            </div>
+                        </div>
+                        <div className="pt-5 mt-2 border-t border-[#222]">
+                            <button onClick={handleSaveSup} disabled={isSaving} className="w-full py-3.5 bg-[#10b981] hover:bg-emerald-500 text-[#0a0a0a] font-black rounded-xl text-[12px] tracking-widest uppercase transition-all shadow-md flex items-center justify-center gap-2 active:scale-95">
+                                {isSaving ? <><i className="fas fa-circle-notch fa-spin"></i> Đang lưu...</> : <><i className="fas fa-save"></i> Tạo đối tác</>}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL THANH TOÁN PHIẾU CHI */}
+            {payingLog && (
+                <div className="fixed inset-0 bg-[#0a0a0a]/90 z-[300] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in" onClick={() => setPayingLog(null)}>
+                    <div className="bg-[#141414] w-full max-w-sm rounded-[24px] p-5 border border-[#333] shadow-2xl flex flex-col relative overflow-hidden animate-slide-up" onClick={e => e.stopPropagation()}>
+                        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-emerald-500 to-transparent opacity-50"></div>
+                        <div className="flex justify-between items-center mb-4 border-b border-[#222] pb-3">
+                            <h3 className="font-black text-emerald-400 text-[15px] uppercase tracking-wider"><i className="fas fa-money-check-alt mr-2"></i> Xác nhận thanh toán</h3>
+                            <button onClick={() => setPayingLog(null)} disabled={isSaving} className="w-8 h-8 bg-[#1a1a1a] rounded-full text-gray-400 hover:text-rose-500 border border-[#333] transition-colors"><i className="fas fa-times"></i></button>
+                        </div>
+                        <div className="space-y-4">
+                            <div className="bg-[#0a0a0a] p-3 rounded-xl border border-[#222] text-[11px] space-y-1">
+                                <div className="text-gray-500 font-bold">Mã phiếu nhập: <span className="text-gray-300 font-mono">{payingLog.log.id}</span></div>
+                                <div className="text-gray-500 font-bold">Nhà cung cấp: <span className="text-gray-300">{payingLog.sup.name}</span></div>
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-black text-gray-500 uppercase block mb-1.5">SỐ TIỀN THANH TOÁN (VNĐ)</label>
+                                <input type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)} disabled={isSaving} className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-3 text-[18px] text-emerald-400 font-black outline-none focus:border-emerald-500 text-right shadow-inner" />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-black text-gray-500 uppercase block mb-1.5">CHỌN QUỸ TIỀN TRỪ</label>
+                                <select disabled={isSaving} value={payAccId} onChange={e => setPayAccId(e.target.value)} className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-3 text-[12px] text-white font-bold outline-none focus:border-emerald-500 cursor-pointer shadow-inner">
+                                    <option value="">-- Chọn quỹ thanh toán --</option>
+                                    {(data.Accounts||[]).map(a => <option key={a.id} value={a.id}>{a.accountName} (Sẵn có: {displayMoney(a.balance)}đ)</option>)}
+                                </select>
+                            </div>
+                        </div>
+                        <div className="pt-5 mt-4 border-t border-[#222]">
+                            <button onClick={handleConfirmPayment} disabled={isSaving} className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-600 text-[#0a0a0a] font-black rounded-xl text-[12px] tracking-widest uppercase transition-all shadow-[0_0_15px_rgba(16,185,129,0.2)] flex items-center justify-center gap-2 active:scale-95">
+                                {isSaving ? <><i className="fas fa-spinner fa-spin"></i> Đang thanh toán...</> : <><i className="fas fa-check-double"></i> Xác nhận chi tiền</>}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL SỬA PHIẾU NHẬP NHANH */}
+            {editingLog && (
+                <div className="fixed inset-0 bg-[#0a0a0a]/90 z-[300] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in" onClick={() => setEditingLog(null)}>
+                    <div className="bg-[#141414] w-full max-w-sm rounded-[24px] p-5 border border-[#333] shadow-2xl flex flex-col relative overflow-hidden animate-slide-up" onClick={e => e.stopPropagation()}>
+                        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-amber-500 to-transparent opacity-50"></div>
+                        <div className="flex justify-between items-center mb-4 border-b border-[#222] pb-3">
+                            <h3 className="font-black text-amber-500 text-[15px] uppercase tracking-wider"><i className="fas fa-edit mr-2"></i> Chỉnh sửa phiếu nhập</h3>
+                            <button onClick={() => setEditingLog(null)} disabled={isSaving} className="w-8 h-8 bg-[#1a1a1a] rounded-full text-gray-400 hover:text-rose-500 border border-[#333] transition-colors"><i className="fas fa-times"></i></button>
+                        </div>
+                        <div className="text-[10px] text-amber-500/70 italic mb-4 leading-relaxed bg-amber-500/10 p-2.5 rounded-lg border border-amber-500/20">
+                            * Lưu ý: Thay đổi này chỉ sửa đổi Tổng tiền phiếu nhập và Ghi chú. Tồn kho nguyên vật liệu đã nhập trước đó sẽ không bị ảnh hưởng.
+                        </div>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="text-[10px] font-black text-gray-500 uppercase block mb-1.5">TỔNG TIỀN PHIẾU (VNĐ)</label>
+                                <input type="number" value={editTotal} onChange={e => setEditTotal(e.target.value)} disabled={isSaving} className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-3 text-[16px] text-amber-400 font-black outline-none focus:border-amber-500 text-right shadow-inner" />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-black text-gray-500 uppercase block mb-1.5">MỤC ĐÍCH / GHI CHÚ</label>
+                                <textarea rows="3" value={editNote} onChange={e => setEditNote(e.target.value)} disabled={isSaving} className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-3 text-[12px] text-white font-medium outline-none focus:border-amber-500 shadow-inner" placeholder="Ghi chú sửa đổi..."></textarea>
+                            </div>
+                        </div>
+                        <div className="pt-5 mt-4 border-t border-[#222]">
+                            <button onClick={handleConfirmEdit} disabled={isSaving} className="w-full py-3.5 bg-amber-500 hover:bg-yellow-500 text-[#0a0a0a] font-black rounded-xl text-[12px] tracking-widest uppercase transition-all shadow-[0_0_15px_rgba(245,158,11,0.2)] flex items-center justify-center gap-2 active:scale-95">
+                                {isSaving ? <><i className="fas fa-spinner fa-spin"></i> Đang lưu...</> : <><i className="fas fa-save"></i> Lưu phiếu nhập</>}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+</script>

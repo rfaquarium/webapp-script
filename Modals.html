@@ -1,0 +1,333 @@
+<script type="text/babel">
+// ==========================================
+// 1. MÀN HÌNH ĐĂNG NHẬP & PHÂN QUYỀN
+// ==========================================
+function Login({ onLogin }) {
+  const [pin, setPin] = React.useState("");
+  const [loading, setLoading] = React.useState(false);
+
+  const handlePinChange = async (e) => {
+    const value = e.target.value;
+    setPin(value);
+
+    if (value.length >= 6) {
+      setLoading(true);
+      try {
+        const result = await runGAS('validatePin', value);
+        if (result && result.valid && result.user) {
+          if (result.isAdmin) localStorage.setItem('rf_admin', 'true');
+          if (result.isBoss) localStorage.setItem('rf_boss', 'true');
+          if (result.role) localStorage.setItem('rf_role', result.role);
+          
+          onLogin(result.user, result.isAdmin || false, result.isBoss || false, result.role || '');
+        } else {
+          alert('Sai mã PIN!');
+          setPin('');
+        }
+      } catch (err) {
+        alert('Lỗi xác thực. Vui lòng thử lại.');
+        setPin('');
+      }
+      setLoading(false);
+    }
+  };
+
+  return (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gradient-to-tr from-sky-100 via-white to-blue-50">
+          <div className="bg-white/55 backdrop-blur-3xl p-8 rounded-3xl border border-white/80 max-w-sm w-full shadow-2xl flex flex-col items-center">
+              {typeof RFLogo !== 'undefined' ? (
+                  <RFLogo className="w-16 h-16 mb-6" size={64} />
+              ) : (
+                  <div className="w-16 h-16 bg-[#0284c7]/10 rounded-2xl flex items-center justify-center border border-[#0284c7]/30 mb-6">
+                      <i className="fas fa-crown text-3xl text-[#0284c7]"></i>
+                  </div>
+              )}
+              <h2 className="text-[#0f172a] font-black text-xl tracking-widest uppercase mb-2">RF WORKSPACE</h2>
+              <p className="text-slate-500 text-[11px] font-bold mb-8 uppercase tracking-widest text-center">Nền tảng quản trị nội bộ</p>
+              
+              <div className="w-full relative">
+                  <input type="password" value={pin} onChange={handlePinChange} disabled={loading} className="w-full bg-white/60 border-2 border-slate-200 rounded-2xl px-4 py-4 text-center text-2xl font-black text-slate-800 tracking-[0.5em] outline-none focus:border-[#0284c7] focus:ring-4 focus:ring-sky-500/20 transition-all shadow-inner" placeholder="MÃ PIN" maxLength={6} autoFocus />
+                  {loading && <div className="absolute right-4 top-1/2 -translate-y-1/2 text-[#0284c7]"><i className="fas fa-spinner fa-spin text-xl"></i></div>}
+              </div>
+          </div>
+      </div>
+  );
+}
+
+// ==========================================
+// 2. CÁC MODAL THÔNG BÁO HỆ THỐNG
+// ==========================================
+function ConfirmModal({ visible, title, message, onConfirm, onCancel, confirmText = "XÁC NHẬN", cancelText = "HỦY" }) {
+  if (!visible) return null;
+  return (
+    <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[9999] p-4 backdrop-blur-sm animate-fade-in">
+      <div className="bg-white/85 border border-sky-100/50 backdrop-blur-2xl w-full max-w-sm rounded-[24px] p-6 shadow-2xl">
+        <div className="w-12 h-12 rounded-full bg-sky-100 text-[#0284c7] border border-sky-200/50 flex items-center justify-center text-xl mb-5"><i className="fas fa-question-circle"></i></div>
+        <div className="font-black text-lg mb-3 text-[#0f172a] tracking-wide">{title}</div>
+        <div className="text-slate-500 mb-6 text-[13px] leading-relaxed">{message}</div>
+        <div className="flex gap-3"><button onClick={onCancel} className="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-black active:scale-95 transition-all">{cancelText}</button><button onClick={onConfirm} className="flex-1 py-3.5 bg-[#e11d48] text-white rounded-xl font-black active:scale-95 shadow-md transition-all">{confirmText}</button></div>
+      </div>
+    </div>
+  );
+}
+
+function AlertModal({ visible, title, message, onClose, buttonText = "ĐÃ HIỂU" }) {
+  if (!visible) return null;
+  return (
+    <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[9999] p-4 backdrop-blur-sm animate-fade-in">
+      <div className="bg-white/85 border border-sky-100/50 backdrop-blur-2xl w-full max-w-sm rounded-[24px] p-6 shadow-2xl text-center flex flex-col items-center">
+        <div className="w-14 h-14 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-100 flex items-center justify-center text-2xl mb-5"><i className="fas fa-info-circle"></i></div>
+        <div className="font-black text-lg mb-3 text-[#0f172a] tracking-wide">{title}</div>
+        <div className="text-slate-500 mb-6 text-[13px] leading-relaxed">{message}</div>
+        <button onClick={onClose} className="w-full py-3.5 bg-[#0284c7] hover:bg-sky-600 text-white rounded-xl font-black active:scale-95 shadow-md transition-all">{buttonText}</button>
+      </div>
+    </div>
+  );
+}
+
+function InputModal({ visible, title, placeholder, defaultValue = "", onConfirm, onCancel }) {
+  const [value, setValue] = React.useState(defaultValue);
+  if (!visible) return null;
+  const handleConfirm = () => { onConfirm(value); setValue(""); };
+  return (
+    <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[9999] p-4 backdrop-blur-sm animate-fade-in">
+      <div className="bg-white/85 border border-sky-100/50 backdrop-blur-2xl w-full max-w-sm rounded-[24px] p-6 shadow-2xl">
+        <div className="font-black text-lg mb-5 text-[#0f172a] tracking-wide">{title}</div>
+        <input type="text" value={value} onChange={(e) => setValue(e.target.value)} placeholder={placeholder} className="w-full p-4 bg-white border border-sky-200/60 rounded-xl text-[14px] text-slate-800 font-bold mb-6 focus:border-[#0284c7] outline-none transition-colors" autoFocus />
+        <div className="flex gap-3"><button onClick={() => { onCancel(); setValue(""); }} className="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-black active:scale-95 transition-all">HỦY</button><button onClick={handleConfirm} className="flex-1 py-3.5 bg-[#0284c7] hover:bg-sky-600 text-white rounded-xl font-black active:scale-95 shadow-md transition-all">XÁC NHẬN</button></div>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// 3. MODAL XỬ LÝ SỰ CỐ (S.O.S) 
+// ==========================================
+function ReturnSosModal({ sosTarget, erpProducts, order, packRecord, onClose, pushDeltas, triggerToast, setOptimisticOrder }) {
+    const { type, item } = sosTarget;
+    const defaultQty = type === 'acc' ? (Number(item.quantity) || 1) : 1;
+    const [recoveredQty, setRecoveredQty] = React.useState(defaultQty);
+    const [reason, setReason] = React.useState('');
+    const [condition, setCondition] = React.useState('REPAIR');
+    const [processing, setProcessing] = React.useState(false);
+
+    const erpP = (erpProducts || []).find(x => x.name === item.name) || {};
+    const costPrice = Number(erpP.costPrice) || 0;
+
+    const p1User = item.phases?.phase1?.user || '';
+    const p2User = item.phases?.phase2?.user || '';
+    const p1Reward = Number(item.phases?.phase1?.reward_vnd) || 0;
+    const p2Reward = Number(item.phases?.phase2?.reward_vnd) || 0;
+    const packUser = packRecord?.user || packRecord?.updatedBy || '';
+    const packReward = Number(packRecord?.reward_vnd) || 0;
+
+    const missingQty = Math.max(0, defaultQty - Number(recoveredQty || 0));
+
+    const p1Label = item.phases?.phase1?.name || 'Khâu 1';
+    const p2Label = item.phases?.phase2?.name || 'Khâu 2';
+
+    const handleSubmit = async () => {
+        if (!reason) return triggerToast('Vui lòng chọn nguyên nhân!', 'fa-exclamation', 'warning');
+        setProcessing(true);
+        try {
+            let payload = {};
+            let payloadMsg = '';
+            const safeDate = new Date().toISOString().replace('T', ' ').slice(0, 23);
+            const safeDateOnly = safeDate.split(' ')[0];
+
+            if (type === 'acc') {
+                if (Number(recoveredQty) > 0 && erpP.id) {
+                    payload.Products = [{ id: erpP.id, quantity: Number(erpP.quantity) + Number(recoveredQty), _diff: Number(recoveredQty) }];
+                }
+
+                if (missingQty > 0) {
+                    payload.ImportExport = payload.ImportExport || [];
+                    payload.ImportExport.push({
+                        id: 'IE_LOSS_' + Date.now(),
+                        type: 'Xuất',
+                        target: 'Hủy Hàng',
+                        totalAmount: 0,
+                        date: safeDate,
+                        note: `Hủy phụ kiện thiếu/vỡ - Đơn ${order.orderCode}`,
+                        itemsData: JSON.stringify([{ name: item.name, qty: missingQty, price: costPrice }])
+                    });
+
+                    if (reason === 'DONG_GOI' && packUser) {
+                        const penaltyAmount = missingQty * costPrice;
+                        payload.packings = [{
+                            id: 'PENALTY_' + Date.now(),
+                            orderId: order.id,
+                            user: packUser,
+                            date: safeDateOnly,
+                            status: 'Penalty',
+                            reward_vnd: -penaltyAmount,
+                            note: `Phạt đền phụ kiện mất/thiếu: ${item.name}`
+                        }];
+                    }
+                }
+
+                let accList = order.accessories || [];
+                while (typeof accList === 'string') {
+                    try { accList = JSON.parse(accList); } catch(e) { break; }
+                }
+                if (!Array.isArray(accList)) accList = [];
+                const newAccs = accList.map(a => a.name === item.name ? { ...a, _retStatus: 'SOS' } : a);
+                payload.orders = [{ ...order, accessories: JSON.stringify(newAccs) }];
+                setOptimisticOrder({ ...order, accessories: newAccs });
+                payloadMsg = 'Đã ghi nhận sự cố phụ kiện!';
+            }
+            else if (type === 'prod') {
+                let penaltyUser = '';
+                let penaltyKPI = 0;
+
+                if (reason === 'PHASE1') { penaltyUser = p1User; penaltyKPI = p1Reward; }
+                else if (reason === 'PHASE2') { penaltyUser = p2User; penaltyKPI = p2Reward; }
+                else if (reason === 'DONG_GOI') { penaltyUser = packUser; penaltyKPI = packReward; }
+
+                if (condition === 'REPAIR') {
+                    const newProdId = 'REP_' + Date.now();
+                    const repItem = {
+                        ...item,
+                        id: newProdId,
+                        status: 'Pending',
+                        fulfilledFromStock: false,
+                        note: `SỬA CHỮA HOÀN (Lỗi: ${reason})`,
+                        phases: {
+                            phase1: { status: 'Pending', user: reason === 'PHASE1' ? p1User : '', reward_vnd: 0, start: '', endTime: '', photo: '' },
+                            phase2: { status: 'Pending', user: reason === 'PHASE2' ? p2User : '', reward_vnd: 0, start: '', endTime: '', photo: '' }
+                        }
+                    };
+                    payload.prodItems = [{ ...item, status: 'Đã tạo lệnh sửa' }, repItem];
+                    payloadMsg = 'Đã đẩy lệnh sửa chữa về xưởng!';
+
+                    if (penaltyUser && penaltyKPI > 0) {
+                        payload.packings = payload.packings || [];
+                        payload.packings.push({
+                            id: 'PENALTY_' + Date.now(),
+                            orderId: order.id,
+                            user: penaltyUser,
+                            date: safeDateOnly,
+                            status: 'Penalty',
+                            reward_vnd: -penaltyKPI,
+                            note: `Trừ KPI do hàng lỗi phải sửa lại: ${item.name}`
+                        });
+                    }
+                } 
+                else if (condition === 'BROKEN') {
+                    payload.ImportExport = [{
+                        id: 'IE_LOSS_' + Date.now(),
+                        type: 'Xuất',
+                        target: 'Hủy Hàng',
+                        totalAmount: 0,
+                        date: safeDate,
+                        note: `Hủy hàng vỡ nát - Đơn ${order.orderCode}`,
+                        itemsData: JSON.stringify([{ name: item.name, qty: 1, price: costPrice }])
+                    }];
+
+                    if (penaltyUser && penaltyKPI > 0) {
+                        payload.packings = payload.packings || [];
+                        payload.packings.push({
+                            id: 'PENALTY_' + Date.now(),
+                            orderId: order.id,
+                            user: penaltyUser,
+                            date: safeDateOnly,
+                            status: 'Penalty',
+                            reward_vnd: -penaltyKPI,
+                            note: `Trừ KPI do làm vỡ nát hàng: ${item.name}`
+                        });
+                    }
+                    payload.prodItems = [{ ...item, status: 'Hủy/Vỡ' }];
+                    payloadMsg = 'Đã ghi nhận vỡ nát & Thu hồi KPI!';
+                }
+            }
+
+            await pushDeltas(payload, payloadMsg, 'fa-check');
+            onClose();
+        } catch (e) {
+            triggerToast('Lỗi xử lý!', 'fa-times', 'danger');
+        }
+        setProcessing(false);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[9999] p-4 backdrop-blur-sm">
+            <div className="bg-[#141414] border border-[#e11d48]/30 rounded-2xl w-full max-w-sm p-5 shadow-[0_10px_40px_rgba(225,29,72,0.15)] animate-slide-down">
+                <h3 className="font-black text-[#fb7185] text-[15px] uppercase tracking-widest mb-1 flex items-center gap-2">
+                    <i className="fas fa-exclamation-triangle"></i> BÁO CÁO SỰ CỐ
+                </h3>
+                <div className="text-[12px] font-bold text-gray-400 mb-4 pb-3 border-b border-[#222] truncate">{item.name}</div>
+
+                <div className="space-y-4">
+                    {type === 'acc' ? (
+                        <>
+                            <div>
+                                <label className="text-[10px] font-black text-gray-500 block mb-1">Số lượng THỰC TẾ thu hồi được</label>
+                                <input type="number" min="0" max={defaultQty} value={recoveredQty} onChange={e => setRecoveredQty(e.target.value)} className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-2.5 text-white font-bold outline-none focus:border-[#fb7185] transition-colors" />
+                                <div className="text-[9px] text-rose-500 mt-1 font-bold italic">*Hệ thống sẽ ghi nhận mất/thiếu {missingQty} SP.</div>
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-black text-gray-500 block mb-2">Nguyên nhân mất/hỏng</label>
+                                <div className="flex flex-col gap-2">
+                                    <label className={`p-2.5 rounded-xl border cursor-pointer flex items-center gap-2 transition-colors ${reason === 'KHACH' ? 'bg-[#2563eb]/20 border-[#2563eb] text-[#60a5fa]' : 'bg-[#0a0a0a] border-[#333] text-gray-400'}`}>
+                                        <input type="radio" name="reason" className="hidden" checked={reason === 'KHACH'} onChange={() => setReason('KHACH')} />
+                                        <i className="fas fa-user-times"></i> <span className="text-[11px] font-bold">Khách / ĐVVC làm mất/hỏng</span>
+                                    </label>
+                                    <label className={`p-2.5 rounded-xl border cursor-pointer flex items-center gap-2 transition-colors ${reason === 'DONG_GOI' ? 'bg-[#e11d48]/20 border-[#e11d48] text-[#fb7185]' : 'bg-[#0a0a0a] border-[#333] text-gray-400'}`}>
+                                        <input type="radio" name="reason" className="hidden" checked={reason === 'DONG_GOI'} onChange={() => setReason('DONG_GOI')} />
+                                        <i className="fas fa-box-open"></i> <span className="text-[11px] font-bold">Lỗi do Đóng gói (Bắt đền & Trừ tồn)</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <div>
+                                <label className="text-[10px] font-black text-gray-500 block mb-2">Hàng bị lỗi ở khâu nào?</label>
+                                <select value={reason} onChange={e => setReason(e.target.value)} className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-2.5 text-white font-bold outline-none focus:border-[#fb7185] transition-colors">
+                                    <option value="">-- Chọn Khâu Gây Lỗi --</option>
+                                    <option value="PHASE1">Lỗi tại {p1Label} (Trừ KPI: {p1User || 'N/A'})</option>
+                                    <option value="PHASE2">Lỗi tại {p2Label} (Trừ KPI: {p2User || 'N/A'})</option>
+                                    <option value="DONG_GOI">Lỗi tại Đóng gói (Trừ KPI: {packUser || 'N/A'})</option>
+                                    <option value="KHACH">Lỗi do Vận chuyển / Khách</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-black text-gray-500 block mb-2">Tình trạng hiện tại</label>
+                                <div className="flex gap-2">
+                                    <label className={`flex-1 p-2.5 rounded-xl border cursor-pointer text-center transition-colors ${condition === 'REPAIR' ? 'bg-[#f59e0b]/20 border-[#f59e0b] text-[#fbbf24]' : 'bg-[#0a0a0a] border-[#333] text-gray-400'}`}>
+                                        <input type="radio" name="condition" className="hidden" checked={condition === 'REPAIR'} onChange={() => setCondition('REPAIR')} />
+                                        <i className="fas fa-tools mb-1 block text-lg"></i>
+                                        <span className="text-[10px] font-bold">CÒN CỨU ĐƯỢC</span>
+                                    </label>
+                                    <label className={`flex-1 p-2.5 rounded-xl border cursor-pointer text-center transition-colors ${condition === 'BROKEN' ? 'bg-[#e11d48]/20 border-[#e11d48] text-[#fb7185]' : 'bg-[#0a0a0a] border-[#333] text-gray-400'}`}>
+                                        <input type="radio" name="condition" className="hidden" checked={condition === 'BROKEN'} onChange={() => setCondition('BROKEN')} />
+                                        <i className="fas fa-dumpster-fire mb-1 block text-lg"></i>
+                                        <span className="text-[10px] font-bold">VỠ NÁT / VỨT ĐI</span>
+                                    </label>
+                                </div>
+                            </div>
+                            {condition === 'REPAIR' && reason && (
+                                <div className="text-[9px] text-[#fbbf24] bg-[#f59e0b]/10 p-2 rounded-lg border border-[#f59e0b]/20">
+                                    * Lệnh sửa chữa sẽ được đẩy lại về xưởng sản xuất và KPI của người gây lỗi sẽ bị thu hồi.
+                                </div>
+                            )}
+                            {condition === 'BROKEN' && reason && (
+                                <div className="text-[9px] text-rose-400 bg-rose-500/10 p-2 rounded-lg border border-rose-500/20">
+                                    * Sản phẩm sẽ bị đánh dấu VỠ NÁT, xuất thẳng ra khỏi kho, và KPI của người gây lỗi sẽ bị thu hồi.
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
+
+                <div className="flex gap-2 mt-5">
+                    <button onClick={onClose} disabled={processing} className="flex-1 py-3 bg-[#222] text-gray-300 font-black rounded-xl text-[11px] active:scale-95 transition-all">HỦY</button>
+                    <button onClick={handleSubmit} disabled={processing || !reason} className="flex-[2] py-3 bg-[#e11d48] text-white font-black rounded-xl text-[11px] active:scale-95 transition-all shadow-md disabled:opacity-50">
+                        {processing ? <><i className="fas fa-spinner fa-spin"></i> ĐANG XỬ LÝ...</> : 'XÁC NHẬN SỰ CỐ'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+</script>

@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>RF Workspace Pro V99.6.6</title>
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#d4af37">
+  
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="RF Workspace">
+  <link rel="apple-touch-icon" href="https://img.icons8.com/fluency/512/crown.png">
+  
+  <link rel="manifest" href='data:application/manifest+json,{"name":"RF Workspace Pro","short_name":"RF Workspace","start_url":".","display":"standalone","background_color":"#000000","theme_color":"#d4af37","icons":[{"src":"https://img.icons8.com/fluency/512/crown.png","sizes":"512x512","type":"image/png"}]}'>
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  
+  <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+  <style>
+    /* =========================================================================
+       💎 BRIGHT GLASSMORPHIC CYAN DESIGN SYSTEM (Light Mode Frosted Glass)
+       ========================================================================= */
+    body, #root {
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif !important;
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    
+    /* Light/Dark mode root style declarations */
+    body {
+      background-color: #09090b;
+      margin: 0;
+      padding: 0;
+    }
+    
+    .premium-ui:not(.is-dark) {
+      background: radial-gradient(circle at 10% 25%, rgba(14, 165, 233, 0.1) 0%, transparent 45%),
+                  radial-gradient(circle at 85% 30%, rgba(56, 189, 248, 0.12) 0%, transparent 50%),
+                  #f8fafc !important;
+      color: #0f172a !important;
+    }
+    
+    .premium-ui.is-dark {
+      background: radial-gradient(circle at 10% 25%, rgba(212, 175, 55, 0.05) 0%, transparent 40%),
+                  radial-gradient(circle at 85% 30%, rgba(2, 132, 199, 0.04) 0%, transparent 45%),
+                  #09090b !important;
+      color: #e4e4e7 !important;
+    }
+
+    /* 1. Frosted Glass Cards (Targeting all dashboard container styles) */
+    .premium-ui:not(.is-dark) .bg-black:not(.fixed):not(.absolute),
+    .premium-ui:not(.is-dark) .bg-zinc-800:not(.fixed):not(.absolute),
+    .premium-ui:not(.is-dark) .bg-zinc-900:not(.fixed):not(.absolute),
+    .premium-ui:not(.is-dark) .bg-zinc-950:not(.fixed):not(.absolute),
+    .premium-ui:not(.is-dark) .bg-\[\#141414\]:not(.fixed):not(.absolute),
+    .premium-ui:not(.is-dark) .bg-\[\#0a0a0a\]:not(.fixed):not(.absolute),
+    .premium-ui:not(.is-dark) .bg-\[\#1a1a1a\]:not(.fixed):not(.absolute),
+    .premium-ui:not(.is-dark) [class*="bg-[#"]:not(.fixed):not(.absolute) {
+      background: rgba(255, 255, 255, 0.75) !important;
+      backdrop-filter: blur(20px) saturate(180%) !important;
+      -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+      border: 1px solid rgba(14, 165, 233, 0.12) !important;
+      box-shadow: 0 8px 32px 0 rgba(14, 165, 233, 0.04) !important;
+      color: #0f172a !important;
+    }
+    
+    .premium-ui.is-dark .bg-black:not(.fixed):not(.absolute),
+    .premium-ui.is-dark .bg-zinc-800:not(.fixed):not(.absolute),
+    .premium-ui.is-dark .bg-zinc-900:not(.fixed):not(.absolute),
+    .premium-ui.is-dark .bg-zinc-950:not(.fixed):not(.absolute),
+    .premium-ui.is-dark .bg-\[\#141414\]:not(.fixed):not(.absolute),
+    .premium-ui.is-dark .bg-\[\#0a0a0a\]:not(.fixed):not(.absolute),
+    .premium-ui.is-dark .bg-\[\#1a1a1a\]:not(.fixed):not(.absolute),
+    .premium-ui.is-dark [class*="bg-[#"]:not(.fixed):not(.absolute) {
+      background: rgba(20, 20, 25, 0.7) !important;
+      backdrop-filter: blur(20px) saturate(120%) !important;
+      -webkit-backdrop-filter: blur(20px) saturate(120%) !important;
+      border: 1px solid rgba(255, 255, 255, 0.08) !important;
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3) !important;
+      color: #e4e4e7 !important;
+    }
+
+    /* 2. Text colors & Readability overrides */
+    .premium-ui:not(.is-dark) .text-white,
+    .premium-ui:not(.is-dark) .text-zinc-100,
+    .premium-ui:not(.is-dark) .text-\[\#f5f5f5\],
+    .premium-ui:not(.is-dark) h1, .premium-ui:not(.is-dark) h2, 
+    .premium-ui:not(.is-dark) h3, .premium-ui:not(.is-dark) h4, 
+    .premium-ui:not(.is-dark) h5, .premium-ui:not(.is-dark) h6, 
+    .premium-ui:not(.is-dark) label {
+      color: #0f172a !important;
+    }
+    
+    .premium-ui.is-dark .text-white,
+    .premium-ui.is-dark .text-zinc-100,
+    .premium-ui.is-dark .text-\[\#f5f5f5\],
+    .premium-ui.is-dark h1, .premium-ui.is-dark h2,
+    .premium-ui.is-dark h3, .premium-ui.is-dark h4,
+    .premium-ui.is-dark h5, .premium-ui.is-dark h6,
+    .premium-ui.is-dark label {
+      color: #f4f4f5 !important;
+    }
+    
+    .premium-ui:not(.is-dark) .text-zinc-400,
+    .premium-ui:not(.is-dark) .text-gray-400,
+    .premium-ui:not(.is-dark) .text-slate-400,
+    .premium-ui:not(.is-dark) .text-\[\#ccc\],
+    .premium-ui:not(.is-dark) .text-\[\#888\] {
+      color: #64748b !important;
+    }
+    
+    .premium-ui.is-dark .text-zinc-400,
+    .premium-ui.is-dark .text-gray-400,
+    .premium-ui.is-dark .text-slate-400,
+    .premium-ui.is-dark .text-\[\#ccc\],
+    .premium-ui.is-dark .text-\[\#888\] {
+      color: #a1a1aa !important;
+    }
+
+    /* 3. Primary & Highlight Accents */
+    /* Light Mode Primary Action Buttons */
+    .premium-ui:not(.is-dark) .bg-\[\#3b82f6\], 
+    .premium-ui:not(.is-dark) .bg-blue-500, 
+    .premium-ui:not(.is-dark) .bg-blue-600, 
+    .premium-ui:not(.is-dark) .bg-\[\#d4af37\], 
+    .premium-ui:not(.is-dark) .bg-\[\#0284c7\], 
+    .premium-ui:not(.is-dark) .bg-\[\#0099ff\] {
+      background-color: #0284c7 !important;
+      background-image: none !important;
+      color: #ffffff !important;
+      border: 1px solid #0284c7 !important;
+    }
+    
+    /* Dark Mode Primary Action Buttons - Luxury Gold & Obsidian */
+    .premium-ui.is-dark .bg-\[\#d4af37\],
+    .premium-ui.is-dark .bg-yellow-500 {
+      background-color: #d4af37 !important;
+      background-image: none !important;
+      color: #050505 !important;
+      border: 1px solid #d4af37 !important;
+    }
+    .premium-ui.is-dark .bg-\[\#3b82f6\], 
+    .premium-ui.is-dark .bg-blue-500, 
+    .premium-ui.is-dark .bg-blue-600, 
+    .premium-ui.is-dark .bg-\[\#0284c7\] {
+      background-color: #0284c7 !important;
+      background-image: none !important;
+      color: #ffffff !important;
+      border: 1px solid #0284c7 !important;
+    }
+    
+    .premium-ui:not(.is-dark) .bg-rose-500, 
+    .premium-ui:not(.is-dark) .bg-red-500, 
+    .premium-ui:not(.is-dark) .bg-\[\#ef4444\], 
+    .premium-ui:not(.is-dark) .bg-\[\#e11d48\] {
+      background-color: #e11d48 !important;
+      background-image: none !important;
+      color: #ffffff !important;
+      border: 1px solid #e11d48 !important;
+    }
+    .premium-ui.is-dark .bg-rose-500, 
+    .premium-ui.is-dark .bg-red-500, 
+    .premium-ui.is-dark .bg-\[\#ef4444\], 
+    .premium-ui.is-dark .bg-\[\#e11d48\] {
+      background-color: #e11d48 !important;
+      background-image: none !important;
+      color: #ffffff !important;
+      border: 1px solid #e11d48 !important;
+    }
+    
+    /* Light Mode Accents */
+    .premium-ui:not(.is-dark) .text-primary,
+    .premium-ui:not(.is-dark) .text-\[\#d4af37\] {
+      color: #0284c7 !important;
+    }
+    .premium-ui:not(.is-dark) .bg-primary,
+    .premium-ui:not(.is-dark) .bg-\[\#d4af37\] {
+      background-color: #0284c7 !important;
+      color: #ffffff !important;
+    }
+    /* Dark Mode - Keep their gold luxury color! */
+    .premium-ui.is-dark .text-primary,
+    .premium-ui.is-dark .text-\[\#d4af37\] {
+      color: #d4af37 !important;
+    }
+    .premium-ui.is-dark .bg-primary,
+    .premium-ui.is-dark .bg-\[\#d4af37\] {
+      background-color: #d4af37 !important;
+      color: #000000 !important;
+    }
+    
+    .premium-ui:not(.is-dark) .text-\[\#fb7185\], .premium-ui:not(.is-dark) .text-rose-500 { color: #e11d48 !important; }
+    .premium-ui:not(.is-dark) .text-\[\#10b981\], .premium-ui:not(.is-dark) .text-emerald-500 { color: #059669 !important; }
+    
+    .premium-ui.is-dark .text-\[\#fb7185\], .premium-ui.is-dark .text-rose-500 { color: #fb7185 !important; }
+    .premium-ui.is-dark .text-\[\#10b981\], .premium-ui.is-dark .text-emerald-500 { color: #34d399 !important; }
+
+    /* 4. Controls (inputs, selects, textareas) */
+    .premium-ui:not(.is-dark) input,
+    .premium-ui:not(.is-dark) select,
+    .premium-ui:not(.is-dark) textarea {
+      background: rgba(255, 255, 255, 0.8) !important;
+      border: 1px solid #cbd5e1 !important;
+      color: #0f172a !important;
+      border-radius: 12px !important;
+      padding: 10px 14px !important;
+      font-weight: 600 !important;
+      backdrop-filter: blur(10px) !important;
+      -webkit-backdrop-filter: blur(10px) !important;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    }
+    .premium-ui.is-dark input,
+    .premium-ui.is-dark select,
+    .premium-ui.is-dark textarea {
+      background: rgba(20, 20, 25, 0.8) !important;
+      border: 1px solid rgba(255, 255, 255, 0.1) !important;
+      color: #f4f4f5 !important;
+      border-radius: 12px !important;
+      padding: 10px 14px !important;
+      font-weight: 600 !important;
+      backdrop-filter: blur(10px) !important;
+      -webkit-backdrop-filter: blur(10px) !important;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    }
+    .premium-ui input:focus, .premium-ui select:focus, .premium-ui textarea:focus {
+      border-color: #0284c7 !important;
+      outline: none !important;
+    }
+    .premium-ui.is-dark input:focus, .premium-ui.is-dark select:focus, .premium-ui.is-dark textarea:focus {
+      border-color: #d4af37 !important;
+    }
+
+    /* 5. Modal overlays */
+    .premium-ui:not(.is-dark) .fixed.inset-0 {
+      backdrop-filter: blur(8px) !important;
+      -webkit-backdrop-filter: blur(8px) !important;
+      background-color: rgba(255, 255, 255, 0.45) !important;
+    }
+    .premium-ui.is-dark .fixed.inset-0 {
+      backdrop-filter: blur(8px) !important;
+      -webkit-backdrop-filter: blur(8px) !important;
+      background-color: rgba(0, 0, 0, 0.75) !important;
+    }
+
+    /* 6. Options */
+    .premium-ui:not(.is-dark) option {
+      background-color: #ffffff !important;
+      color: #0f172a !important;
+    }
+    .premium-ui.is-dark option {
+      background-color: #18181b !important;
+      color: #f4f4f5 !important;
+    }
+
+    /* 7. Slide Menu Drawer */
+    .premium-ui:not(.is-dark) .fixed.inset-y-0.left-0 {
+      background: rgba(255, 255, 255, 0.75) !important;
+      backdrop-filter: blur(25px) !important;
+      -webkit-backdrop-filter: blur(25px) !important;
+      border-right: 1px solid rgba(14, 165, 233, 0.12) !important;
+      box-shadow: 10px 0 40px rgba(0, 0, 0, 0.05) !important;
+    }
+    .premium-ui.is-dark .fixed.inset-y-0.left-0 {
+      background: rgba(10, 10, 12, 0.85) !important;
+      backdrop-filter: blur(25px) !important;
+      -webkit-backdrop-filter: blur(25px) !important;
+      border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+      box-shadow: 10px 0 40px rgba(0, 0, 0, 0.5) !important;
+    }
+
+    /* 8. Active Pill highlights */
+    .gen2-nav-btn {
+      transition: all 0.2s ease !important;
+      border-radius: 9999px !important;
+    }
+    .premium-ui:not(.is-dark) .gen2-nav-btn.text-\[\#d4af37\] {
+      background: rgba(2, 132, 199, 0.08) !important;
+      box-shadow: 0 0 15px rgba(2, 132, 199, 0.12) !important;
+      border: 1px solid rgba(2, 132, 199, 0.05) !important;
+    }
+    .premium-ui.is-dark .gen2-nav-btn.text-\[\#d4af37\] {
+      background: rgba(212, 175, 55, 0.1) !important;
+      box-shadow: 0 0 15px rgba(212, 175, 55, 0.15) !important;
+      border: 1px solid rgba(212, 175, 55, 0.1) !important;
+    }
+    .absolute.bottom-0.left-1\/2.-translate-x-1\/2 {
+      background-color: #0284c7 !important; /* Sky Blue indicator line */
+      box-shadow: 0 0 10px rgba(2, 132, 199, 0.6) !important;
+    }
+    .premium-ui.is-dark .absolute.bottom-0.left-1\/2.-translate-x-1\/2 {
+      background-color: #d4af37 !important; /* Gold indicator line in dark mode */
+      box-shadow: 0 0 10px rgba(212, 175, 55, 0.6) !important;
+    }
+
+    /* Soft cyan/blue gradients for progress charts */
+    .bg-gradient-to-r.from-amber-500.to-yellow-400,
+    .bg-gradient-to-r.from-blue-600.to-cyan-400,
+    .bg-gradient-to-r.from-\[\#d4af37\].to-yellow-400 {
+      background: linear-gradient(90deg, #0284c7 0%, #38bdf8 50%, #22d3ee 100%) !important;
+    }
+
+    /* Fine-lined sleek FontAwesome icons override */
+    i.fas, i.far, i.fab, i.fa-solid, i.fa-regular {
+      opacity: 0.95;
+      transition: all 0.2s ease;
+    }
+
+    /* Elegant hover animations */
+    .premium-hover {
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .premium-hover:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 30px rgba(14, 165, 233, 0.08) !important;
+    }
+    
+    /* Premium active scale */
+    button:active, .active\:scale-95:active {
+      transform: scale(0.96) !important;
+    }
+  </style>
+</head>
+
+<body class="pb-6">
+  <div id="root"></div>
+
+  <script id="app-jsx" type="text/plain">
+    /** @jsx React.createElement */
+    /** @jsxFrag React.Fragment */
+
+    const { useState, useEffect, useMemo, useCallback } = React;
+
+    // Lucide Icon Component
+    const LucideIcon = ({ name, size = 16, className = "", color = "currentColor" }) => {
+      const [iconHtml, setIconHtml] = React.useState('');
+      React.useEffect(() => {
+        if (window.lucide && window.lucide.icons && window.lucide.icons[name]) {
+          const svg = window.lucide.icons[name].toSvg({ width: size, height: size, color, 'stroke-width': 2.25, class: className });
+          setIconHtml(svg);
+        } else {
+          // Fallback map Lucide names -> FontAwesome names
+          const faMap = {
+            'bot': 'robot',
+            'menu': 'bars',
+            'layout-grid': 'th',
+            'log-out': 'sign-out-alt',
+            'home': 'home',
+            'shopping-bag': 'shopping-bag',
+            'hammer': 'hammer',
+            'users': 'users',
+            'trending-up': 'chart-line',
+            'package': 'boxes',
+            'wallet': 'wallet',
+            'briefcase': 'handshake'
+          };
+          const faName = faMap[name] || name;
+          setIconHtml(`<i class="fas fa-${faName} ${className}" style="font-size:${size}px; color:${color}"></i>`);
+        }
+      }, [name, size, className, color]);
+      return <span dangerouslySetInnerHTML={{ __html: iconHtml }} />;
+    };
+
+    // --- 1. CẤU HÌNH & TIỆN ÍCH DÙNG CHUNG ---
+    <?!= include('Config'); ?>
+    <?!= include('Components'); ?>
+
+    // --- 2. CÁC CỬA SỔ MODAL TOÀN CỤC ---
+    <?!= include('Modals'); ?>
+    <?!= include('Modals_Orders'); ?>
+
+    // --- 3. CÁC TÍNH NĂNG CHÍNH (TABS) ---
+    <?!= include('Tab_Dashboard'); ?>
+    <?!= include('Tab_Orders'); ?>
+    <?!= include('Tab_Production'); ?>
+    <?!= include('Tab_Inventory'); ?>
+    <?!= include('Tab_ImportExport'); ?>
+    <?!= include('Tab_Suppliers'); ?>
+    <?!= include('Tab_Finance'); ?>
+    <?!= include('Tab_HR'); ?>
+    <?!= include('Tab_Documents'); ?>
+    <?!= include('Tab_Training'); ?>
+    <?!= include('Tab_Docs'); ?>
+    <?!= include('Tab_UserManagement'); ?>
+
+    // --- 4. KHỞI CHẠY ỨNG DỤNG (BẮT BUỘC NẰM CUỐI CÙNG) ---
+    <?!= include('App_Main'); ?>
+  </script>
+  <script>
+    (function() {
+      try {
+        var rawJsx = document.getElementById('app-jsx').textContent;
+        var hash = 0;
+        for (var i = 0; i < rawJsx.length; i++) {
+          var char = rawJsx.charCodeAt(i);
+          hash = ((hash << 5) - hash) + char;
+          hash = hash & hash;
+        }
+        var cacheKey = 'rf_compiled_jsx_' + hash;
+        var cachedCode = localStorage.getItem(cacheKey);
+        
+        for (var key in localStorage) {
+          if (key.startsWith('rf_compiled_jsx_') && key !== cacheKey) {
+            localStorage.removeItem(key);
+          }
+        }
+
+        if (cachedCode) {
+          console.log('App loaded from local compilation cache (Super Fast!)');
+          var script = document.createElement('script');
+          script.textContent = cachedCode;
+          document.body.appendChild(script);
+        } else {
+          console.log('No cache found. Compiling JSX with Babel Standalone...');
+          if (window.Babel) {
+            var compiled = Babel.transform(rawJsx, { presets: ['react', 'es2015'] }).code;
+            try {
+              localStorage.setItem(cacheKey, compiled);
+            } catch (e) {
+              console.warn('Failed to save to localStorage:', e);
+            }
+            var script = document.createElement('script');
+            script.textContent = compiled;
+            document.body.appendChild(script);
+          } else {
+            console.error('Babel is not loaded!');
+          }
+        }
+      } catch (err) {
+        console.error('Error in custom JSX cache loader:', err);
+        if (window.Babel) {
+          var compiled = Babel.transform(rawJsx, { presets: ['react', 'es2015'] }).code;
+          var script = document.createElement('script');
+          script.textContent = compiled;
+          document.body.appendChild(script);
+        }
+      }
+    })();
+  </script>
+</body>
+</html>

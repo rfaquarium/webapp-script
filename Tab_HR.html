@@ -1,0 +1,1689 @@
+<script type="text/babel">
+// =========================================================================
+// 👥 FILE: Tab_HR.txt
+// CHỨC NĂNG: Trung Tâm Nhân Sự (Chấm Công, Giao Việc KPI, Bảng Lương)
+// NÂNG CẤP: Lọc thời gian theo Tháng (Tùy chỉnh) & Phân quyền RBAC CHUẨN CHỈ
+// =========================================================================
+
+function HRTab({ hasPerm, attendance, erpData, userConfigs, prodItems, packings, pushDeltas, triggerToast }) {
+  const currentUser = localStorage.getItem('rf_user') || '';
+  const currentRole = localStorage.getItem('rf_role') || '';
+  const isBoss = localStorage.getItem('rf_boss') === 'true';
+  
+  // PHÂN QUYỀN CHUẨN CHỈ: Chỉ Quản lý Nhân sự mới được Sửa Công. Các nút Tiền/KPI đều là isBoss.
+  const canEditAttendance = hasPerm ? hasPerm('HR_PAYROLL') : (isBoss || currentRole === 'NHÂN SỰ');
+
+  const formatMoney = (val) => Number(val || 0).toLocaleString('vi-VN');
+  const cleanNumber = (val) => typeof val === 'number' ? val : Number(String(val || '').replace(/[^0-9]/g, '')) || 0;
+  
+  const [weeklyGift, setWeeklyGift] = React.useState(() => localStorage.getItem('rf_weekly_gift') || '1 Cốc Trà Sữa');
+  const [openSection, setOpenSection] = React.useState({});
+  const toggleSection = (user, section, e) => {
+      if(e) e.stopPropagation();
+      setOpenSection(prev => ({...prev, [`${user}_${section}`]: !prev[`${user}_${section}`]}));
+  };
+  
+  const [expandedKPIs, setExpandedKPIs] = React.useState({});
+  const toggleKPIExpand = (user) => setExpandedKPIs(prev => ({...prev, [user]: !prev[user]}));
+
+  const [subTab, setSubTab] = React.useState('ATTENDANCE');
+  
+  const [filter, setFilter] = React.useState('Tháng Này');
+  const [customMonth, setCustomMonth] = React.useState(() => new Date().toISOString().slice(0, 7)); // Format YYYY-MM
+  const currentDate = new Date().toISOString().split('T')[0];
+
+  const users = userConfigs?.users || [];
+  const rawAttData = attendance || [];
+  const bpData = erpData?.BonusPenalty || [];
+  const kpiData = erpData?.KPI_Progress || [];
+  const safeProdItems = prodItems || [];
+  const safePackings = packings || [];
+  const orders = erpData?.Orders || []; 
+
+  const [showCoins, setShowCoins] = React.useState(false);
+  const [claimingIds, setClaimingIds] = React.useState([]);
+
+  const [editingPayroll, setEditingPayroll] = React.useState(null);
+
+  const extractTimeLocal = (str) => {
+      if (!str) return null;
+      let s = String(str).trim();
+      if (s.includes('T') && s.includes('Z')) { 
+          const d = new Date(s); 
+          if (!isNaN(d.getTime())) return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+      }
+      const match = s.match(/([0-1]?[0-9]|2[0-3]):([0-5][0-9])/); 
+      return match ? `${match[1].padStart(2, '0')}:${match[2]}` : null;
+  };
+
+  const [currentTimeMins, setCurrentTimeMins] = React.useState(() => new Date().getHours() * 60 + new Date().getMinutes());
+  React.useEffect(() => {
+      const interval = setInterval(() => {
+          setCurrentTimeMins(new Date().getHours() * 60 + new Date().getMinutes());
+      }, 30000); 
+      return () => clearInterval(interval);
+  }, []);
+
+  const activeShift = React.useMemo(() => {
+      if (currentTimeMins >= 390 && currentTimeMins <= 750) return 'Sáng';      
+      if (currentTimeMins >= 825 && currentTimeMins <= 1110) return 'Chiều';    
+      if (currentTimeMins >= 1140 || currentTimeMins <= 180) return 'Tối';      
+      return null;
+  }, [currentTimeMins]);
+
+  const isDateInRange = (dateStr, filterStr = filter, customM = customMonth) => {
+      if (!dateStr) return false;
+      const d = new Date(dateStr); const today = new Date();
+      if (filterStr === 'Hôm Nay') return d.toDateString() === today.toDateString();
+      if (filterStr === 'Hôm Qua') { const y = new Date(today); y.setDate(y.getDate() - 1); return d.toDateString() === y.toDateString(); }
+      if (filterStr === 'Tháng Này') return d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
+      if (filterStr === 'Tháng Trước') { 
+          const m = new Date(today); m.setMonth(m.getMonth() - 1);
+          return d.getMonth() === m.getMonth() && d.getFullYear() === m.getFullYear(); 
+      }
+      if (filterStr === 'Tuỳ Chỉnh') {
+          if (!customM) return true;
+          const [year, month] = customM.split('-');
+          return d.getFullYear() === parseInt(year, 10) && d.getMonth() === (parseInt(month, 10) - 1);
+      }
+      return false;
+  };
+
+  const attData = React.useMemo(() => {
+      const uniqueMap = new Map();
+      rawAttData.forEach(a => {
+          const sft = a.shift || (a.leaveType ? 'Nghỉ' : 'Ca Cũ');
+          const key = `${String(a.user).trim()}_${a.date}_${sft}`;
+          if (!uniqueMap.has(key) || (a.timeOut && !uniqueMap.get(key).timeOut)) {
+              uniqueMap.set(key, a);
+          }
+      });
+      const dedupedRaw = Array.from(uniqueMap.values());
+
+      return dedupedRaw.map(a => {
+          let tIn = extractTimeLocal(a.timeIn) || extractTimeLocal(a.morningIn || a.afternoonIn) || '';
+          let tOut = extractTimeLocal(a.timeOut) || extractTimeLocal(a.afternoonOut || a.morningOut) || '';
+          let penalty = Number(a.penalty || 0);
+          let status = a.status;
+          let shift = a.shift || (a.leaveType ? 'Nghỉ' : 'Ca Cũ');
+          
+          const isToday = a.date === currentDate;
+          const isPast = a.date < currentDate;
+
+          if (tIn && !tOut && shift !== 'Nghỉ Phép' && !a.isEdited) {
+              let isMissed = false;
+              if (shift === 'Sáng' && (isPast || (isToday && currentTimeMins > 750))) { 
+                  isMissed = true; tOut = '12:00';
+              } else if (shift === 'Chiều' && (isPast || (isToday && currentTimeMins > 1110))) { 
+                  isMissed = true; tOut = '18:00';
+              } else if (shift === 'Tối' && (isPast || (isToday && (currentTimeMins > 180 && currentTimeMins < 1140)))) { 
+                  isMissed = true; tOut = '23:00';
+              }
+              if (isMissed) {
+                  if (!String(status).includes('Quên chấm ra')) {
+                      penalty += 5000; status = 'Quên chấm ra (-5k)';
+                  }
+              }
+          }
+
+          let h = 0;
+          const calcH = (inStr, outStr) => {
+              if (!inStr || !outStr) return 0;
+              const [inH, inM] = inStr.split(':').map(Number); 
+              const [outH, outM] = outStr.split(':').map(Number);
+              let startMins = inH * 60 + inM; let endMins = outH * 60 + outM;
+              if (endMins < startMins) endMins += 24 * 60;
+              const lunchStart = 720; const lunchEnd = 840;
+              const overlapStart = Math.max(startMins, lunchStart);
+              const overlapEnd = Math.min(endMins, lunchEnd);
+              const lunchBreakMins = Math.max(0, overlapEnd - overlapStart);
+              let totalMins = (endMins - startMins) - lunchBreakMins;
+              return Math.max(0, totalMins / 60);
+          };
+
+          if (tIn && tOut) h = calcH(tIn, tOut);
+          else if (a.totalHours) h = Number(String(a.totalHours).replace(/,/g, '.'));
+          return { 
+              ...a, shift, timeIn: tIn, timeOut: tOut, 
+              totalHours: h.toFixed(2), 
+              status: status || (a.leaveType ? `Nghỉ: ${a.leaveType}` : (h > 0 ? 'Hoàn thành' : 'Đang làm việc')), 
+              penalty: penalty, isEdited: a.isEdited || false 
+          };
+      });
+  }, [rawAttData, currentDate, currentTimeMins]);
+
+  const streakDays = React.useMemo(() => {
+      const myAtt = attData.filter(a => a.user === currentUser && Number(a.totalHours) > 0).map(a => a.date).sort((a, b) => new Date(b) - new Date(a));
+      const uniqueDays = [...new Set(myAtt)];
+      if (uniqueDays.length === 0) return 0;
+      
+      let count = 0;
+      let d = new Date(currentDate); 
+      const todayStr = d.toISOString().split('T')[0];
+      d.setDate(d.getDate() - 1);
+      const yesterdayStr = d.toISOString().split('T')[0];
+
+      if (uniqueDays[0] !== todayStr && uniqueDays[0] !== yesterdayStr) return 0;
+
+      let checkDate = new Date(uniqueDays[0]);
+      for (let i = 0; i < uniqueDays.length; i++) {
+          if (uniqueDays[i] === checkDate.toISOString().split('T')[0]) { count++; checkDate.setDate(checkDate.getDate() - 1); } 
+          else break;
+      }
+      return count;
+  }, [attData, currentUser, currentDate]);
+
+  const displayStreak = streakDays > 0 && streakDays % 7 === 0 ? 7 : streakDays % 7;
+  const filterMonth = filter === 'Tuỳ Chỉnh' ? customMonth : new Date().toISOString().slice(0, 7);
+
+  // Ép ngày nhập tay vào đúng với kỳ lương đang xem để data không bay sang tháng sau
+  const payrollTargetDate = React.useMemo(() => {
+      if (filter === 'Tháng Trước') {
+          const d = new Date(); d.setMonth(d.getMonth() - 1);
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-28`;
+      }
+      if (filter === 'Tuỳ Chỉnh') return `${customMonth}-28`;
+      return currentDate;
+  }, [filter, customMonth, currentDate]);
+
+  const [showLeaveModal, setShowLeaveModal] = React.useState(false);
+  const [leaveForm, setLeaveForm] = React.useState({ start: '', end: '', note: '' });
+  const [showHistoryUser, setShowHistoryUser] = React.useState(null);
+  const [expandedPayroll, setExpandedPayroll] = React.useState(null);
+  const [editAtt, setEditAtt] = React.useState(null);
+  const [payrollAction, setPayrollAction] = React.useState(null);
+
+  const [showKPIModal, setShowKPIModal] = React.useState(false);
+  const [kpiType, setKpiType] = React.useState('task'); 
+  const [kpiForm, setKpiForm] = React.useState({ user: users[0] || '', kpiName: 'Dựng khung', target: '', unit: 'SP', startTime: currentDate, endTime: '', reward: '', penalty: '' });
+  const [devGoals, setDevGoals] = React.useState([{ name: '', reward: '' }]); 
+  const [editKPI, setEditKPI] = React.useState(null);
+  const [kpiPeriodType, setKpiPeriodType] = React.useState('Daily');
+  const [kpiTrackingType, setKpiTrackingType] = React.useState('auto');
+
+  const handleCheckInOut = async (action, targetShift) => {
+      const timeStr = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false });
+      let existingRec = attData.find(a => String(a.user).trim() === currentUser.trim() && a.date === currentDate && a.shift === targetShift);
+      let payload = {};
+      if (action === 'IN') {
+          if (existingRec && existingRec.timeIn) return triggerToast(`Bạn đã vào ca ${targetShift} rồi!`, 'fa-exclamation', 'warning');
+          payload = { id: existingRec ? existingRec.id : `ATT_${Date.now()}`, user: currentUser, date: currentDate, shift: targetShift, timeIn: timeStr, status: 'Đang làm việc', penalty: 0, isEdited: false };
+      } else {
+          if (!existingRec || !existingRec.timeIn) return triggerToast(`Chưa vào ca ${targetShift}!`, 'fa-exclamation', 'warning');
+          if (existingRec.timeOut) return triggerToast(`Đã ra ca ${targetShift} rồi!`, 'fa-exclamation', 'warning');
+          let inH = Number(existingRec.timeIn.split(':')[0]); let inM = Number(existingRec.timeIn.split(':')[1]);
+          let outH = Number(timeStr.split(':')[0]); let outM = Number(timeStr.split(':')[1]);
+          let diffMins = (outH * 60 + outM) - (inH * 60 + inM);
+          if (diffMins < 0) diffMins += 24 * 60;
+          payload = { ...existingRec, timeOut: timeStr, totalHours: (diffMins/60).toFixed(2), status: 'Hoàn thành' };
+      }
+      try { await pushDeltas({ attendance: [payload] }, `Đã ${action==='IN'?'vào':'ra'} ${targetShift}!`, 'fa-check');
+      } catch(e) { triggerToast('Lỗi mạng!', 'fa-times', 'danger'); }
+  };
+
+  const handleSaveEditAtt = async () => {
+      if (!editAtt.timeIn || !editAtt.timeOut) return triggerToast('Thiếu giờ vào/ra', 'fa-times', 'danger');
+      let inH = Number(editAtt.timeIn.split(':')[0]); let inM = Number(editAtt.timeIn.split(':')[1]); let outH = Number(editAtt.timeOut.split(':')[0]); let outM = Number(editAtt.timeOut.split(':')[1]);
+      let diffMins = (outH * 60 + outM) - (inH * 60 + inM);
+      if (diffMins < 0) diffMins += 24 * 60;
+      
+      const payload = { ...editAtt, totalHours: (diffMins/60).toFixed(2), isEdited: true };
+      
+      try { 
+          await pushDeltas({ attendance: [payload] }, 'Cập nhật chấm công thành công!', 'fa-check'); 
+          setEditAtt(null);
+      } catch(e) { triggerToast('Lỗi đồng bộ!', 'fa-times', 'danger'); }
+  };
+
+  const submitLeave = async () => {
+      if(!leaveForm.start || !leaveForm.end) return triggerToast('Thiếu thông tin!', 'fa-exclamation', 'warning');
+      const sDate = new Date(leaveForm.start);
+      const hoursNotice = (sDate.getTime() - new Date().getTime()) / 3600000;
+      const leavesThisPeriod = attData.filter(a => String(a.user).trim() === currentUser.trim() && a.date && isDateInRange(a.date) && String(a.status || '').includes('Nghỉ')).length;
+      let status = 'Nghỉ có phép'; let penalty = 0;
+      if (hoursNotice < 24 || leavesThisPeriod >= 2) { status = 'Nghỉ không phép'; penalty = 200000; }
+      const payload = { id: `ATT_LEAVE_${Date.now()}`, user: currentUser, date: sDate.toISOString().split('T')[0], shift: 'Nghỉ Phép', status, penalty, leaveStart: leaveForm.start, leaveEnd: leaveForm.end, leaveReportAt: new Date().toISOString(), note: leaveForm.note };
+      try { await pushDeltas({ attendance: [payload] }, 'Đã gửi báo nghỉ!', 'fa-check'); setShowLeaveModal(false);
+      if(penalty>0) alert(`LƯU Ý: Bị phạt ${formatMoney(penalty)}đ do vi phạm quy chế.`); } catch(e) {}
+  };
+
+  const getDynamicKPIProgress = (k, u) => {
+      if (k.unit === 'Checklist') return Number(k.current) || 0;
+      let count = 0;
+      const s = k.startTime || '2000-01-01'; const e = k.endTime || '2099-12-31';
+      const inR = (d) => { if(!d) return false; const dt = String(d).split(' ')[0]; return dt >= s && dt <= e; };
+
+      if (k.kpiName === 'Dựng khung' || k.kpiName === 'Cắt Mài') {
+          safeProdItems.forEach(p => { 
+              const user = p.p1_user || p.phases?.phase1?.user;
+              const status = p.p1_status || p.phases?.phase1?.status;
+              const endTime = p.p1_endTime || p.phases?.phase1?.endTime || p.date;
+              if (String(user).trim() === String(u).trim() && status === 'Done' && inR(endTime)) count++; 
+          });
+      } else if (k.kpiName === 'Gia cố' || k.kpiName === 'Gọt Keo') {
+          safeProdItems.forEach(p => { 
+              const user = p.p2_user || p.phases?.phase2?.user;
+              const status = p.p2_status || p.phases?.phase2?.status;
+              const endTime = p.p2_endTime || p.phases?.phase2?.endTime || p.date;
+              if (String(user).trim() === String(u).trim() && status === 'Done' && inR(endTime)) count++; 
+          });
+      } else if (k.kpiName === 'Đóng Gói') {
+          safePackings.forEach(pk => { if (String(pk.user).trim() === String(u).trim() && pk.status === 'Done' && inR(pk.endTime || pk.date)) count++; });
+      } else if (k.kpiName === 'Bán Hàng') {
+          bpData.forEach(bp => { if (String(bp.user).trim() === String(u).trim() && bp.type === 'Thưởng Bán Hàng' && inR(bp.date)) count++; });
+      }
+      return count > 0 ? count : (Number(k.current) || 0);
+  };
+
+  const claimReward = async (k) => {
+      if (k.isClaimed === 'true' || k.isClaimed === true || claimingIds.includes(k.id)) return;
+      setClaimingIds(prev => [...prev, k.id]);
+      setShowCoins(true); setTimeout(() => setShowCoins(false), 2500);
+
+      const payload = {
+          KPI_Progress: [{ ...k, isClaimed: true }],
+          BonusPenalty: [{
+              id: 'BP_KPI_' + Date.now(), user: k.user, amount: Number(k.reward || 0),
+              type: 'Thưởng Nhiệm Vụ', note: `Thưởng hoàn thành nhiệm vụ: ${k.kpiName}`, date: payrollTargetDate, orderCode: ''
+          }]
+      };
+      try { await pushDeltas(payload, 'Nhận thưởng thành công!', 'fa-coins');
+      } catch(e) { triggerToast('Lỗi nhận thưởng, thử lại sau', 'fa-times', 'danger');
+      } finally { setClaimingIds(prev => prev.filter(id => id !== k.id)); }
+  };
+
+  const saveKPI = async () => {
+      if (!kpiForm.startTime || !kpiForm.endTime) return triggerToast('Vui lòng chọn thời gian Bắt đầu và Kết thúc!', 'fa-exclamation', 'warning');
+      if (kpiType === 'dev' && !editKPI) {
+          const validGoals = devGoals.filter(g => g.name.trim());
+          if (validGoals.length === 0) return triggerToast('Vui lòng nhập ít nhất 1 mục tiêu phát triển!', 'fa-exclamation', 'warning');
+          const payloads = validGoals.map((g, idx) => ({ id: `KPI_DEV_${Date.now()}_${idx}`, user: kpiForm.user, kpiName: g.name.trim(), current: 0, target: 1, unit: 'Checklist', startTime: kpiForm.startTime, endTime: kpiForm.endTime, reward: Number(g.reward) || 0, penalty: 0, isClaimed: false, lastUpdated: new Date().toISOString() }));
+          await pushDeltas({ KPI_Progress: payloads }, 'Đã giao nhiệm vụ phát triển!', 'fa-seedling');
+      } else {
+          if (!kpiForm.kpiName || !kpiForm.kpiName.trim()) return triggerToast('Vui lòng nhập hoặc chọn tên nhiệm vụ!', 'fa-exclamation', 'warning');
+          const payload = { id: editKPI ? editKPI.id : `KPI_${Date.now()}`, user: kpiForm.user, kpiName: kpiForm.kpiName.trim(), current: editKPI ? editKPI.current : 0, target: kpiForm.target, unit: kpiForm.unit, startTime: kpiForm.startTime, endTime: kpiForm.endTime, reward: Number(kpiForm.reward) || 0, penalty: Number(kpiForm.penalty) || 0, isClaimed: editKPI ? editKPI.isClaimed : false, lastUpdated: new Date().toISOString() };
+          await pushDeltas({ KPI_Progress: [payload] }, 'Lưu nhiệm vụ thành công!', 'fa-check');
+      }
+      setShowKPIModal(false); setEditKPI(null);
+  };
+
+  const toggleDevGoal = async (k) => { 
+      if (!isBoss) return triggerToast('Bạn không có quyền duyệt mục tiêu!', 'fa-lock', 'danger');
+      const newCurrent = Number(k.current) >= 1 ? 0 : 1;
+      await pushDeltas({ KPI_Progress: [{ ...k, current: newCurrent, lastUpdated: new Date().toISOString() }] }, newCurrent ? 'Đã nghiệm thu!' : 'Hủy duyệt', 'fa-check-double');
+  };
+
+  const handleApplyKPIPenalty = async (k, current, target) => {
+      const amt = Number(k.penalty) || 0;
+      if (amt <= 0) return triggerToast('Nhiệm vụ này không cài đặt mức phạt!', 'fa-info', 'warning');
+      if (!window.confirm(`⚠️ Xác nhận giáng phạt ${k.user} số tiền ${formatMoney(amt)}đ do chưa đạt KPI "${k.kpiName}"?`)) return;
+      const payload = { id: 'BP_PEN_' + Date.now(), user: k.user, amount: -Math.abs(amt), type: 'Phạt KPI', note: `Không đạt mục tiêu: ${k.kpiName} (${current}/${target})`, date: payrollTargetDate, orderCode: '' };
+      try { await pushDeltas({ BonusPenalty: [payload] }, 'Đã giáng phạt KPI!', 'fa-gavel');
+      } catch(e) { triggerToast('Lỗi giáng phạt', 'fa-times', 'danger'); }
+  };
+
+  const handleDeleteKPI = async (k) => {
+      if(!window.confirm(`Bạn có chắc muốn xoá nhiệm vụ "${k.kpiName}"?\n⚠️ Hệ thống sẽ tự động THU HỒI toàn bộ tiền thưởng/phạt liên quan đến nhiệm vụ này!`)) return;
+      const relatedBPs = bpData.filter(b => b.user === k.user && ((b.type === 'Thưởng Nhiệm Vụ' && String(b.note).includes(k.kpiName)) || (b.type === 'Phạt KPI' && String(b.note).includes(k.kpiName))));
+      const payload = { deletes: { KPI_Progress: [k.id] } };
+      if (relatedBPs.length > 0) { payload.deletes.BonusPenalty = relatedBPs.map(b => b.id); }
+      try { await pushDeltas(payload, 'Đã xoá và thu hồi tiền liên quan!', 'fa-trash');
+      } catch(e) { triggerToast('Lỗi khi xoá!', 'fa-times', 'danger'); }
+  };
+
+  const formatDR = (s, e) => { if (!s || !e) return 'Vô hạn'; return `${s.split('-').reverse().slice(0,2).join('/')} - ${e.split('-').reverse().slice(0,2).join('/')}`; };
+
+  // Hàm parse ngày an toàn, chống lỗi Type/NaN do định dạng dữ liệu Google Sheets
+  const parseDateSafe = (val) => {
+    if (!val) return NaN;
+    const str = String(val).trim();
+    if (!str) return NaN;
+    let s = str;
+    if (s.includes(' ')) {
+      s = s.replace(' ', 'T');
+    }
+    if (s.includes('T') && s.split(':').length === 2) {
+      s += ':00';
+    }
+    const t = new Date(s).getTime();
+    if (!isNaN(t)) return t;
+    return new Date(val).getTime();
+  };
+
+  // Hàm tính toán giờ thực chiến chi tiết theo từng ngày của thợ
+  const calcActiveHoursForDay = (user, dateStr, gateHours) => {
+    let totalActiveMins = 0;
+    const safeGateHours = Number(gateHours) || 0;
+    
+    // 1. Duyệt prodItems
+    (safeProdItems || []).forEach(p => {
+      ['phase1', 'phase2'].forEach(phKey => {
+        const ph = p?.phases?.[phKey];
+        if (ph && String(ph.user).trim() === String(user).trim()) {
+          if (ph.start && String(ph.start).startsWith(dateStr)) {
+            const startMs = parseDateSafe(ph.start);
+            let endMs = 0;
+            if (ph.endTime) {
+              endMs = parseDateSafe(ph.endTime);
+            } else if (ph.status === 'In Progress' && dateStr === currentDate) {
+              endMs = Date.now();
+            }
+            if (!isNaN(startMs) && endMs > startMs) {
+              totalActiveMins += (endMs - startMs) / 60000;
+            }
+          }
+        }
+      });
+    });
+
+    // 2. Duyệt packings
+    (safePackings || []).forEach(pk => {
+      if (String(pk.user).trim() === String(user).trim()) {
+        if (pk.start && String(pk.start).startsWith(dateStr)) {
+          const startMs = parseDateSafe(pk.start);
+          let endMs = 0;
+          const et = pk.endTime || pk.end;
+          if (et) {
+            endMs = parseDateSafe(et);
+          } else if (pk.status === 'In Progress' && dateStr === currentDate) {
+            endMs = Date.now();
+          }
+          if (!isNaN(startMs) && endMs > startMs) {
+            totalActiveMins += (endMs - startMs) / 60000;
+          }
+        }
+      }
+    });
+
+    const activeH = Math.max(0, totalActiveMins / 60);
+    // Capping active hours at gate hours
+    const cappedActiveH = Math.min(activeH, safeGateHours);
+    const idleH = Math.max(0, safeGateHours - cappedActiveH);
+    return { activeHours: cappedActiveH, idleHours: idleH };
+  };
+
+  // =========================================================================
+  // CORE THUẬT TOÁN BẢNG LƯƠNG NHỒI SỐ CHI TIẾT
+  // =========================================================================
+  const payroll = users.map(u => {
+      const sal = userConfigs?.salaries?.[u] || {};
+      const userBPs = bpData.filter(b => String(b.user).trim() === String(u).trim() && b.date && isDateInRange(b.date, filter, customMonth));
+      const userAtts = attData.filter(a => String(a.user).trim() === String(u).trim() && a.date && isDateInRange(a.date, filter, customMonth));
+
+      // Tính toán Lương Thực Chiến theo từng ngày
+      let totalActiveHours = 0;
+      let totalIdleHours = 0;
+      const userAttsWithRealTime = userAtts.map(a => {
+          const gateHours = Number(a.totalHours) || 0;
+          const { activeHours, idleHours } = calcActiveHoursForDay(u, a.date, gateHours);
+          totalActiveHours += activeHours;
+          totalIdleHours += idleHours;
+          return {
+              ...a,
+              activeHours: activeHours.toFixed(2),
+              idleHours: idleHours.toFixed(2),
+              totalHours: activeHours.toFixed(2),
+              gateHours: gateHours.toFixed(2)
+          };
+      });
+
+      const daysWorked = new Set(userAtts.filter(a => Number(a.totalHours) > 0).map(a => a.date)).size;
+      const hoursWorked = totalActiveHours;
+      const totalGateHours = userAtts.reduce((sum, a) => sum + Number(a.totalHours || 0), 0);
+      const baseSalary = cleanNumber(sal.baseSalary) || cleanNumber(sal['Lương Cơ Bản']) || 0;
+      let hourlyRate = baseSalary > 1000000 ? Math.round(baseSalary / 28 / 8) : baseSalary;
+      
+      // I. CÁC KHOẢN THU NHẬP
+      const luongChinh = Math.round(hourlyRate * totalGateHours);
+      const luongLamThemGio = userBPs.filter(b => b.type === 'Lương Làm Thêm Giờ').reduce((sum, b) => sum + Number(b.amount || 0), 0);
+      
+      let prodSalary = 0;
+      let prodDetails = [];
+
+      let hoaHongBanHang = 0;
+      userBPs.filter(b => b.type === 'Thưởng Bán Hàng').forEach(b => {
+          let amt = Number(b.amount || 0);
+          hoaHongBanHang += amt;
+          const detailName = (b.note || b.orderCode) ? `Chốt đơn: ${b.orderCode || ''} ${b.note || ''}`.trim() : 'Thưởng chốt đơn bán hàng';
+          prodDetails.push({ name: detailName, amount: amt, time: b.date });
+      });
+
+      let hoTroSanLuong = 0;
+      userBPs.filter(b => b.type === 'Hỗ Trợ Sản Lượng').forEach(b => {
+          let amt = Number(b.amount || 0);
+          hoTroSanLuong += amt;
+          prodDetails.push({ name: b.note ? `Hỗ trợ: ${b.note}` : 'Hỗ trợ năng suất kho', amount: amt, time: b.date });
+      });
+
+      safeProdItems.forEach(p => {
+          const k1Time = p.phases?.phase1?.endTime || p.date || p.deadline; 
+          const k2Time = p.phases?.phase2?.endTime || p.date || p.deadline;
+          const orderMatch = erpData?.Orders?.find(x => x.id === p.orderId);
+          const multiplier = orderMatch?.channel?.match(/SG|MY|TH|PH|MA|Quốc Tế|Xuất Khẩu/i) ? 3 : 1;
+
+          if (String(p.phases?.phase1?.user).trim() === String(u).trim() && p.phases.phase1.status === 'Done' && k1Time && isDateInRange(k1Time, filter, customMonth)) { 
+              let amt = Number(p.phases.phase1.reward_vnd || 0) * multiplier; prodSalary += amt; 
+              prodDetails.push({ name: `[K1] ${p.name} ${multiplier > 1 ? '(x3)' : ''}`, amount: amt, time: k1Time });
+          }
+          if (String(p.phases?.phase2?.user).trim() === String(u).trim() && p.phases.phase2.status === 'Done' && k2Time && isDateInRange(k2Time, filter, customMonth)) { 
+              let amt = Number(p.phases.phase2.reward_vnd || 0) * multiplier; prodSalary += amt; 
+              prodDetails.push({ name: `[K2] ${p.name} ${multiplier > 1 ? '(x3)' : ''}`, amount: amt, time: k2Time });
+          }
+      });
+      
+      safePackings.forEach(pk => {
+          if (String(pk.user).trim() === String(u).trim() && pk.status === 'Done' && (pk.endTime || pk.date) && isDateInRange(pk.endTime || pk.date, filter, customMonth)) { 
+              prodSalary += Number(pk.reward_vnd || 0);
+              prodDetails.push({ name: `Đóng gói`, amount: Number(pk.reward_vnd || 0), time: pk.endTime || pk.date });
+          }
+      });
+      
+      let extraQuestReward = 0;
+      userBPs.filter(b => b.type === 'Thưởng Nhiệm Vụ').forEach(b => { 
+          extraQuestReward += Number(b.amount || 0); 
+          prodDetails.push({ name: `Nhiệm vụ: ${b.note}`, amount: Number(b.amount || 0), time: b.date });
+      });
+      const hoaHongSanXuat = prodSalary + extraQuestReward;
+
+      const funcSalary = cleanNumber(sal.funcSalary) || cleanNumber(sal['Lương Chức Vụ']) || 0;
+      const allowanceConfig = cleanNumber(sal.allowance) || cleanNumber(sal['Phụ Cấp Xăng Xe']) || 0;
+      const phuCapKhac = userBPs.filter(b => b.type === 'Phụ Cấp Khác').reduce((sum, b) => sum + Number(b.amount || 0), 0);
+      const tongPhuCap = funcSalary + allowanceConfig + phuCapKhac;
+
+      const thuongNong = userBPs.filter(b => b.type === 'Thưởng Nóng' || b.type === 'Thưởng').reduce((sum, b) => sum + Number(b.amount || 0), 0);
+      const chuyenCan = (daysWorked >= 28 || totalGateHours >= 216) ? 500000 : 0;
+      const tongThuong = thuongNong + chuyenCan;
+
+      const cacKhoanThuKhacRec = userBPs.find(b => b.type === 'Thu Nhập Khác');
+      const cacKhoanThuKhac = userBPs.filter(b => b.type === 'Thu Nhập Khác').reduce((sum, b) => sum + Number(b.amount || 0), 0);
+      const cacKhoanThuKhacNote = cacKhoanThuKhacRec ? cacKhoanThuKhacRec.note : '';
+
+      const tongThuNhap = luongChinh + luongLamThemGio + hoaHongSanXuat + hoTroSanLuong + tongPhuCap + tongThuong + hoaHongBanHang + cacKhoanThuKhac;
+
+      // II. CÁC KHOẢN GIẢM TRỪ
+      const phatQuyDinhRec = userBPs.find(b => b.type === 'Phạt Quy Định');
+      const phatQuyDinh = Math.abs(userBPs.filter(b => b.type === 'Phạt Quy Định').reduce((sum, b) => sum + Number(b.amount || 0), 0)) + userAtts.reduce((sum, a) => sum + Number(a.penalty || 0), 0);
+      const phatQuyDinhNote = phatQuyDinhRec ? phatQuyDinhRec.note : '';
+
+      const phiCongDoan = 50000;
+      const chiPhiBaoHanh = Math.abs(userBPs.filter(b => b.type === 'Chi Phí Bảo Hành').reduce((sum, b) => sum + Number(b.amount || 0), 0));
+      const tamUng = Math.abs(userBPs.filter(b => b.type === 'Tạm Ứng').reduce((sum, b) => sum + Number(b.amount || 0), 0));
+      const giamTruKhac = Math.abs(userBPs.filter(b => b.type === 'Giảm Trừ Khác').reduce((sum, b) => sum + Number(b.amount || 0), 0));
+
+      const tongGiamTru = phatQuyDinh + phiCongDoan + chiPhiBaoHanh + tamUng + giamTruKhac;
+
+      // III. TỔNG LƯƠNG THỰC NHẬN
+      const totalSalary = tongThuNhap - tongGiamTru;
+
+      // IV. THANH TOÁN LƯƠNG
+      const daTraNhanVien = Math.abs(userBPs.filter(b => b.type === 'Đã Trả').reduce((sum, b) => sum + Number(b.amount || 0), 0));
+      const conCanTra = totalSalary - daTraNhanVien;
+
+      const nhanXetRec = userBPs.find(b => b.type === 'Nhận Xét');
+      const nhanXetText = nhanXetRec ? nhanXetRec.note : 'Không có nhận xét nào được viết tại đây.';
+      const soGioNghiKhongPhep = userAtts.filter(a => String(a.status).includes('không phép')).length * 8;
+
+      let penaltyDetails = [];
+      userBPs.filter(b => Number(b.amount) < 0 || String(b.type).includes('Phạt')).forEach(b => {
+          penaltyDetails.push({ name: b.note || b.type, amount: Math.abs(b.amount), time: b.date });
+      });
+      userAtts.forEach(a => { if (Number(a.penalty) > 0) penaltyDetails.push({ name: a.note || 'Vi phạm giờ công', amount: Number(a.penalty), time: a.date }); });
+
+      const periodLabel = filter === 'Tuỳ Chỉnh' ? `Tháng ${customMonth.split('-')[1]}/${customMonth.split('-')[0]}` : filter;
+
+      return { 
+          user: u, role: userConfigs?.titles?.[u] || 'Thợ', hoursWorked: hoursWorked.toFixed(1), totalGateHours, totalIdleHours, soGioNghiKhongPhep, baseSalary,
+          luongChinh, luongLamThemGio, hoaHongSanXuat, hoTroSanLuong, tongPhuCap, tongThuong, hoaHongBanHang, cacKhoanThuKhac, cacKhoanThuKhacNote,
+          tongThuNhap, phatQuyDinh, phatQuyDinhNote, phiCongDoan, chiPhiBaoHanh, tamUng, giamTruKhac, tongGiamTru,
+          totalSalary, daTraNhanVien, conCanTra, nhanXetText, atts: userAttsWithRealTime, prodDetails, penaltyDetails, userTasks: [],
+          
+          renderPrintDiv: () => (
+              <div id={`payslip-print-${u}`} style={{ display: 'none' }}>
+                  <div style={{ padding: '20px', fontFamily: "Arial, sans-serif", color: '#000', background: '#fff', width: '100%', maxWidth: '210mm', boxSizing: 'border-box', margin: '0 auto' }}>
+                      <div style={{ textAlign: 'center', fontSize: '24px', fontWeight: 'bold', textTransform: 'uppercase', marginBottom: '2px' }}>PHIẾU LƯƠNG NHÂN VIÊN</div>
+                      <div style={{ textAlign: 'center', fontSize: '13px', marginBottom: '2px' }}>Bảng lương kỳ ({periodLabel})</div>
+                      <div style={{ textAlign: 'center', fontSize: '13px', marginBottom: '12px' }}>Chi nhánh trả lương: RF Aquarium</div>
+                      
+                      <div style={{ background: '#fef08a', padding: '5px', fontSize: '14px', marginBottom: '2px' }}>Họ và tên: <span style={{ fontWeight: 'bold' }}>{u}</span></div>
+                      <div style={{ fontSize: '14px', marginBottom: '2px' }}>Chức Danh: {userConfigs?.titles?.[u] || 'Founder'}</div>
+                      <div style={{ fontSize: '14px', marginBottom: '10px' }}>Lương Cơ Bản: {Number(baseSalary).toLocaleString('vi-VN')}đ</div>
+                      
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', color: '#000', border: '1px solid #000' }}>
+                          <tbody>
+                              <tr style={{ background: '#d9d9d9', fontWeight: 'bold' }}>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'center', width: '6%' }}>I</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'left' }}>CÁC KHOẢN THU NHẬP</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'right', width: '25%' }}>{Number(tongThuNhap).toLocaleString('vi-VN')} đ</td>
+                              </tr>
+                              <tr>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'center', fontWeight: 'bold' }}>1</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px' }}>Lương Thời Gian</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'right' }}>{Number(luongChinh).toLocaleString('vi-VN')} đ</td>
+                              </tr>
+                              <tr>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'center', fontWeight: 'bold' }}>2</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px' }}>Lương Chức Vụ</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'right' }}>{Number(funcSalary).toLocaleString('vi-VN')} đ</td>
+                              </tr>
+                              <tr>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'center', fontWeight: 'bold' }}>3</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px' }}>KPI sản xuất</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'right' }}>{Number(hoaHongSanXuat + hoTroSanLuong + luongLamThemGio).toLocaleString('vi-VN')} đ</td>
+                              </tr>
+                              <tr>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'center', fontWeight: 'bold' }}>4</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px' }}>Phụ cấp xăng xe</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'right' }}>{Number(allowanceConfig + phuCapKhac).toLocaleString('vi-VN')} đ</td>
+                              </tr>
+                              <tr>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'center', fontWeight: 'bold' }}>5</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', fontWeight: 'bold' }}>Thưởng</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'right', fontWeight: 'bold' }}>{Number(tongThuong).toLocaleString('vi-VN')} đ</td>
+                              </tr>
+                              <tr>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'center' }}></td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', paddingLeft: '25px' }}>a. Thưởng nóng, hiệu suất</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'right' }}>{Number(thuongNong).toLocaleString('vi-VN')} đ</td>
+                              </tr>
+                              <tr>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'center' }}></td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', paddingLeft: '25px' }}>b. Thưởng chuyên cần</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'right' }}>{Number(chuyenCan).toLocaleString('vi-VN')} đ</td>
+                              </tr>
+                              <tr>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'center', fontWeight: 'bold' }}>7</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', fontWeight: 'bold' }}>KPI bán hàng</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'right' }}>{Number(hoaHongBanHang).toLocaleString('vi-VN')} đ</td>
+                              </tr>
+                              <tr>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'center', fontWeight: 'bold' }}>8</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', fontWeight: 'bold' }}>Các khoản thu khác</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'right' }}>{Number(cacKhoanThuKhac).toLocaleString('vi-VN')} đ</td>
+                              </tr>
+                              
+                              <tr style={{ background: '#d9d9d9', fontWeight: 'bold' }}>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'center' }}>II</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'left' }}>CÁC KHOẢN GIẢM TRỪ</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'right' }}>{Number(tongGiamTru).toLocaleString('vi-VN')} đ</td>
+                              </tr>
+                              <tr>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'center', fontWeight: 'bold' }}>1</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', fontWeight: 'bold' }}>Phạt quy định</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'right' }}>{Number(phatQuyDinh).toLocaleString('vi-VN')} đ</td>
+                              </tr>
+                              <tr>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'center', fontWeight: 'bold' }}>2</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', fontWeight: 'bold' }}>Phí Công Đoàn <span style={{ fontStyle: 'italic', fontWeight: 'normal' }}>(Cố định hàng tháng)</span></td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'right' }}>{Number(phiCongDoan).toLocaleString('vi-VN')} đ</td>
+                              </tr>
+                              <tr>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'center', fontWeight: 'bold' }}>3</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', fontWeight: 'bold' }}>Chi phí bảo hành, đền bù</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'right' }}>{Number(chiPhiBaoHanh).toLocaleString('vi-VN')} đ</td>
+                              </tr>
+                              <tr>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'center', fontWeight: 'bold' }}>4</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', fontWeight: 'bold' }}>Tạm ứng, nợ lũy kế,...</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'right' }}>{Number(tamUng).toLocaleString('vi-VN')} đ</td>
+                              </tr>
+                              <tr>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'center', fontWeight: 'bold' }}>5</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', fontWeight: 'bold' }}>Các khoản khấu trừ khác</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'right' }}>{Number(giamTruKhac).toLocaleString('vi-VN')} đ</td>
+                              </tr>
+                              
+                              <tr style={{ background: '#d9d9d9', fontWeight: 'bold' }}>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'center' }}>III</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'left' }}>TỔNG LƯƠNG (I) - (II)</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'right' }}>{Number(totalSalary).toLocaleString('vi-VN')} đ</td>
+                              </tr>
+                              
+                              <tr style={{ background: '#d9d9d9', fontWeight: 'bold' }}>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'center' }}>IV</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'left' }}>THANH TOÁN LƯƠNG</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'right' }}></td>
+                              </tr>
+                              <tr>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'center', fontWeight: 'bold' }}>1</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', fontWeight: 'bold' }}>Đã trả nhân viên</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'right' }}>{daTraNhanVien > 0 ? Number(daTraNhanVien).toLocaleString('vi-VN') + ' đ' : ''}</td>
+                              </tr>
+                              <tr>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'center', fontWeight: 'bold' }}>2</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', fontWeight: 'bold' }}>Còn cần trả</td>
+                                  <td style={{ border: '1px solid #000', padding: '5px 8px', textAlign: 'right', fontWeight: 'bold' }}>{Number(conCanTra).toLocaleString('vi-VN')} đ</td>
+                              </tr>
+                          </tbody>
+                      </table>
+                      
+                      <div style={{ fontSize: '13px', marginTop: '6px' }}>Tổng giờ xưởng (Chấm công cửa): {totalGateHours.toFixed(1)}h</div>
+                      <div style={{ fontSize: '13px', marginTop: '4px' }}>Tổng giờ thực chiến (Chạm việc): {hoursWorked.toFixed(1)}h</div>
+                      <div style={{ fontSize: '13px', marginTop: '4px' }}>Tổng thời gian chết (Idle): {totalIdleHours.toFixed(1)}h</div>
+                      <div style={{ fontSize: '13px', marginTop: '4px' }}>Số giờ nghỉ làm không phép: {soGioNghiKhongPhep}</div>
+                      <div style={{ border: '1px solid #000', padding: '6px', fontSize: '13px', marginTop: '4px', minHeight: '60px' }}>Nhận xét: {nhanXetText}</div>
+                      
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '10px', fontSize: '14px', fontWeight: 'bold', paddingBottom: '30px' }}>
+                          <div style={{ width: '45%', textAlign: 'center', marginTop: '10px' }}>Chữ ký kế toán</div>
+                          <div style={{ width: '45%', textAlign: 'center', marginTop: '10px' }}>Chữ ký người nhận lương</div>
+                      </div>
+                  </div>
+              </div>
+          )
+      };
+  }).sort((a, b) => b.totalSalary - a.totalSalary);
+
+  const top3Att = [...payroll].filter(p => Number(p.hoursWorked) > 0).sort((a,b) => Number(b.hoursWorked) - Number(a.hoursWorked)).slice(0, 3).map(p => ({ name: p.user, label: p.hoursWorked + ' giờ' }));
+  const renderSafeAvatar = (name, className) => { 
+      if (typeof Avatar !== 'undefined') return <Avatar name={name} userConfigs={userConfigs} className={className} />;
+      return <div className={`${className} flex items-center justify-center bg-[#3b82f6] text-white font-black overflow-hidden uppercase rounded-full border-2 border-inherit shadow-lg`}>{name.charAt(0)}</div>; 
+  };
+
+  const handlePayrollActionSubmit = async () => {
+      const amt = parseInt(payrollAction.amount);
+      if (isNaN(amt) || amt <= 0) return triggerToast('Số tiền không hợp lệ', 'fa-times', 'danger');
+      const safeDateFull = typeof getLocalISODate === 'function' ? getLocalISODate() : new Date().toISOString();
+      const accountsData = erpData?.Accounts || [];
+      const congTyAcc = accountsData.find(a => (a.accountName || a.name) === 'Công Ty') || accountsData[0];
+      let payload = { BonusPenalty: [], Transactions: [], Accounts: [] };
+      
+      if (payrollAction.type === 'thuong') {
+          payload.BonusPenalty.push({ id: 'BP_THUONG_' + Date.now(), user: payrollAction.target, amount: amt, type: 'Thưởng Nóng', note: payrollAction.note || 'Thưởng nóng', date: payrollTargetDate, orderCode: '' });
+      } else if (payrollAction.type === 'tam_ung') {
+          if (!congTyAcc) return alert('Không tìm thấy tài khoản Công Ty để trích tiền!');
+          payload.BonusPenalty.push({ id: 'BP_TAMUNG_' + Date.now(), user: payrollAction.target, amount: -amt, type: 'Tạm Ứng', note: payrollAction.note || 'Tạm ứng lương', date: payrollTargetDate, orderCode: '' });
+          payload.Transactions.push({ id: 'TX_TAMUNG_' + Date.now(), type: 'Chi', category: 'Tạm Ứng Lương', amount: amt, fromAccount: congTyAcc.id, toAccount: '', title: `Tạm ứng lương: ${payrollAction.target}`, date: safeDateFull.replace('T',' ').slice(0,16), note: payrollAction.note, isAuto: true });
+          payload.Accounts.push({ ...congTyAcc, balance: Number(congTyAcc.balance) - amt });
+      } else if (payrollAction.type === 'thanh_toan') {
+          if (!congTyAcc) return alert('Không tìm thấy tài khoản Công Ty để trích tiền!');
+          payload.BonusPenalty.push({ id: 'BP_DATRA_' + Date.now(), user: payrollAction.target, amount: -amt, type: 'Đã Trả', note: payrollAction.note || `Thanh toán dứt điểm lương`, date: payrollTargetDate, orderCode: '' });
+          payload.Transactions.push({ id: 'TX_LUONG_' + Date.now(), type: 'Chi', category: 'Trả Lương', amount: amt, fromAccount: congTyAcc.id, toAccount: '', title: `Trả lương: ${payrollAction.target}`, date: safeDateFull.replace('T',' ').slice(0,16), note: payrollAction.note || `Thanh toán lương tháng ${filterMonth}`, isAuto: true });
+          payload.Accounts.push({ ...congTyAcc, balance: Number(congTyAcc.balance) - amt });
+      }
+      
+      try {
+          await pushDeltas(payload, 'Đã lưu hệ thống! (Vui lòng đợi vài giây để số nảy lên)', 'fa-check');
+          setPayrollAction(null);
+      } catch(e) { triggerToast('Lỗi hệ thống', 'fa-times', 'danger'); }
+  };
+
+  const handlePrintPayslip = (p) => {
+      setTimeout(() => {
+          const printContents = document.getElementById(`payslip-print-${p.user}`).innerHTML;
+          const style = document.createElement('style');
+          style.innerHTML = `
+              @media print {
+                  @page { size: A4 portrait; margin: 15mm auto; } 
+                  body > *:not(#print-section) { display: none !important; }
+                  body { background: white !important; margin: 0 !important; padding: 0 !important; }
+                  #print-section { display: block !important; width: 100% !important; background: white !important; }
+                  #print-section > div { width: 100% !important; max-width: 190mm !important; margin: 0 auto !important; padding: 10px !important; }
+                  table { page-break-inside: auto; width: 100% !important; }
+                  tr    { page-break-inside: avoid; page-break-after: auto; }
+                  thead { display: table-header-group; }
+                  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+              }
+          `;
+          document.head.appendChild(style);
+          const printDiv = document.createElement('div');
+          printDiv.id = 'print-section';
+          printDiv.innerHTML = printContents;
+          document.body.appendChild(printDiv);
+          window.print();
+          document.body.removeChild(printDiv);
+          document.head.removeChild(style);
+      }, 100);
+  };
+
+  return (
+    <div className={"w-full space-y-4 pb-12 animate-fade-in relative"}>
+      {showCoins && (
+          <div className={"fixed inset-0 pointer-events-none z-[9999] overflow-hidden"}>
+              {[...Array(30)].map((_, i) => (
+                  <div key={i} className={"absolute text-yellow-400 text-3xl animate-coin-fly"} style={{ left: `${Math.random() * 100}%`, bottom: '-10%', animationDelay: `${Math.random() * 0.5}s`, animationDuration: `${1 + Math.random()}s` }}>
+                      <i className={"fas fa-coins drop-shadow-[0_0_15px_rgba(251,191,36,0.8)]"}></i>
+                  </div>
+              ))}
+              <style>{`
+                  @keyframes coin-fly {
+                      0% { transform: translateY(0) rotate(0deg) scale(0.5); opacity: 1; }
+                      100% { transform: translateY(-120vh) rotate(720deg) scale(2); opacity: 0; }
+                  }
+                  .animate-coin-fly { animation: coin-fly linear forwards; }
+              `}</style>
+          </div>
+      )}
+
+      {/* KHUNG TĨNH QUY CHUẨN NỘI QUY */}
+      <div className="bg-gradient-to-r from-[#2a0808] to-[#141414] border border-rose-500/30 rounded-2xl p-4 shadow-lg relative overflow-hidden mb-4">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-rose-500/10 rounded-full blur-2xl -mr-6 -mt-6 pointer-events-none"></div>
+          <div className="flex items-center gap-2 mb-3 border-b border-rose-500/20 pb-2 relative z-10">
+              <i className="fas fa-user-shield text-rose-500 text-[14px]"></i>
+              <span className="font-black text-[12px] text-rose-500 uppercase tracking-widest">Quy Chuẩn Phạt Nhân Sự & Quản Lý</span>
+          </div>
+          <ul className="text-[11px] text-gray-300 font-medium space-y-2.5 relative z-10 pl-1">
+              <li className="flex items-start gap-2 leading-snug"><i className="fas fa-exclamation-circle text-[10px] text-rose-500/70 mt-0.5 shrink-0"></i><span>Quên chấm công <b className="text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded ml-1 border border-rose-500/20">-5k</b> <span className="text-gray-500 text-[9px]">/ 1 ca</span></span></li>
+              <li className="flex items-start gap-2 leading-snug"><i className="fas fa-exclamation-circle text-[10px] text-rose-500/70 mt-0.5 shrink-0"></i><span>Nghỉ trên 2 ngày 1 tháng <b className="text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded ml-1 border border-rose-500/20">-200k</b> <span className="text-gray-500 text-[9px]">/ 1 lần (Trừ thẳng vào lương)</span></span></li>
+              <li className="flex items-start gap-2 leading-snug"><i className="fas fa-exclamation-circle text-[10px] text-rose-500/70 mt-0.5 shrink-0"></i><span>Nghỉ không phép <b className="text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded ml-1 border border-rose-500/20">-100k</b> <span className="text-gray-500 text-[9px]">/ 1 lần (Max tháng 2 lần)</span></span></li>
+              <li className="flex items-start gap-2 leading-snug"><i className="fas fa-exclamation-circle text-[10px] text-rose-500/70 mt-0.5 shrink-0"></i><span>Nhiệm vụ dài hạn quá hạn hoàn thành phạt <b className="text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded ml-1 border border-rose-500/20">-50%</b> <span className="text-gray-500 text-[9px]">thưởng của nhiệm vụ đó</span></span></li>
+              <li className="flex items-start gap-2 leading-snug"><i className="fas fa-exclamation-circle text-[10px] text-rose-500/70 mt-0.5 shrink-0"></i><span>Quản lý để thông tin chấm công sai so với thực tế <b className="text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded ml-1 border border-rose-500/20">-300k</b> <span className="text-gray-500 text-[9px]">/ 1 nhân sự</span></span></li>
+              <li className="flex items-start gap-2 leading-snug"><i className="fas fa-exclamation-circle text-[10px] text-rose-500/70 mt-0.5 shrink-0"></i><span>Quản lý để thông tin nhân sự sai không cập nhật <b className="text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded ml-1 border border-rose-500/20">-100k</b> <span className="text-gray-500 text-[9px]">/ 1 nhân sự</span></span></li>
+              <li className="flex items-start gap-2 leading-snug"><i className="fas fa-info-circle text-[10px] text-amber-500/70 mt-0.5 shrink-0"></i><span>Tạm ứng không vượt quá <b className="text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded ml-1 border border-amber-500/20">50%</b> <span className="text-gray-500 text-[9px]">của kỳ lương tháng trước, chuyển đổi sang khoản vay có lãi suất nếu thực sự cần.</span></span></li>
+          </ul>
+      </div>
+
+      <div className={"flex bg-[#141414] p-1.5 rounded-2xl border border-[#333]"}>
+        <button onClick={() => setSubTab('ATTENDANCE')} className={`flex-1 py-2 text-[12px] font-black uppercase rounded-xl transition-all ${subTab === 'ATTENDANCE' ? 'bg-[#3b82f6] text-white shadow-md' : 'text-gray-500 hover:text-gray-300'}`}>Chấm Công</button>
+        <button onClick={() => setSubTab('KPI')} className={`flex-1 py-2 text-[12px] font-black uppercase rounded-xl transition-all ${subTab === 'KPI' ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-black shadow-[0_0_15px_rgba(212,175,55,0.4)] border border-amber-400' : 'text-gray-500 hover:text-gray-300'}`}>Nhiệm Vụ</button>
+        <button onClick={() => setSubTab('PAYROLL')} className={`flex-1 py-2 text-[12px] font-black uppercase rounded-xl transition-all ${subTab === 'PAYROLL' ? 'bg-[#10b981] text-black shadow-md' : 'text-gray-500 hover:text-gray-300'}`}>Bảng Lương</button>
+      </div>
+
+      <div className="flex gap-2 items-center bg-[#141414] p-1.5 rounded-2xl border border-[#333] shadow-sm">
+          <select value={filter} onChange={e => setFilter(e.target.value)} className="flex-[1.2] py-2.5 px-3 bg-[#0a0a0a] rounded-xl border border-[#222] text-[11px] font-black uppercase tracking-wider outline-none text-white shadow-sm focus:border-[#3b82f6] appearance-none">
+              <option value="Hôm Nay">Hôm Nay</option>
+              <option value="Tháng Này">Tháng Này</option>
+              <option value="Tháng Trước">Tháng Trước</option>
+              <option value="Tuỳ Chỉnh">Tuỳ Chỉnh Tháng</option>
+          </select>
+          {filter === 'Tuỳ Chỉnh' && (
+              <input type="month" value={customMonth} onChange={e => setCustomMonth(e.target.value)} className="flex-1 py-2 px-3 bg-[#0a0a0a] rounded-xl border border-[#222] text-[12px] font-black uppercase outline-none text-[#3b82f6] shadow-sm focus:border-[#3b82f6] transition-colors" />
+          )}
+      </div>
+
+      {subTab === 'ATTENDANCE' && (
+          <div className={"space-y-4"}>
+              {top3Att.length > 0 && (
+                <div className={"bg-[#141414] pt-8 pb-4 px-4 rounded-xl border border-[#2a2a2a] relative mt-6 mb-4 shadow-sm"}>
+                  <h3 className={"absolute -top-3 left-1/2 -translate-x-1/2 bg-[#0a0a0a] px-4 py-1.5 border border-[#333] rounded-full font-black text-[#3b82f6] text-[11px] uppercase tracking-widest flex items-center gap-2 whitespace-nowrap shadow-md"}><i className={"fas fa-fire text-[10px]"}></i> TOP CHUYÊN CẦN</h3>
+                  <div className={"flex justify-center items-end gap-2 h-[130px]"}>
+                    {top3Att[1] && <div className={"flex-1 flex flex-col items-center justify-end h-[85%] bg-gradient-to-t from-[#94a3b8]/20 to-transparent rounded-t-xl border-b-2 border-[#94a3b8] pb-2"}>{renderSafeAvatar(top3Att[1].name, "w-10 h-10 border-[#94a3b8] mb-1.5")}<div className={"text-[10px] font-black text-[#f5f5f5] uppercase truncate w-full text-center px-1"}>{top3Att[1].name.split(' ').pop()}</div><div className={"text-[9px] font-bold text-[#94a3b8] mt-0.5 bg-[#0a0a0a] px-1.5 py-0.5 rounded-full border border-[#94a3b8]/30"}>{top3Att[1].label}</div></div>}
+                    {top3Att[0] && <div className={"flex-1 flex flex-col items-center justify-end h-full bg-gradient-to-t from-[#3b82f6]/30 to-transparent rounded-t-xl border-b-4 border-[#3b82f6] pb-2 relative z-10 scale-105"}><div className={"absolute -top-7 text-[#3b82f6] text-3xl drop-shadow-md"}><i className={"fas fa-medal"}></i></div>{renderSafeAvatar(top3Att[0].name, "w-12 h-12 border-[#3b82f6] mb-1.5")}<div className={"text-[11px] font-black text-[#3b82f6] uppercase truncate w-full text-center px-1"}>{top3Att[0].name.split(' ').pop()}</div><div className={"text-[10px] font-black text-[#0a0a0a] mt-1 bg-[#3b82f6] px-2 py-0.5 rounded-full"}>{top3Att[0].label}</div></div>}
+                    {top3Att[2] && <div className={"flex-1 flex flex-col items-center justify-end h-[75%] bg-gradient-to-t from-[#b45309]/20 to-transparent rounded-t-xl border-b-2 border-[#b45309] pb-2"}>{renderSafeAvatar(top3Att[2].name, "w-10 h-10 border-[#b45309] mb-1.5")}<div className={"text-[10px] font-black text-[#f5f5f5] uppercase truncate w-full text-center px-1"}>{top3Att[2].name.split(' ').pop()}</div><div className={"text-[9px] font-bold text-[#b45309] mt-0.5 bg-[#0a0a0a] px-1.5 py-0.5 rounded-full border border-[#b45309]/30"}>{top3Att[2].label}</div></div>}
+                  </div>
+                </div>
+              )}
+
+              <div className={"bg-[#141414] p-4 rounded-2xl border border-[#333] text-center shadow-sm"}>
+                  <div className={"flex gap-2 mb-4"}>
+                      {['Sáng', 'Chiều', 'Tối'].map(s => {
+                          const isActive = activeShift === s;
+                          const icon = s === 'Sáng' ? '🌅' : s === 'Chiều' ? '☀️' : '🌙';
+                          const timeStr = s === 'Sáng' ? '06:30 - 12:30' : s === 'Chiều' ? '13:45 - 18:30' : '19:00 - 03:00';
+                          return (
+                              <div key={s} className={`flex-1 py-2.5 rounded-xl border transition-all ${isActive ? 'bg-[#3b82f6]/20 border-[#3b82f6] text-[#60a5fa] shadow-[0_0_15px_rgba(59,130,246,0.15)] scale-105' : 'bg-[#0a0a0a] border-[#222] text-zinc-600 opacity-60'}`}>
+                                  <div className={`font-black text-[12px] mb-0.5 ${isActive ? 'text-[#3b82f6]' : ''}`}>{icon} Ca {s}</div>
+                                  <div className={"text-[8px] font-bold tracking-wider"}>{timeStr}</div>
+                              </div>
+                          );
+                      })}
+                  </div>
+
+                  <div className={"flex gap-2"}>
+                      <button onClick={() => activeShift ? handleCheckInOut('IN', activeShift) : alert('Ngoài giờ làm việc, không thể vào ca!')} className={`flex-1 py-3.5 font-black rounded-xl text-[12px] uppercase transition-all flex items-center justify-center gap-2 ${activeShift ? 'bg-[#10b981] hover:bg-[#059669] text-[#0a0a0a] active:scale-95 shadow-md' : 'bg-[#1a1a1a] text-zinc-600 border border-[#333] cursor-not-allowed'}`}><i className={"fas fa-sign-in-alt"}></i> VÀO LÀM</button>
+                      <button onClick={() => activeShift ? handleCheckInOut('OUT', activeShift) : alert('Ngoài giờ làm việc, không thể ra về!')} className={`flex-1 py-3.5 font-black rounded-xl text-[12px] uppercase transition-all flex items-center justify-center gap-2 ${activeShift ? 'bg-rose-500 hover:bg-rose-600 text-white active:scale-95 shadow-md' : 'bg-[#1a1a1a] text-zinc-600 border border-[#333] cursor-not-allowed'}`}><i className={"fas fa-sign-out-alt"}></i> RA VỀ</button>
+                  </div>
+                  <button onClick={() => setShowLeaveModal(true)} className={"w-full mt-3 py-2 bg-[#222] text-gray-400 font-bold rounded-xl uppercase text-[11px] hover:bg-[#333] hover:text-white active:scale-95 transition-all"}><i className={"fas fa-calendar-times mr-1"}></i> Lập Lệnh Báo Nghỉ</button>
+
+                  <div className={"mt-4 bg-[#0a0a0a] border border-[#222] p-3.5 rounded-xl"}>
+                       <div className={"text-[10px] font-black text-gray-500 uppercase tracking-widest mb-3 border-b border-[#222] pb-2 text-left flex items-center gap-2"}><i className={"fas fa-history text-[#3b82f6]"}></i> Giờ Làm Thực Tế Hôm Nay</div>
+                      <div className={"space-y-2"}>
+                          {['Sáng', 'Chiều', 'Tối'].map(s => {
+                              const rec = attData.find(a => String(a.user).trim() === currentUser.trim() && a.date === currentDate && a.shift === s);
+                              if (!rec) return (
+                                  <div key={s} className={"flex justify-between items-center text-[11px] font-bold text-zinc-600 bg-[#141414] p-2 rounded-lg border border-[#222]"}><span className={"flex items-center gap-2"}><div className={"w-1.5 h-1.5 rounded-full bg-zinc-700"}></div>Ca {s}</span><span>--:-- <i className={"fas fa-arrow-right mx-1 text-[8px] opacity-50"}></i> --:--</span></div>
+                              );
+                              return (
+                                  <div key={s} className={"flex justify-between items-center text-[11px] font-bold bg-[#141414] p-2 rounded-lg border border-[#333] shadow-sm"}>
+                                      <span className={"flex items-center gap-2 text-zinc-300"}><div className={"w-1.5 h-1.5 rounded-full bg-[#3b82f6] shadow-[0_0_5px_rgba(59,130,246,0.8)]"}></div>Ca {s}</span>
+                                      <div className={"flex items-center gap-2"}>
+                                          <span className={"bg-[#10b981]/10 text-[#10b981] px-1.5 py-0.5 rounded border border-[#10b981]/20"}>{rec.timeIn || '--:--'}</span> 
+                                          <i className={"fas fa-arrow-right text-[8px] text-zinc-500"}></i> 
+                                          <span className={`px-1.5 py-0.5 rounded border ${rec.timeOut ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20 animate-pulse'}`}>{rec.timeOut || 'Đang làm'}</span>
+                                          {String(rec.status).includes('Quên') && <span className={"text-rose-500 text-[9px] bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20"} title="Phạt quên chấm ra">-5k</span>}
+                                      </div>
+                                  </div>
+                              );
+                          })}
+                      </div>
+                  </div>
+              </div>
+
+              <div className={"bg-[#141414] rounded-2xl border border-[#333] p-4 shadow-sm"}>
+                  <div className={"text-[11px] font-black text-gray-500 uppercase mb-3 border-b border-[#222] pb-2"}>Hồ Sơ Chấm Công Nhân Sự</div>
+                  <div className={"space-y-2"}>
+                      {payroll.map(p => {
+                          const attsInPeriod = p.atts;
+                          const todayStatus = attsInPeriod.length > 0 ? String(attsInPeriod[attsInPeriod.length - 1].status || '') : 'Chưa điểm danh';
+                          return (
+                              <div key={p.user} onClick={() => setShowHistoryUser(p.user)} className={"bg-[#0a0a0a] border border-[#333] rounded-xl p-3 flex justify-between items-center hover:border-[#3b82f6] transition-colors cursor-pointer group"}>
+                                  <div className={"flex items-center gap-3"}>
+                                      {renderSafeAvatar(p.user, "w-10 h-10 border-[#333] group-hover:border-[#3b82f6] transition-colors")}
+                                      <div>
+                                          <div className={"font-black text-white text-[13px] group-hover:text-[#3b82f6] transition-colors"}>{p.user} <span className={"text-[9px] text-gray-500"}>({p.role})</span></div>
+                                          <div className={`text-[10px] font-bold mt-1 ${todayStatus.includes('Đang làm') ? 'text-[#10b981]' : 'text-gray-500'}`}>{todayStatus}</div>
+                                      </div>
+                                  </div>
+                                  <div className="text-right">
+                                      <div className="font-black text-[#10b981] text-[13px]">{p.hoursWorked}h <span className="text-zinc-500 font-normal text-[9px]">việc</span></div>
+                                      <div className="font-bold text-rose-400 text-[10px]">{Number(p.totalIdleHours || 0).toFixed(1)}h <span className="text-zinc-600 font-normal text-[8px]">chết</span></div>
+                                  </div>
+                              </div>
+                          );
+                      })}
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {subTab === 'KPI' && (
+          <div className={"space-y-4"}>
+              <div className={"bg-gradient-to-br from-[#1a1500] to-[#0a0a0a] border border-amber-500/30 p-5 rounded-2xl relative overflow-hidden shadow-lg"}>
+                  <div className={"absolute top-0 right-0 p-4 opacity-10"}><i className={"fas fa-gift text-8xl text-amber-500"}></i></div>
+                  <div className={"flex items-center justify-between mb-1 relative z-10"}>
+                      <h2 className={"text-amber-500 font-black text-[15px] uppercase tracking-wider"}><i className={"fas fa-fire mr-2"}></i>Chuỗi Ngày Chăm Chỉ</h2>
+                      {isBoss && (
+                          <button onClick={() => {
+                              const newGift = window.prompt('Nhập phần thưởng cho chuỗi 7 ngày chăm chỉ:', weeklyGift);
+                              if (newGift !== null && newGift.trim() !== '') {
+                                  setWeeklyGift(newGift); localStorage.setItem('rf_weekly_gift', newGift);
+                                  triggerToast('Đã cập nhật quà tặng 7 ngày!', 'fa-check', 'success');
+                              }
+                          }} className={"text-[10px] bg-amber-500/20 text-amber-500 px-2.5 py-1 rounded-lg border border-amber-500/30 hover:bg-amber-500 hover:text-black transition-colors font-black shadow-sm active:scale-95"}><i className={"fas fa-edit mr-1"}></i> Sửa Quà</button>
+                      )}
+                  </div>
+                  <p className={"text-gray-400 text-[11px] mb-4 relative z-10"}>Điểm danh liên tục 7 ngày để nhận quà. (Đang có: {streakDays} ngày)</p>
+                  <div className={"flex justify-between items-center relative z-10"}>
+                      {[1, 2, 3, 4, 5, 6, 7].map(day => {
+                          const isAchieved = day <= displayStreak || (displayStreak === 0 && streakDays >= 7 && day === 7);
+                          const isDay7Achieved = day === 7 && isAchieved;
+                          const canOpenGift = day === 7 && streakDays >= 7;
+                          return (
+                              <div key={day} className={`flex flex-col items-center ${canOpenGift ? 'cursor-pointer hover:scale-110 transition-transform' : ''}`} onClick={() => { if (canOpenGift) { alert(`🎉 CHÚC MỪNG BẠN ĐÀ ĐẠT ĐƯỢC:\n\n🎁 "${weeklyGift}" từ Sếp!\n\n👉 Vui lòng liên hệ Kế Toán để nhận quà nhé!`); setShowCoins(true); setTimeout(() => setShowCoins(false), 2500); } }}>
+                                  <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-[14px] border-2 transition-all duration-500 ${isDay7Achieved ? 'bg-gradient-to-r from-rose-500 to-amber-500 border-amber-300 text-white animate-pulse shadow-[0_0_20px_rgba(245,158,11,0.8)] scale-110' : (isAchieved ? 'bg-amber-500 border-amber-400 text-black shadow-[0_0_10px_rgba(212,175,55,0.6)]' : 'bg-[#111] border-[#333] text-gray-600')}`}>{day === 7 ? <i className={"fas fa-gift"}></i> : (isAchieved ? <i className={"fas fa-check"}></i> : day)}</div>
+                                  <span className={`text-[9px] mt-2 font-bold uppercase ${isDay7Achieved ? 'text-amber-400' : 'text-gray-500'}`}>Ngày {day}</span>
+                              </div>
+                          );
+                      })}
+                  </div>
+                  {(displayStreak === 0 && streakDays >= 7) && (
+                      <div onClick={() => { alert(`🎉 CHÚC MỪNG BẠN ĐÃ NHẬN ĐƯỢC:\n\n🎁 "${weeklyGift}" từ Sếp!\n\n👉 Vui lòng liên hệ Kế Toán để nhận phần thưởng xứng đáng này nhé!`); setShowCoins(true); setTimeout(() => setShowCoins(false), 2500); }} className={"mt-4 p-2.5 bg-gradient-to-r from-amber-500/20 to-rose-500/20 text-amber-400 rounded-lg text-center font-black text-[12px] border border-amber-500/50 shadow-inner animate-pulse cursor-pointer hover:scale-[1.02] transition-transform"}>🎉 BẠN ĐÃ ĐẠT CHUỖI 7 NGÀY! BẤM VÀO ĐÂY ĐỂ MỞ QUÀ</div>
+                  )}
+              </div>
+
+              {isBoss && <button onClick={() => { setKpiForm({ user: users[0] || '', kpiName: 'Dựng khung', target: '10', unit: 'SP', startTime: currentDate, endTime: currentDate, reward: '', penalty: '' }); setDevGoals([{name:'', reward:''}]); setKpiType('task'); setKpiPeriodType('Daily'); setKpiTrackingType('auto'); setShowKPIModal(true); }} className={"w-full py-3.5 bg-gradient-to-r from-amber-600 to-amber-500 text-black rounded-xl font-black text-[12px] uppercase tracking-wider shadow-[0_0_15px_rgba(212,175,55,0.4)] active:scale-95 transition-all"}><i className={"fas fa-scroll mr-2"}></i>Giao Nhiệm Vụ Mới</button>}
+
+              <div className={"space-y-3"}>
+                  {users.map(u => {
+                      const userKPIs = kpiData.filter(k => k.user === u);
+                      const activeKPIs = userKPIs.filter(k => !(k.isClaimed === 'true' || k.isClaimed === true));
+                      const claimedKPIs = userKPIs.filter(k => (k.isClaimed === 'true' || k.isClaimed === true));
+                      const taskKPIs = activeKPIs.filter(k => k.unit !== 'Checklist');
+                      const devKPIs = activeKPIs.filter(k => k.unit === 'Checklist');
+                      
+                      const dailyTasks = taskKPIs.filter(k => k.startTime === k.endTime || (new Date(k.endTime) - new Date(k.startTime)) <= 24*60*60*1000);
+                      const monthlyKPIs = taskKPIs.filter(k => !(k.startTime === k.endTime || (new Date(k.endTime) - new Date(k.startTime)) <= 24*60*60*1000));
+                      
+                      const isExpanded = expandedKPIs[u]; const uRole = userConfigs?.titles?.[u] || 'Nhân Sự';
+
+                      const renderTaskRow = (k, workerName) => {
+                          const isAutoTracked = ['Dựng khung', 'Gia cố', 'Cắt Mài', 'Gọt Keo', 'Đóng Gói', 'Bán Hàng'].includes(k.kpiName);
+                          const currentProg = getDynamicKPIProgress(k, workerName); 
+                          const target = Number(k.target) || 1; 
+                          const pct = Math.min(100, (currentProg / target) * 100);
+                          const barColor = pct >= 100 ? 'from-emerald-600 to-emerald-400' : (pct >= 50 ? 'from-blue-600 to-blue-400' : 'from-rose-600 to-orange-400');
+                          const textColor = pct >= 100 ? 'text-emerald-400' : (pct >= 50 ? 'text-blue-400' : 'text-rose-400');
+                          const isOverdue = k.endTime && k.endTime < currentDate; 
+                          const isFailed = currentProg < target; 
+                          const isCompleted = currentProg >= target; 
+                          const isClaiming = claimingIds.includes(k.id);
+
+                          return (
+                              <div key={k.id} className={"relative group bg-[#0a0a0a] p-3.5 rounded-xl border border-[#222] hover:border-[#333] shadow-inner overflow-hidden transition-colors flex flex-col"}>
+                                  {pct >= 100 && <div className={"absolute inset-0 bg-emerald-500/5 z-0 pointer-events-none"}></div>}
+                                  <div className={"flex justify-between items-end mb-2 relative z-10"}>
+                                      <div>
+                                          <div className="flex items-center gap-1.5">
+                                              <span className={"text-[#f5f5f5] font-black text-[13px]"}>{k.kpiName}</span>
+                                              {!isAutoTracked && (
+                                                  <span className="text-[8px] bg-purple-500/20 text-[#a855f7] border border-[#a855f7]/30 font-black px-1.5 py-0.5 rounded uppercase tracking-wider">Thủ công</span>
+                                              )}
+                                          </div>
+                                          {Number(k.reward) > 0 && <div className={"text-amber-500 text-[10px] font-bold mt-0.5"}><i className={"fas fa-coins mr-1"}></i> Thưởng: +{formatMoney(k.reward)}đ</div>}
+                                          <div className={"text-gray-500 text-[9px] mt-0.5"}><i className={"far fa-calendar-alt mr-1"}></i> {formatDR(k.startTime, k.endTime)}</div>
+                                      </div>
+                                      <div className={`${textColor} font-black text-[16px]`}>{currentProg}/{k.target} <span className={"text-[9px] text-gray-500"}>{k.unit}</span></div>
+                                  </div>
+                                  
+                                  {isCompleted ? (
+                                      currentUser !== workerName ? (
+                                          <div className={"w-full mt-2 py-2.5 bg-[#1a1a1a] border border-[#333] text-gray-500 rounded-xl flex items-center justify-center gap-2 font-black text-[12px] uppercase tracking-widest"}><i className={"fas fa-lock text-lg"}></i> CHỜ NHÂN SỰ NHẬN THƯỞNG</div>
+                                      ) : (
+                                          <button onClick={() => claimReward(k)} disabled={isClaiming} className={`w-full mt-2 py-2.5 rounded-xl flex items-center justify-center gap-2 font-black text-[12px] uppercase tracking-widest transition-all ${isClaiming ? 'bg-[#333] text-gray-500 cursor-not-allowed' : 'bg-gradient-to-r from-amber-400 to-amber-500 text-[#0a0a0a] shadow-[0_0_15px_rgba(251,191,36,0.6)] animate-pulse active:scale-95'}`}>{isClaiming ? <><i className={"fas fa-spinner fa-spin text-lg"}></i> ĐANG XỬ LÝ...</> : <><i className={"fas fa-coins text-lg"}></i> NHẬN THƯỞNG NGAY</>}</button>
+                                      )
+                                  ) : (
+                                      <div className={"w-full bg-[#1a1a1a] rounded-full h-3.5 border border-[#000] overflow-hidden relative z-10 mb-1"}><div className={`h-full rounded-full transition-all duration-1000 bg-gradient-to-r ${barColor}`} style={{ width: `${pct}%` }}></div></div>
+                                  )}
+
+                                  {!isCompleted && !isAutoTracked && (
+                                      <div className="flex gap-2 mt-2 relative z-10">
+                                          {currentUser === workerName ? (
+                                              <button onClick={async () => {
+                                                  if (window.confirm('Báo cáo hoàn thành nhiệm vụ này để sếp duyệt?')) {
+                                                      await pushDeltas({ KPI_Progress: [{ ...k, current: target, lastUpdated: new Date().toISOString() }] }, `Báo cáo hoàn thành: ${k.kpiName}`, 'fa-check-circle');
+                                                  }
+                                              }} className="flex-1 py-2 bg-purple-600/20 text-[#a855f7] border border-[#a855f7]/30 hover:bg-[#a855f7] hover:text-black font-black text-[10px] rounded-lg shadow-sm transition-all uppercase tracking-wider">
+                                                  <i className="fas fa-paper-plane mr-1"></i> Báo cáo hoàn thành
+                                              </button>
+                                          ) : (
+                                              isBoss && (
+                                                  <button onClick={async () => {
+                                                      await pushDeltas({ KPI_Progress: [{ ...k, current: target, lastUpdated: new Date().toISOString() }] }, `Đã duyệt hoàn thành: ${k.kpiName}`, 'fa-check-double');
+                                                  }} className="flex-1 py-2 bg-emerald-600/20 text-[#10b981] border border-[#10b981]/30 hover:bg-[#10b981] hover:text-black font-black text-[10px] rounded-lg shadow-sm transition-all uppercase tracking-wider">
+                                                      <i className="fas fa-check-double mr-1"></i> Duyệt hoàn thành
+                                                  </button>
+                                              )
+                                          )}
+                                      </div>
+                                  )}
+
+                                  {isCompleted && !isAutoTracked && isBoss && (
+                                      <button onClick={async () => {
+                                          if (window.confirm('Hủy duyệt hoàn thành nhiệm vụ này?')) {
+                                              await pushDeltas({ KPI_Progress: [{ ...k, current: 0, lastUpdated: new Date().toISOString() }] }, `Hủy duyệt: ${k.kpiName}`, 'fa-undo');
+                                          }
+                                      }} className="w-full mt-2 py-2 bg-rose-950/40 text-rose-400 border border-rose-900/30 hover:bg-rose-500 hover:text-white font-black text-[9px] rounded-lg transition-colors uppercase tracking-wider relative z-10">
+                                          <i className="fas fa-undo mr-1"></i> Hủy duyệt hoàn thành
+                                      </button>
+                                  )}
+                                  
+                                  {(isOverdue && isFailed) && (
+                                      <div className={"mt-2 p-2 bg-rose-500/10 border border-rose-500/30 rounded-lg flex justify-between items-center animate-pulse z-10"}><div className={"text-[9px] text-rose-400 font-bold uppercase tracking-wider flex items-center gap-1.5"}><i className={"fas fa-exclamation-triangle"}></i> Quá hạn mục tiêu!</div>{isBoss && Number(k.penalty) > 0 && <button onClick={() => handleApplyKPIPenalty(k, currentProg, target)} className={"px-2.5 py-1 bg-rose-500 text-white text-[9px] font-black uppercase rounded shadow-sm"}>GIÁNG PHẠT ({formatMoney(k.penalty)}đ)</button>}</div>
+                                  )}
+
+                                  {isBoss && (
+                                      <div className={"absolute right-2 -top-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-20"}><button onClick={() => { setEditKPI(k); setKpiForm({ user: k.user, kpiName: k.kpiName, target: k.target, unit: k.unit, startTime: k.startTime, endTime: k.endTime, reward: k.reward || '', penalty: k.penalty || '' }); setKpiType('task'); const isCustom = !['Dựng khung', 'Gia cố', 'Cắt Mài', 'Gọt Keo', 'Đóng Gói', 'Bán Hàng'].includes(k.kpiName); setKpiTrackingType(isCustom ? 'manual' : 'auto'); const isDaily = k.startTime === k.endTime || (new Date(k.endTime) - new Date(k.startTime)) <= 24*60*60*1000; setKpiPeriodType(isDaily ? 'Daily' : 'Custom'); setShowKPIModal(true); }} className={"w-7 h-7 rounded-lg bg-[#1a1a1a] border border-[#333] text-gray-400 hover:text-white hover:bg-amber-500"}><i className={"fas fa-edit text-[10px]"}></i></button><button onClick={() => handleDeleteKPI(k)} className={"w-7 h-7 rounded-lg bg-[#1a1a1a] border border-[#333] text-gray-400 hover:bg-rose-500"}><i className={"fas fa-trash text-[10px]"}></i></button></div>
+                                  )}
+                              </div>
+                          );
+                      };
+
+                      return (
+                          <div key={u} className={`bg-[#141414] border rounded-2xl shadow-sm relative transition-all duration-300 ${isExpanded ? 'border-[#3b82f6]/50 shadow-[0_0_15px_rgba(59,130,246,0.1)]' : 'border-[#2a2a2a] hover:border-[#444]'}`}>
+                              <div onClick={() => toggleKPIExpand(u)} className={"p-3.5 cursor-pointer flex justify-between items-center relative z-10 group"}>
+                                  <div className={"flex items-center gap-3"}>
+                                      {renderSafeAvatar(u, `w-10 h-10 shadow-sm border transition-colors ${isExpanded ? 'border-[#3b82f6]' : 'border-[#333] group-hover:border-[#555]'}`)}
+                                      <div>
+                                          <div className={`font-black text-[14px] uppercase transition-colors ${isExpanded ? 'text-[#3b82f6]' : 'text-[#f5f5f5]'}`}>{u}</div>
+                                          <div className={"text-[10px] text-gray-500 font-bold mt-0.5"}>{uRole}</div>
+                                      </div>
+                                  </div>
+                                  <div className={"flex items-center gap-3 sm:gap-4"}>
+                                      <div className={"flex flex-col sm:flex-row items-end sm:items-center gap-1.5"}>
+                                          {activeKPIs.length > 0 && <span className={"text-[9px] font-black bg-amber-500/10 text-amber-500 px-1.5 py-0.5 rounded border border-amber-500/20"}>ĐANG LÀM: {activeKPIs.length}</span>}
+                                          {claimedKPIs.length > 0 && <span className={"text-[9px] font-black bg-emerald-500/10 text-emerald-500 px-1.5 py-0.5 rounded border border-emerald-500/20"}>HOÀN THÀNH: {claimedKPIs.length}</span>}
+                                      </div>
+                                      <div className={`w-7 h-7 shrink-0 rounded-full flex items-center justify-center transition-all duration-300 border ${isExpanded ? 'bg-[#3b82f6]/10 text-[#3b82f6] border-[#3b82f6]/30 rotate-180' : 'bg-[#222] text-gray-400 border-transparent group-hover:bg-[#333]'}`}><i className={"fas fa-chevron-down text-[11px]"}></i></div>
+                                  </div>
+                              </div>
+
+                              {isExpanded && (
+                                  <div className={"p-4 pt-0 border-t border-[#222] relative z-10 animate-fade-in mt-2 space-y-5"}>
+                                      {userKPIs.length === 0 ? (
+                                          <div className={"text-center py-6 text-gray-500 font-bold text-[11px] bg-[#0a0a0a] rounded-xl border border-[#222]"}>Nhân sự này hiện chưa có nhiệm vụ nào.</div>
+                                      ) : (
+                                          <>
+                                              {activeKPIs.length > 0 && (
+                                                  <div className={"space-y-4"}>
+                                                      {dailyTasks.length > 0 && (
+                                                          <div className={"space-y-2.5"}>
+                                                              <div className={"text-[10px] font-black text-[#60a5fa] uppercase tracking-widest flex items-center gap-1.5 border-b border-[#222] pb-1.5 w-full"}><i className={"fas fa-calendar-day mr-1.5"}></i> Nhiệm Vụ Hàng Ngày ({dailyTasks.length})</div>
+                                                              <div className={"space-y-2.5"}>
+                                                                  {dailyTasks.map(k => renderTaskRow(k, u))}
+                                                              </div>
+                                                          </div>
+                                                      )}
+                                                      {monthlyKPIs.length > 0 && (
+                                                          <div className={`space-y-2.5 ${dailyTasks.length > 0 ? 'pt-4 border-t border-[#222]' : ''}`}>
+                                                              <div className={"text-[10px] font-black text-amber-500 uppercase tracking-widest flex items-center gap-1.5 border-b border-[#222] pb-1.5 w-full"}><i className={"fas fa-calendar-alt mr-1.5"}></i> KPI & Mục Tiêu Tháng ({monthlyKPIs.length})</div>
+                                                              <div className={"space-y-2.5"}>
+                                                                  {monthlyKPIs.map(k => renderTaskRow(k, u))}
+                                                              </div>
+                                                          </div>
+                                                      )}
+                                                  </div>
+                                              )}
+                                              {devKPIs.length > 0 && (
+                                                  <div className={`space-y-3 ${taskKPIs.length > 0 ? 'pt-4 border-t border-[#222]' : ''}`}>
+                                                      <div className={"text-[10px] font-black text-[#a855f7] uppercase tracking-widest flex items-center justify-between gap-1.5 w-full"}><span className={"bg-[#a855f7]/10 px-2.5 py-1 rounded-md border border-[#a855f7]/20"}><i className={"fas fa-rocket mr-1"} z-10></i> Mục Tiêu Dài Hạn</span>{!isBoss && <span className={"text-[9px] text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20"}><i className={"fas fa-lock mr-1"}></i>Chỉ Tối Cao Được Duyệt</span>}</div>
+                                                      <div className={"space-y-2"}>
+                                                          {devKPIs.map(k => {
+                                                              const isChecked = Number(k.current) >= 1; const isClaiming = claimingIds.includes(k.id);
+                                                              return (
+                                                                  <div key={k.id} className={"flex items-start gap-3 group relative bg-[#0a0a0a] p-3 rounded-xl border border-[#222] hover:border-[#a855f7]/50"}>
+                                                                      <button onClick={() => toggleDevGoal(k)} disabled={!isBoss} className={`mt-0.5 w-5 h-5 rounded-md flex items-center justify-center shrink-0 border transition-all ${isChecked ? 'bg-[#a855f7] border-[#a855f7] text-white' : 'bg-[#1a1a1a] border-[#444] text-transparent'}`}><i className={"fas fa-check text-[10px]"}></i></button>
+                                                                      <div className={"flex-1 min-w-0"}><div className={"text-[12px] font-bold leading-relaxed pt-0.5 text-[#e5e5e5]"}>{k.kpiName}</div><div className={"flex justify-between items-center text-[9px] font-bold mt-1.5"}><span className={"text-gray-500"}><i className={"far fa-calendar-alt mr-1"}></i> {formatDR(k.startTime, k.endTime)}</span>{Number(k.reward) > 0 && <span className={"text-amber-400"}><i className={"fas fa-coins mr-1"}></i> {formatMoney(k.reward)}đ</span>}</div></div>
+                                                                      {isChecked && (currentUser !== u ? <span className={"shrink-0 px-2 py-1 text-gray-500 font-black text-[9px] bg-[#1a1a1a] rounded border border-[#333] flex items-center gap-1"}><i className={"fas fa-lock"}></i> Chờ nhận</span> : <button onClick={() => claimReward(k)} disabled={isClaiming} className={`shrink-0 px-3 py-1.5 font-black text-[9px] uppercase rounded transition-all ${isClaiming ? 'bg-[#333] text-gray-500' : 'bg-amber-500 text-black shadow-md animate-pulse'}`}>{isClaiming ? 'XỬ LÝ...' : 'Nhận thưởng'}</button>)}
+                                                                      {isBoss && <div className={"absolute right-2 -top-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-20"}><button onClick={() => handleDeleteKPI(k)} className={"w-7 h-7 rounded-lg bg-[#1a1a1a] border border-[#333] text-gray-400 hover:bg-rose-500"}><i className={"fas fa-trash text-[10px]"}></i></button></div>}
+                                                                  </div>
+                                                              );
+                                                          })}
+                                                      </div>
+                                                  </div>
+                                              )}
+                                              {claimedKPIs.length > 0 && (
+                                                  <div className={`space-y-2.5 ${activeKPIs.length > 0 ? 'pt-4 border-t border-[#222]' : ''}`}>
+                                                      <div className={"text-[10px] font-black text-gray-500 uppercase tracking-widest w-full"}><span className={"bg-[#111] px-2.5 py-1 rounded-md border border-[#222]"}><i className={"fas fa-archive mr-1"}></i> ĐÃ NHẬN THƯỞNG ({claimedKPIs.length})</span></div>
+                                                      <div className={"space-y-3"}>
+                                                          {claimedKPIs.map(k => (
+                                                              <div key={k.id} className={"relative bg-[#10b981]/5 p-3 rounded-xl border border-[#10b981]/20 flex items-center justify-between shadow-sm"}>
+                                                                  <div className={"flex items-center gap-3"}><div className={"w-8 h-8 rounded-full bg-[#10b981]/20 flex items-center justify-center text-[#10b981]"}><i className={"fas fa-check"}></i></div><div><div className={"text-[12px] font-black text-[#10b981]"}>{k.kpiName}</div><div className={"text-[10px] text-gray-400 font-bold mt-0.5"}><i className={"far fa-calendar-check mr-1"}></i> {formatDR(k.startTime, k.endTime)}</div></div></div>
+                                                                  <div className={"flex items-center gap-3"}>{Number(k.reward) > 0 && <div className={"text-right"}><div className={"text-[9px] text-gray-500 uppercase"}>Đã nhận</div><div className={"text-[13px] font-black text-amber-400"}>+{formatMoney(k.reward)}đ</div></div>}
+                                                                  {isBoss && <button onClick={() => handleDeleteKPI(k)} className={"w-7 h-7 rounded-lg bg-[#1a1a1a] border border-[#333] text-rose-500/50 hover:bg-rose-500 flex items-center justify-center"}><i className={"fas fa-trash text-[10px]"}></i></button>}</div>
+                                                              </div>
+                                                          ))}
+                                                      </div>
+                                                  </div>
+                                              )}
+                                          </>
+                                      )}
+                                  </div>
+                              )}
+                          </div>
+                      );
+                  })}
+              </div>
+          </div>
+      )}
+
+      {subTab === 'PAYROLL' && (
+          <div className={"space-y-3 mt-4 animate-fade-in pb-10"}>
+              
+              {/* KHUNG TỔNG QUỸ LƯƠNG (Chỉ Boss/HR/Kế toán thấy) */}
+              <div className={"bg-gradient-to-br from-[#1a1c29] to-[#0a0a0a] border border-[#3b82f6]/30 rounded-2xl p-4 shadow-lg mb-5"}>
+                  <div className={"flex items-center justify-between mb-3 border-b border-[#222] pb-2"}>
+                      <div className={"flex items-center gap-2"}>
+                          <div className={"w-7 h-7 rounded-full bg-[#3b82f6]/20 flex items-center justify-center text-[#3b82f6]"}><i className={"fas fa-wallet"}></i></div>
+                          <span className={"font-black text-[13px] text-[#3b82f6] uppercase tracking-widest"}>Tổng Quỹ Lương Kỳ Này</span>
+                      </div>
+                      <div className={"text-[10px] text-gray-500 font-bold bg-[#111] px-2 py-1 rounded border border-[#222]"}>
+                          {payroll.length} Nhân sự
+                      </div>
+                  </div>
+                  <div className={"flex justify-between items-center"}>
+                      <div>
+                          <div className={"text-[10px] text-gray-400 uppercase font-bold mb-1"}>Tổng lương toàn xưởng</div>
+                          <div className={"text-[22px] font-black text-white"}>
+                              {(isBoss || ['KẾ TOÁN', 'QUẢN LÝ NHÂN SỰ', 'NHÂN SỰ'].includes(String(currentRole).toUpperCase())) 
+                                  ? `${formatMoney(payroll.reduce((sum, p) => sum + p.totalSalary, 0))} đ` 
+                                  : '*****'}
+                          </div>
+                      </div>
+                      <div className={"text-right"}>
+                          <div className={"text-[10px] text-gray-400 uppercase font-bold mb-1"}>Thực tế cần chi trả</div>
+                          <div className={"text-[22px] font-black text-[#10b981]"}>
+                              {(isBoss || ['KẾ TOÁN', 'QUẢN LÝ NHÂN SỰ', 'NHÂN SỰ'].includes(String(currentRole).toUpperCase())) 
+                                  ? `${formatMoney(payroll.reduce((sum, p) => sum + p.conCanTra, 0))} đ` 
+                                  : '*****'}
+                          </div>
+                      </div>
+                  </div>
+              </div>
+
+              {payroll.map(p => (
+                  <div key={p.user} className={"bg-[#141414] border border-[#333] rounded-2xl p-4 shadow-sm relative"}>
+                      <div onClick={() => setExpandedPayroll(expandedPayroll === p.user ? null : p.user)} className={"flex justify-between items-center cursor-pointer group"}>
+                          <div className={"flex items-center gap-3"}>
+                              {renderSafeAvatar(p.user, "w-10 h-10 border-[#333]")}
+                              <div>
+                                  <div className={"font-black text-[14px] text-white group-hover:text-[#3b82f6] transition-colors"}>{p.user}</div>
+                                  <div className={"text-[10px] text-gray-500 uppercase mt-0.5"}>{p.role}</div>
+                              </div>
+                          </div>
+                          <div className={"text-right flex items-center gap-3"}>
+                              <div>
+                                  <div className={"text-[9px] text-gray-500 uppercase"}>Thực nhận</div>
+                                  <div className={"text-[18px] font-black text-[#d4af37] leading-none"}>{formatMoney(p.totalSalary)}đ</div>
+                              </div>
+                              <div className={"w-6 h-6 rounded-full bg-[#222] flex items-center justify-center text-gray-500 group-hover:bg-[#333] transition-all"}><i className={`fas fa-chevron-${expandedPayroll === p.user ? 'up' : 'down'} text-[10px]`}></i></div>
+                          </div>
+                      </div>
+
+                      {expandedPayroll === p.user && (
+                          <div className={"mt-4 pt-4 border-t border-[#222] animate-fade-in"}>
+                              
+                              {/* PHÂN QUYỀN IN PHIẾU LƯƠNG: CHỈ BOSS */}
+                              {isBoss && (
+                                  <div className={"flex justify-end mb-3"}>
+                                      <button onClick={() => handlePrintPayslip(p)} className={"bg-gradient-to-r from-amber-500 to-[#d4af37] text-black font-black py-1.5 px-4 rounded-lg text-[10px] uppercase shadow-md active:scale-95"}><i className={"fas fa-print mr-1"}></i> IN PHIẾU LƯƠNG</button>
+                                  </div>
+                              )}
+
+                              <div className={"space-y-2 text-[11px] bg-[#0a0a0a] p-3 rounded-xl border border-[#222]"}>
+                                  <div className={"flex justify-between"}><span className={"text-gray-400 font-bold"}>Lương Thời Gian:</span><span className={"text-white font-black"}>{formatMoney(p.luongChinh)}đ</span></div>
+                                  <div className={"flex justify-between"}><span className={"text-gray-400 font-bold"}>Lương Chức Vụ + Cố Định:</span><span className={"text-[#60a5fa] font-black"}>{p.tongPhuCap>0?'+':''}{formatMoney(p.tongPhuCap)}đ</span></div>
+                                  
+                                  <div className={"border border-[#333] rounded-xl overflow-hidden my-2 transition-all shadow-inner"}>
+                                      <div onClick={(e) => toggleSection(p.user, 'kpi', e)} className={"bg-[#1a1a1a] p-2.5 flex justify-between items-center cursor-pointer hover:bg-[#222]"}>
+                                          <span className={"text-[#10b981] font-black tracking-wide"}><i className={"fas fa-trophy mr-1"}></i> Thưởng Tổng Hợp / KPI:</span>
+                                          <div className={"flex items-center gap-2"}><span className={"text-[#10b981] font-black text-[13px]"}>{p.hoaHongSanXuat + p.hoTroSanLuong + p.hoaHongBanHang > 0 ? '+' : ''}{formatMoney(p.hoaHongSanXuat + p.hoTroSanLuong + p.hoaHongBanHang)}đ</span><i className={`fas fa-chevron-${openSection[`${p.user}_kpi`] ? 'up' : 'down'} text-gray-500 text-[10px]`}></i></div>
+                                      </div>
+                                      {openSection[`${p.user}_kpi`] && (
+                                          <div className={"bg-[#0a0a0a] p-2 border-t border-[#333] animate-fade-in"}>
+                                              {p.prodDetails.length === 0 ? <div className={"text-gray-500 italic text-[10px] pl-1 py-1"}>Chưa có dữ liệu chi tiết KPI/Thưởng</div> : (
+                                                  <div className={"pl-2 border-l border-[#333] space-y-2 max-h-40 overflow-y-auto custom-scrollbar pr-2 py-1"}>
+                                                      {p.prodDetails.map((detail, idx) => (
+                                                          <div key={idx} className={"flex justify-between items-center text-[10px] border-b border-[#222] pb-1.5 last:border-0"}>
+                                                              <span className={"text-gray-300 truncate pr-2 flex-1"}><span className={"text-zinc-600 font-bold mr-1.5"}>[{detail.time?.slice(5, 10)}]</span>{detail.name}</span>
+                                                              <span className={"font-black text-[#10b981]"}>+{formatMoney(detail.amount)}</span>
+                                                          </div>
+                                                      ))}
+                                                  </div>
+                                              )}
+                                          </div>
+                                      )}
+                                  </div>
+
+                                  <div className={"border border-[#333] rounded-xl overflow-hidden my-2 transition-all shadow-inner"}>
+                                      <div onClick={(e) => toggleSection(p.user, 'penalty', e)} className={"bg-[#1a1a1a] p-2.5 flex justify-between items-center cursor-pointer hover:bg-[#222] active:bg-[#333]"}>
+                                          <span className={"text-rose-500 font-black tracking-wide"}><i className={"fas fa-exclamation-triangle mr-1"}></i> Khấu Trừ & KCS Phạt:</span>
+                                          <div className={"flex items-center gap-2"}>
+                                              <span className={"text-rose-500 font-black text-[13px]"}>-{formatMoney(p.tongGiamTru)}đ</span>
+                                              <i className={`fas fa-chevron-${openSection[`${p.user}_penalty`] ? 'up' : 'down'} text-gray-500 text-[10px] w-4 text-right transition-transform`}></i>
+                                          </div>
+                                      </div>
+                                      {openSection[`${p.user}_penalty`] && (
+                                          <div className={"bg-[#0a0a0a] p-2 border-t border-[#333] animate-fade-in"}>
+                                              <div className={"pl-2 border-l border-[#333] space-y-2 max-h-40 overflow-y-auto custom-scrollbar pr-2 py-1"}>
+                                                  <div className={"flex justify-between items-center text-[10px] border-b border-[#222] pb-1.5 last:border-0 last:pb-0"}>
+                                                      <span className={"text-gray-300 truncate pr-2 flex-1"}><span className={"text-zinc-600 font-bold mr-1.5"}>[Cố định]</span>Phí Công Đoàn</span>
+                                                      <span className={"font-black shrink-0 text-rose-500"}>-{formatMoney(p.phiCongDoan)}</span>
+                                                  </div>
+                                                  
+                                                  {p.penaltyDetails.map((detail, idx) => (
+                                                      <div key={idx} className={"flex justify-between items-center text-[10px] border-b border-[#222] pb-1.5 last:border-0 last:pb-0"}>
+                                                          <span className={"text-gray-300 truncate pr-2 flex-1"} title={detail.name}><span className={"text-zinc-600 font-bold mr-1.5"}>{detail.time ? `[${detail.time.slice(5)}]` : ''}</span>{detail.name}</span>
+                                                          <span className={"font-black shrink-0 text-rose-500"}>-{formatMoney(detail.amount)}</span>
+                                                      </div>
+                                                  ))}
+
+                                                  {p.penaltyDetails.length === 0 && p.deduction === 0 && (
+                                                      <div className={"text-emerald-500 font-bold text-[10px] mt-1.5 italic"}>Tuyệt vời, không phạm lỗi KCS!</div>
+                                                  )}
+                                              </div>
+                                          </div>
+                                      )}
+                                  </div>
+
+                                  <div className={"flex justify-between"}><span className={"text-gray-400 font-bold"}>Giờ Chấm Công Cửa:</span><span className="text-zinc-400 font-black">{Number(p.totalGateHours || 0).toFixed(1)} Giờ</span></div>
+                                  <div className={"flex justify-between"}><span className={"text-gray-400 font-bold"}>Giờ Chạm Việc Thực Chiến:</span><span className="text-emerald-400 font-black">{p.hoursWorked} Giờ</span></div>
+                                  <div className={"flex justify-between"}><span className={"text-gray-400 font-bold"}>Thời Gian Chết (Idle Time):</span><span className="text-rose-400 font-black">{Number(p.totalIdleHours || 0).toFixed(1)} Giờ</span></div>
+                                  <div className={"flex justify-between"}><span className={"text-[#f59e0b] font-bold"}>Thưởng Chuyên Cần:</span><span className={"text-[#f59e0b] font-black"}>{p.tongThuong>0?'+':''}{formatMoney(p.tongThuong)}đ</span></div>
+                                  <div className={"flex justify-between border-t border-[#222] pt-2 mt-1"}><span className={"text-gray-400 font-bold"}>Đã Trả Trước:</span><span className={"text-zinc-500 font-black"}>-{formatMoney(p.daTraNhanVien)}đ</span></div>
+                                  <div className={"flex justify-between"}><span className={"text-amber-500 font-bold text-[12px]"}>CÒN LẠI THỰC NHẬN:</span><span className={"text-amber-500 font-black text-[13px]"}>{formatMoney(p.conCanTra)}đ</span></div>
+                              </div>
+                              
+                              {/* PHÂN QUYỀN TRẢ LƯƠNG/THƯỞNG/ỨNG: CHỈ BOSS */}
+                              {isBoss && (
+                                  <div className={"flex gap-2 mt-3 pt-3 border-t border-[#222]"}>
+                                       <button onClick={(e) => { e.stopPropagation(); setPayrollAction({ type: 'thuong', target: p.user, amount: '', note: '' }) }} className={"flex-1 py-2 bg-amber-500/20 text-amber-400 font-black rounded-lg text-[10px] border border-amber-500/30 hover:bg-amber-500 hover:text-black"}><i className={"fas fa-gift mr-1"}></i> THƯỞNG</button>
+                                       <button onClick={(e) => { e.stopPropagation(); setPayrollAction({ type: 'tam_ung', target: p.user, amount: '', note: '' }) }} className={"flex-1 py-2 bg-rose-500/20 text-rose-400 font-black rounded-lg text-[10px] border border-rose-500/30 hover:bg-rose-500 hover:text-white"}><i className={"fas fa-hand-holding-usd mr-1"}></i> TẠM ỨNG</button>
+                                       <button onClick={(e) => { e.stopPropagation(); setEditingPayroll(p); }} className={"flex-1 py-2 bg-blue-500/20 text-blue-400 font-black rounded-lg text-[10px] border border-blue-500/30 hover:bg-blue-500 hover:text-white"}><i className={"fas fa-edit mr-1"}></i> SỬA LƯƠNG</button>
+                                       <button onClick={(e) => { e.stopPropagation(); setPayrollAction({ type: 'thanh_toan', target: p.user, amount: p.conCanTra, note: `Thanh toán dứt điểm lương` }) }} className={"flex-[1.5] py-2 bg-[#10b981]/20 text-[#10b981] font-black rounded-lg text-[10px] border border-[#10b981]/30 hover:bg-[#10b981] hover:text-black"}><i className={"fas fa-check-double mr-1"}></i> TRẢ LƯƠNG</button>
+                                  </div>
+                              )}
+
+                              {p.renderPrintDiv()}
+                          </div>
+                      )}
+                  </div>
+              ))}
+          </div>
+      )}
+
+      {payrollAction && (
+          <div className={"fixed inset-0 bg-black/80 flex items-center justify-center z-[1000] p-4 backdrop-blur-sm animate-fade-in"}>
+              <div className={"bg-[#141414] border border-[#333] w-full max-w-sm rounded-2xl p-5 shadow-2xl"}>
+                  <h3 className={`font-black uppercase mb-4 text-[13px] flex items-center gap-2 border-b border-[#222] pb-2 ${payrollAction.type === 'thuong' ? 'text-amber-500' : (payrollAction.type === 'tam_ung' ? 'text-rose-500' : 'text-[#10b981]')}`}><i className={`fas ${payrollAction.type === 'thuong' ? 'fa-gift' : (payrollAction.type === 'tam_ung' ? 'fa-hand-holding-usd' : 'fa-check-double')}`}></i> {payrollAction.type === 'thuong' ? 'Thưởng Nóng' : (payrollAction.type === 'tam_ung' ? 'Tạm Ứng Lương' : 'Thanh Toán Lương')}: {payrollAction.target}</h3>
+                  <div className={"space-y-3"}>
+                      <div>
+                          <label className={"text-gray-400 font-bold block mb-1"}>Số tiền (VNĐ)</label>
+                          <input type="number" value={payrollAction.amount} onChange={e => setPayrollAction({...payrollAction, amount: e.target.value})} className={`w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2.5 font-black outline-none ${payrollAction.type === 'thuong' ? 'text-amber-500 focus:border-amber-500' : (payrollAction.type === 'tam_ung' ? 'text-rose-500 focus:border-rose-500' : 'text-[#10b981] focus:border-[#10b981]')}`} placeholder="0" />
+                      </div>
+                      <div>
+                          <label className={"text-gray-400 font-bold block mb-1"}>Ghi chú / Lý do</label>
+                          <input type="text" value={payrollAction.note} onChange={e => setPayrollAction({...payrollAction, note: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2.5 text-white outline-none focus:border-blue-500" placeholder="Nhập lý do chi..." />
+                      </div>
+                      {(payrollAction.type === 'tam_ung' || payrollAction.type === 'thanh_toan') && (
+                          <div className={"bg-[#222] border border-[#333] p-2.5 rounded-xl text-gray-400 text-[10px] font-bold mt-2"}>
+                              <i className={"fas fa-info-circle mr-1"}></i> Hệ thống tự động trích tiền tài khoản <span className={"text-[#3b82f6]"}>Công Ty</span>.
+                          </div>
+                      )}
+                  </div>
+                  <div className={"flex gap-2 mt-5"}>
+                      <button onClick={() => setPayrollAction(null)} className={"flex-1 py-2.5 bg-[#222] text-gray-400 font-black rounded-xl"}>HỦY BỎ</button>
+                      <button onClick={handlePayrollActionSubmit} className={`flex-1 py-2.5 font-black rounded-xl text-black ${payrollAction.type === 'thuong' ? 'bg-amber-500' : (payrollAction.type === 'tam_ung' ? 'bg-rose-500 text-white' : 'bg-[#10b981]')}`}>XÁC NHẬN</button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {showLeaveModal && (
+          <div className={"fixed inset-0 bg-black/80 flex items-center justify-center z-[999] p-4 backdrop-blur-sm animate-fade-in"}>
+              <div className={"bg-[#141414] w-full max-w-sm rounded-2xl p-5 border border-[#333] shadow-2xl"}>
+                  <h3 className={"font-black text-white mb-4 text-[13px] uppercase tracking-wide border-b border-[#222] pb-2"}>TẠO LỆNH BÁO NGHỈ</h3>
+                  <div className={"space-y-3 text-[11px]"}>
+                      <div><label className={"text-gray-400 font-bold block mb-1"}>Bắt đầu nghỉ</label><input type="datetime-local" value={leaveForm.start} onChange={e=>setLeaveForm({...leaveForm, start: e.target.value})} className={"w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white outline-none"} /></div>
+                      <div><label className={"text-gray-400 font-bold block mb-1"}>Đi làm lại</label><input type="datetime-local" value={leaveForm.end} onChange={e=>setLeaveForm({...leaveForm, end: e.target.value})} className={"w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white outline-none"} /></div>
+                      <div><label className={"text-gray-400 font-bold block mb-1"}>Lý do</label><textarea value={leaveForm.note} onChange={e=>setLeaveForm({...leaveForm, note: e.target.value})} className={"w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white min-h-[60px] outline-none"} placeholder="Lý do nghỉ..."></textarea></div>
+                  </div>
+                  <div className={"flex gap-2 mt-5"}>
+                      <button onClick={() => setShowLeaveModal(false)} className={"flex-1 py-2 bg-[#222] text-gray-300 font-black rounded-xl text-[11px]"}>HỦY BỎ</button>
+                      <button onClick={submitLeave} className={"flex-1 py-2 bg-[#3b82f6] text-white font-black rounded-xl text-[11px]"}>GỬI YÊU CẦU</button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {showKPIModal && (
+          <div className={"fixed inset-0 bg-black/80 flex items-center justify-center z-[999] p-4 backdrop-blur-sm animate-fade-in"}>
+              <div className={"bg-[#141414] border border-[#333] w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl flex flex-col"}>
+                  <div className={"p-4 border-b border-[#222] bg-[#1a1a1a] flex justify-between items-center"}>
+                      <h3 className={"font-black text-[#d4af37] uppercase text-[13px] tracking-widest"}><i className={"fas fa-scroll mr-2"}></i >{editKPI ? 'Chỉnh Sửa Nhiệm Vụ' : 'Giao Nhiệm Vụ Mới'}</h3>
+                      <button onClick={() => { setShowKPIModal(false); setEditKPI(null); }} className={"w-8 h-8 rounded-full bg-[#222] hover:bg-rose-500 flex items-center justify-center"}><i className={"fas fa-times"}></i></button>
+                  </div>
+                  <div className={"p-5 space-y-4 max-h-[70vh] overflow-y-auto custom-scrollbar"}>
+                      {/* 1. RECURRENCE SELECTOR */}
+                      {!editKPI && kpiType === 'task' && (
+                          <div>
+                              <label className={"text-[10px] font-black text-gray-500 block mb-1.5"}>CHU KỲ NHIỆM VỤ</label>
+                              <select 
+                                  value={kpiPeriodType} 
+                                  onChange={e => {
+                                      const val = e.target.value;
+                                      setKpiPeriodType(val);
+                                      const now = new Date();
+                                      if (val === 'Daily') {
+                                          setKpiForm(prev => ({ ...prev, startTime: currentDate, endTime: currentDate }));
+                                      } else if (val === 'Monthly') {
+                                          const y = now.getFullYear();
+                                          const m = String(now.getMonth() + 1).padStart(2, '0');
+                                          const lastDay = new Date(y, now.getMonth() + 1, 0).getDate();
+                                          setKpiForm(prev => ({ ...prev, startTime: `${y}-${m}-01`, endTime: `${y}-${m}-${lastDay}` }));
+                                      }
+                                  }} 
+                                  className={"w-full bg-[#0a0a0a] border border-[#333] rounded-xl p-3.5 text-white font-bold outline-none"}
+                              >
+                                  <option value="Daily">Hàng Ngày (Daily)</option>
+                                  <option value="Monthly">Hàng Tháng (Monthly)</option>
+                                  <option value="Custom">Tùy Chọn Khoảng Ngày</option>
+                              </select>
+                          </div>
+                      )}
+
+                      {/* 2. DURATION DATES RENDER */}
+                      <div className={"grid grid-cols-2 gap-3 bg-[#0a0a0a] p-3 rounded-xl border border-[#333] opacity-90"}>
+                          <div>
+                              <label className={"text-[10px] font-black text-gray-500 block mb-1"}>TỪ NGÀY</label>
+                              <input 
+                                  type="date" 
+                                  disabled={kpiPeriodType !== 'Custom' && !editKPI} 
+                                  value={kpiForm.startTime} 
+                                  onChange={e=>setKpiForm({...kpiForm, startTime: e.target.value})} 
+                                  className={"w-full bg-transparent text-white font-bold text-[12px] disabled:opacity-60 disabled:cursor-not-allowed"} 
+                              />
+                          </div>
+                          <div className={"pl-3 border-l border-[#333]"}>
+                              <label className={"text-[10px] font-black text-gray-500 block mb-1"}>ĐẾN NGÀY</label>
+                              <input 
+                                  type="date" 
+                                  disabled={kpiPeriodType !== 'Custom' && !editKPI} 
+                                  value={kpiForm.endTime} 
+                                  onChange={e=>setKpiForm({...kpiForm, endTime: e.target.value})} 
+                                  className={"w-full bg-transparent text-white font-bold text-[12px] disabled:opacity-60 disabled:cursor-not-allowed"} 
+                              />
+                          </div>
+                      </div>
+
+                      {!editKPI && (
+                          <div className={"flex bg-[#0a0a0a] p-1.5 rounded-xl border border-[#333]"}><button onClick={() => setKpiType('task')} className={`flex-1 py-2.5 rounded-lg text-[11px] font-black ${kpiType === 'task' ? 'bg-[#8b5cf6] text-white' : 'text-gray-500'}`}>CÔNG VIỆC</button><button onClick={() => setKpiType('dev')} className={`flex-1 py-2.5 rounded-lg text-[11px] font-black ${kpiType === 'dev' ? 'bg-[#10b981] text-black' : 'text-gray-500'}`}>PHÁT TRIỂN</button></div>
+                      )}
+                      
+                      {!editKPI && (
+                          <div>
+                              <label className={"text-[10px] font-black text-gray-500 block mb-1.5"}>NHÂN SỰ NHẬN</label>
+                              <select value={kpiForm.user} onChange={e=>setKpiForm({...kpiForm, user: e.target.value})} className={"w-full bg-[#0a0a0a] border border-[#333] rounded-xl p-3.5 text-white font-bold outline-none"}>
+                                  {users.map(u => <option key={u} value={u}>{u}</option>)}
+                              </select>
+                          </div>
+                      )}
+
+                      {kpiType === 'task' ? (
+                          <div className={"space-y-4"}>
+                              {/* 3. TRACKING TYPE */}
+                              {!editKPI && (
+                                  <div>
+                                      <label className={"text-[10px] font-black text-gray-500 block mb-1.5"}>PHƯƠNG THỨC THEO DÕI</label>
+                                      <select 
+                                          value={kpiTrackingType} 
+                                          onChange={e => {
+                                              const val = e.target.value;
+                                              setKpiTrackingType(val);
+                                              if (val === 'auto') {
+                                                  setKpiForm(prev => ({ ...prev, kpiName: 'Dựng khung', unit: 'SP', target: '10' }));
+                                              } else {
+                                                  setKpiForm(prev => ({ ...prev, kpiName: '', unit: 'Lần', target: '1' }));
+                                              }
+                                          }} 
+                                          className={"w-full bg-[#0a0a0a] border border-[#333] rounded-xl p-3.5 text-white font-bold outline-none"}
+                                      >
+                                          <option value="auto">Hệ thống tự động theo dõi (Auto-tracked)</option>
+                                          <option value="manual">Tự định nghĩa / Nhập tay (Manual checklist)</option>
+                                      </select>
+                                  </div>
+                              )}
+
+                              {/* 4. TASK NAME FIELD */}
+                              {kpiTrackingType === 'auto' ? (
+                                  <div>
+                                      <label className={"text-[10px] font-black text-gray-500 block mb-1.5"}>TÊN NHIỆM VỤ HỆ THỐNG</label>
+                                      <select disabled={!!editKPI} value={kpiForm.kpiName} onChange={e=>setKpiForm({...kpiForm, kpiName: e.target.value})} className={"w-full bg-[#0a0a0a] border border-[#333] rounded-xl p-3.5 text-white font-bold outline-none"}>
+                                          <option value="Dựng khung">Dựng khung (Làm Layout)</option>
+                                          <option value="Gia cố">Gia cố (Gắn Keo Layout)</option>
+                                          <option value="Cắt Mài">Cắt Mài (Làm Bể Kính)</option>
+                                          <option value="Gọt Keo">Gọt Keo (Làm Bể Kính)</option>
+                                          <option value="Đóng Gói">Đóng Gói</option>
+                                          <option value="Bán Hàng">Bán Hàng (Chốt đơn)</option>
+                                      </select>
+                                  </div>
+                              ) : (
+                                  <div>
+                                      <label className={"text-[10px] font-black text-gray-500 block mb-1.5"}>TÊN NHIỆM VỤ TỰ ĐỊNH NGHĨA</label>
+                                      <input disabled={!!editKPI} type="text" value={kpiForm.kpiName} onChange={e=>setKpiForm({...kpiForm, kpiName: e.target.value})} className={"w-full bg-[#0a0a0a] border border-[#333] rounded-xl p-3.5 text-white font-bold outline-none"} placeholder="VD: Vệ sinh phân xưởng, Sắp xếp kệ kính..." />
+                                  </div>
+                              )}
+
+                              {/* 5. TARGET & UNIT */}
+                              <div className={"grid grid-cols-2 gap-3"}>
+                                  <div>
+                                      <label className={"text-[10px] font-black text-gray-500 block mb-1.5"}>Mục tiêu số lượng</label>
+                                      <input disabled={!!editKPI} type="number" value={kpiForm.target} onChange={e=>setKpiForm({...kpiForm, target: Number(e.target.value)})} className={"w-full bg-[#0a0a0a] border border-[#333] rounded-xl p-3.5 text-white font-bold"} placeholder="10" />
+                                  </div>
+                                  <div>
+                                      <label className={"text-[10px] font-black text-gray-500 block mb-1.5"}>Đơn vị tính</label>
+                                      <input disabled={!!editKPI} type="text" value={kpiForm.unit} onChange={e=>setKpiForm({...kpiForm, unit: e.target.value})} className={"w-full bg-[#0a0a0a] border border-[#333] rounded-xl p-3.5 text-white font-bold"} placeholder="Lần" />
+                                  </div>
+                              </div>
+
+                              <div className={"grid grid-cols-2 gap-3"}>
+                                  <div><label className={"text-[10px] font-black text-amber-500 block mb-1.5"}>Thưởng (VNĐ)</label><input value={kpiForm.reward} onChange={e=>setKpiForm({...kpiForm, reward: e.target.value})} type="number" className={"w-full bg-[#2a1a08] border border-amber-500/50 rounded-xl p-3.5 text-amber-400 font-black"} placeholder="0" /></div>
+                                  <div><label className={"text-[10px] font-black text-rose-500 block mb-1.5"}>Phạt (VNĐ)</label><input value={kpiForm.penalty} onChange={e=>setKpiForm({...kpiForm, penalty: e.target.value})} type="number" className={"w-full bg-[#4c0519]/40 border border-rose-500/50 rounded-xl p-3.5 text-rose-400 font-black"} placeholder="0" /></div>
+                              </div>
+                          </div>
+                      ) : (
+                          <div className={"space-y-4"}>
+                              <div>
+                                  <label className={"text-[10px] font-black text-[#10b981] block mb-2"}>DANH SÁCH MỤC TIÊU CHECK-LIST</label>
+                                  <div className={"space-y-2.5"}>
+                                      {devGoals.map((g, i) => (
+                                          <div key={i} className={"flex gap-2"}>
+                                              <input value={g.name} onChange={e => { const newG = [...devGoals]; newG[i].name = e.target.value; setDevGoals(newG); }} className={"flex-1 bg-[#0a0a0a] border border-[#333] rounded-xl px-3.5 text-white font-bold text-xs outline-none"} placeholder="Mục tiêu..." />
+                                              <input type="number" value={g.reward} onChange={e => { const newG = [...devGoals]; newG[i].reward = e.target.value; setDevGoals(newG); }} className={"w-24 bg-[#2a1a08] border border-amber-500/30 rounded-xl text-amber-400 font-black text-center text-xs outline-none"} placeholder="Thưởng..." />
+                                          </div>
+                                      ))}
+                                  </div>
+                              </div>
+                              {devGoals.length < 10 && (
+                                  <button onClick={() => setDevGoals([...devGoals, {name:'', reward:''}])} className={"w-full py-3 border-2 border-dashed border-[#333] text-gray-400 font-bold rounded-xl text-[11px]"}><i className={"fas fa-plus mr-1"}></i> THÊM MỤC TIÊU</button>
+                              )}
+                          </div>
+                      )}
+                  </div>
+                  <div className={"p-4 bg-[#1a1a1a] border-t border-[#222] flex gap-2"}>
+                      <button onClick={() => { setShowKPIModal(false); setEditKPI(null); }} className={"flex-1 py-3.5 bg-[#222] text-gray-300 font-black rounded-xl text-[12px]"}>HỦY BỎ</button>
+                      <button onClick={saveKPI} className={`flex-1 py-3.5 font-black rounded-xl text-[12px] text-black ${kpiType === 'dev' ? 'bg-[#10b981]' : 'bg-[#8b5cf6] text-white'}`}>LƯU THIẾT LẬP</button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {showHistoryUser && (
+          <div className={"fixed inset-0 bg-black/90 flex items-center justify-center z-[999] p-3 backdrop-blur-sm animate-fade-in"}>
+              <div className={"bg-[#141414] border border-[#333] w-full max-w-2xl rounded-2xl p-4 flex flex-col max-h-[85vh] shadow-2xl relative"}>
+                  <div className={"flex justify-between items-center mb-4 pb-3 border-b border-[#222]"}>
+                      <h3 className={"font-black text-[14px] text-white uppercase flex items-center gap-2"}><i className={"fas fa-history text-[#3b82f6]"}></i> LỊCH SỬ CÔNG: <span className={"text-[#d4af37]"}>{showHistoryUser}</span></h3>
+                      <button onClick={() => setShowHistoryUser(null)} className={"w-8 h-8 rounded-full bg-[#222] text-gray-400 flex items-center justify-center"}><i className={"fas fa-times"}></i></button>
+                  </div>
+                  <div className={"flex-1 overflow-auto custom-scrollbar bg-black rounded-xl border border-[#222]"}>
+                      <table className={"w-full text-left border-collapse text-[11px]"}>
+                          <thead>
+                              <tr className={"bg-[#1a1a1a] text-gray-500 font-black border-b border-[#333]"}>
+                                  <th className={"p-3 sticky top-0 bg-[#1a1a1a] z-10 w-[80px]"}>Ngày</th>
+                                  <th className={"p-3 sticky top-0 bg-[#1a1a1a] z-10"}>Ca</th>
+                                  <th className={"p-3 sticky top-0 bg-[#1a1a1a] z-10"}>Trạng thái</th>
+                                  <th className={"p-3 sticky top-0 bg-[#1a1a1a] z-10"}>Vào-Ra</th>
+                                  <th className={"p-3 sticky top-0 bg-[#1a1a1a] z-10"}>Giờ</th>
+                                  <th className={"p-3 sticky top-0 bg-[#1a1a1a] z-10"}>Phạt</th>
+                                  {canEditAttendance && <th className={"p-3 sticky top-0 bg-[#1a1a1a] z-10 text-center"}>Sửa</th>}
+                              </tr>
+                          </thead>
+                          <tbody>
+                              {(() => {
+                                  let fMonth = filterMonth;
+                                  if (filter === 'Tháng Trước') {
+                                      const d = new Date(); d.setMonth(d.getMonth() - 1);
+                                      fMonth = d.toISOString().slice(0,7);
+                                  }
+                                  
+                                  const [yyyy, mm] = fMonth.split('-');
+                                  const daysInMonth = new Date(yyyy, mm, 0).getDate();
+                                  const tObj = new Date(currentDate);
+                                  const isCurrentM = tObj.getFullYear() === Number(yyyy) && (tObj.getMonth() + 1) === Number(mm);
+                                  const maxD = isCurrentM ? tObj.getDate() : daysInMonth;
+                                  
+                                  const allDaysArr = [];
+                                  for (let i = maxD; i >= 1; i--) {
+                                      allDaysArr.push(`${yyyy}-${mm}-${String(i).padStart(2, '0')}`);
+                                  }
+
+                                  return allDaysArr.map(dateStr => {
+                                      const dateRecords = attData.filter(x => x.user === showHistoryUser && x.date === dateStr);
+                                      const shiftsToEnsure = ['Sáng', 'Chiều', 'Tối'];
+                                      const displayRecords = [...dateRecords];
+                                      
+                                      shiftsToEnsure.forEach(s => {
+                                          if (!displayRecords.find(x => x.shift === s)) {
+                                              displayRecords.push({ isEmpty: true, user: showHistoryUser, date: dateStr, shift: s });
+                                          }
+                                      });
+                                      
+                                      const shiftOrder = { 'Sáng': 1, 'Chiều': 2, 'Tối': 3 };
+                                      displayRecords.sort((a, b) => (shiftOrder[a.shift] || 4) - (shiftOrder[b.shift] || 4));
+
+                                      return (
+                                          <React.Fragment key={dateStr}>
+                                              {displayRecords.map((a, idx) => {
+                                                  const isEditedBadge = a.isEdited === true || a.isEdited === 'true';
+                                                  
+                                                  if (a.isEmpty) {
+                                                      return (
+                                                          <tr key={`${dateStr}_${a.shift}`} className="border-b border-[#222] text-zinc-500 opacity-70">
+                                                              {idx === 0 && <td rowSpan={displayRecords.length} className="p-3 font-black text-[#d4af37] border-r border-[#222] align-top bg-[#111]">{dateStr.split('-').reverse().slice(0,2).join('/')}</td>}
+                                                              <td className="p-3 text-[#3b82f6] font-bold">{a.shift}</td>
+                                                              <td className="p-3"><span className="px-1.5 py-0.5 rounded font-bold text-[9px] uppercase bg-[#222] text-gray-500">Trống</span></td>
+                                                              <td className="p-3 text-gray-500 font-mono">--:-- - --:--</td>
+                                                              <td className="p-3 font-black text-gray-500 text-[13px]">0h</td>
+                                                              <td className="p-3 font-black text-rose-500 text-[10px]"></td>
+                                                              {canEditAttendance && (
+                                                                  <td className="p-3 text-center">
+                                                                      <button onClick={() => setEditAtt({ id: `ATT_MANUAL_${Date.now()}_${Math.random().toString(36).substr(2,5)}`, user: showHistoryUser, date: dateStr, shift: a.shift, timeIn: '', timeOut: '', status: 'Hoàn thành', penalty: 0, isEdited: true })} className="w-7 h-7 rounded-lg bg-[#222] border border-[#333] text-gray-400 hover:text-[#10b981] hover:border-[#10b981] transition-all" title="Bổ sung ca này">
+                                                                          <i className="fas fa-plus"></i>
+                                                                      </button>
+                                                                  </td>
+                                                              )}
+                                                          </tr>
+                                                      );
+                                                  }
+
+                                                  return (
+                                                      <tr key={a.id} className={`border-b border-[#222] text-zinc-300 ${isEditedBadge ? 'bg-amber-900/10' : ''}`}>
+                                                          {idx === 0 && <td rowSpan={displayRecords.length} className="p-3 font-black text-[#d4af37] border-r border-[#222] align-top bg-[#111]">{dateStr.split('-').reverse().slice(0,2).join('/')}</td>}
+                                                          <td className="p-3 text-[#3b82f6] font-bold">{a.shift}</td>
+                                                          <td className="p-3">
+                                                              <span className={`px-1.5 py-0.5 rounded font-bold text-[9px] uppercase ${String(a.status).includes('Nghỉ') || String(a.status).includes('Quên') ? 'bg-rose-500/20 text-rose-400' : 'bg-emerald-500/20 text-emerald-400'}`}>{a.status}</span>
+                                                              {isEditedBadge && <div className="mt-1"><span className="px-1.5 py-0.5 rounded font-black text-[8px] bg-amber-500 text-black"><i className="fas fa-pen text-[8px] mr-1"></i>Sửa</span></div>}
+                                                          </td>
+                                                          <td className="p-3 text-gray-400 font-mono">{a.timeIn || '--:--'} - {a.timeOut || '--:--'}</td>
+                                                           <td className="p-3 font-semibold text-[10px] leading-tight space-y-0.5">
+                                                               <div className="text-zinc-500">🚪 Xưởng: {a.gateHours || a.totalHours}h</div>
+                                                               <div className="text-emerald-400 font-bold">⚡ Việc: {a.activeHours || a.totalHours}h</div>
+                                                               {Number(a.idleHours || 0) > 0 && <div className="text-rose-400 font-medium">💤 Chết: {a.idleHours}h</div>}
+                                                           </td>
+                                                          <td className="p-3 font-black text-rose-500 text-[10px]">{a.penalty > 0 ? `-${formatMoney(a.penalty)}` : ''}<br/><span className="text-[8px] text-gray-500 font-normal">{a.note}</span></td>
+                                                          
+                                                          {canEditAttendance && <td className="p-3 text-center"><button onClick={() => setEditAtt({...a, isEdited: true})} className="w-7 h-7 rounded-lg bg-[#222] text-gray-400 hover:text-amber-400" title="Sửa giờ"><i className="fas fa-edit"></i></button></td>}
+                                                      </tr>
+                                                  );
+                                              })}
+                                          </React.Fragment>
+                                      );
+                                  });
+                              })()}
+                          </tbody>
+                      </table>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {editAtt && (
+          <div className={"fixed inset-0 bg-black/80 flex items-center justify-center z-[1000] p-4 backdrop-blur-sm animate-fade-in"}>
+              <div className={"bg-[#141414] border border-[#333] w-full max-w-sm rounded-2xl p-5 text-[11px] shadow-2xl"}>
+                  <h3 className={"font-black text-amber-500 uppercase mb-4 text-[13px] border-b border-[#222] pb-2"}><i className={"fas fa-user-edit"}></i> Chỉnh sửa công: {editAtt.user}</h3>
+                  <div className={"space-y-3"}>
+                      <div className={"flex gap-2"}>
+                          <div className={"flex-1"}><label className={"text-gray-400 block mb-1"}>Giờ Vào</label><input type="time" value={editAtt.timeIn || ''} onChange={e => setEditAtt({...editAtt, timeIn: e.target.value})} className={"w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2.5 text-white"} /></div>
+                          <div className={"flex-1"}><label className={"text-gray-400 block mb-1"}>Giờ Ra</label><input type="time" value={editAtt.timeOut || ''} onChange={e => setEditAtt({...editAtt, timeOut: e.target.value})} className={"w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2.5 text-white"} /></div>
+                      </div>
+                      <div>
+                          <label className={"text-gray-400 block mb-1"}>Trạng thái</label>
+                          <select value={editAtt.status || ''} onChange={e => setEditAtt({...editAtt, status: e.target.value})} className={"w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2.5 text-white"}>
+                              <option value="Hoàn thành">Hoàn thành</option>
+                              <option value="Đang làm việc">Đang làm việc</option>
+                              <option value="Đi muộn">Đi muộn</option>
+                              <option value="Nghỉ có phép">Nghỉ có phép</option>
+                              <option value="Nghỉ không phép">Nghỉ không phép</option>
+                              <option value="Quên chấm ra (-5k)">Quên chấm ra (-5k)</option>
+                          </select>
+                      </div>
+                      <div className={"grid grid-cols-2 gap-3"}>
+                          <div><label className={"text-gray-400 block mb-1"}>Tiền phạt</label><input type="number" value={editAtt.penalty || 0} onChange={e => setEditAtt({...editAtt, penalty: Number(e.target.value)})} className={"w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2.5 text-rose-500 font-black"} /></div>
+                          <div><label className={"text-gray-400 block mb-1"}>Lý do phạt</label><input type="text" value={editAtt.note || ''} onChange={e => setEditAtt({...editAtt, note: e.target.value})} className={"w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2.5 text-white"} placeholder="Lý do..." /></div>
+                      </div>
+                  </div>
+                  <div className={"flex gap-2 mt-5"}>
+                      <button onClick={() => setEditAtt(null)} className={"flex-1 py-2.5 bg-[#222] text-gray-400 font-black rounded-xl"}>HỦY</button>
+                      <button onClick={handleSaveEditAtt} className={"flex-[2] py-2.5 bg-amber-500 text-black font-black rounded-xl"}>XÁC NHẬN SỬA</button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {editingPayroll && (
+          <PayrollEditModal 
+              p={editingPayroll} 
+              filterMonth={filterMonth} 
+              currentDate={payrollTargetDate} 
+              onClose={() => setEditingPayroll(null)} 
+              pushDeltas={pushDeltas} 
+          />
+      )}
+    </div>
+  );
+}
+
+// -------------------------------------------------------------------------
+// 5. COMPONENT MODAL CẬP NHẬT CHI TIẾT SỐ LIỆU LƯƠNG ĐỘC LẬP CHUẨN CHỈ
+// -------------------------------------------------------------------------
+function PayrollEditModal({ p, onClose, pushDeltas, filterMonth, currentDate }) {
+    const [form, setForm] = React.useState({
+        luongLamThemGio: p.luongLamThemGio || '',
+        hoTroSanLuong: p.hoTroSanLuong || '',
+        cacKhoanThuKhac: p.cacKhoanThuKhac || '',
+        cacKhoanThuKhacNote: p.cacKhoanThuKhacNote || '',
+        phatQuyDinh: p.phatQuyDinh || '',
+        phatQuyDinhNote: p.phatQuyDinhNote || '',
+        chiPhiBaoHanh: p.chiPhiBaoHanh || '',
+        daTraNhanVien: p.daTraNhanVien || '',
+        nhanXetText: p.nhanXetText || ''
+    });
+    const [isSaving, setIsSaving] = React.useState(false);
+
+    const handleSave = async () => {
+        setIsSaving(true);
+        const buildBP = (amt, type, defaultNote) => ({
+            id: `BP_${type.toUpperCase()}_${p.user}_${filterMonth}`.replace(/[^A-Z0-9_]/g, ''),
+            user: p.user,
+            amount: Number(amt) || 0,
+            type: type,
+            note: type === 'Thu Nhập Khác' ? (form.cacKhoanThuKhacNote || defaultNote) : 
+                  type === 'Phạt Quy Định' ? (form.phatQuyDinhNote || defaultNote) : 
+                  type === 'Nhận Xét' ? (form.nhanXetText || defaultNote) : defaultNote,
+            date: currentDate,
+            orderCode: ''
+        });
+
+        const payload = {
+            BonusPenalty: [
+                buildBP(form.luongLamThemGio, 'Lương Làm Thêm Giờ', 'Tăng ca nội bộ xưởng'),
+                buildBP(form.hoTroSanLuong, 'Hỗ Trợ Sản Lượng', 'Hỗ trợ định mức kho sản lượng'),
+                buildBP(form.cacKhoanThuKhac, 'Thu Nhập Khác', 'Khoản điều chỉnh bổ sung'),
+                buildBP(-Math.abs(Number(form.phatQuyDinh)), 'Phạt Quy Định', 'Trừ vi phạm nội quy KCS'),
+                buildBP(-Math.abs(Number(form.chiPhiBaoHanh)), 'Chi Phí Bảo Hành', 'Khấu trừ đền bù hàng hỏng vỡ lỗi'),
+                buildBP(-Math.abs(Number(form.daTraNhanVien)), 'Đã Trả', 'Ứng quyết toán lương kỳ trước'),
+                buildBP(0, 'Nhận Xét', 'Đạt chỉ tiêu khối lượng xưởng đề ra.')
+            ]
+        };
+
+        try {
+            await pushDeltas(payload, `Đã nhồi số bảng lương của ${p.user} thành công!`, 'fa-save');
+            onClose();
+        } catch(e) { alert('Lỗi đồng bộ dữ liệu mạng!'); }
+        setIsSaving(false);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[9999] p-4 backdrop-blur-sm animate-fade-in">
+            <div className="bg-[#141414] border border-[#333] w-full max-w-md rounded-[24px] p-5 shadow-2xl flex flex-col max-h-[90vh]">
+                <div className="flex justify-between items-center mb-4 border-b border-[#222] pb-2.5">
+                    <h3 className="font-black text-[#3b82f6] text-[13px] uppercase tracking-wider"><i className="fas fa-edit mr-2"></i>Sửa số liệu lương: {p.user}</h3>
+                    <button onClick={onClose} disabled={isSaving} className="w-8 h-8 rounded-full bg-[#222] text-gray-400 hover:text-white flex items-center justify-center"><i className="fas fa-times text-xs"></i></button>
+                </div>
+                <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3.5 pr-1 text-[11px]">
+                    <div className="grid grid-cols-2 gap-3">
+                        <div><label className="text-gray-400 font-bold block mb-1">Lương Làm Thêm Giờ</label><input type="number" value={form.luongLamThemGio} onChange={e=>setForm({...form, luongLamThemGio: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white font-bold" /></div>
+                        <div><label className="text-gray-400 font-bold block mb-1">Hỗ Trợ Sản Lượng</label><input type="number" value={form.hoTroSanLuong} onChange={e=>setForm({...form, hoTroSanLuong: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white font-bold" /></div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 p-2.5 bg-zinc-900/30 rounded-xl border border-white/5">
+                        <div className="col-span-2 font-black text-blue-400">THU NHẬP KHÁC</div>
+                        <div><label className="text-gray-500 block mb-1">Số tiền</label><input type="number" value={form.cacKhoanThuKhac} onChange={e=>setForm({...form, cacKhoanThuKhac: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white" /></div>
+                        <div><label className="text-gray-500 block mb-1">Ghi chú</label><input type="text" value={form.cacKhoanThuKhacNote} onChange={e=>setForm({...form, cacKhoanThuKhacNote: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white" /></div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 p-2.5 bg-zinc-900/30 rounded-xl border border-white/5">
+                        <div className="col-span-2 font-black text-rose-400">PHẠT QUY ĐỊNH MỤC</div>
+                        <div><label className="text-gray-500 block mb-1">Tiền phạt</label><input type="number" value={form.phatQuyDinh} onChange={e=>setForm({...form, phatQuyDinh: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-rose-400 font-bold" /></div>
+                        <div><label className="text-gray-500 block mb-1">Lý do phạt lỗi</label><input type="text" value={form.phatQuyDinhNote} onChange={e=>setForm({...form, phatQuyDinhNote: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white" /></div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div><label className="text-gray-400 block mb-1">Chi Phí Bảo Hành</label><input type="number" value={form.chiPhiBaoHanh} onChange={e=>setForm({...form, chiPhiBaoHanh: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white" /></div>
+                        <div><label className="text-gray-400 block mb-1">Đã Chi Trả Trước</label><input type="number" value={form.daTraNhanVien} onChange={e=>setForm({...form, daTraNhanVien: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white" /></div>
+                    </div>
+                    <div><label className="text-gray-400 block mb-1">Nhận Xét Năng Suất Phiếu</label><textarea rows="2" value={form.nhanXetText} onChange={e=>setForm({...form, nhanXetText: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white outline-none" placeholder="Đạt tiến độ..."></textarea></div>
+                </div>
+                <div className="flex gap-2 mt-4 pt-2 border-t border-[#222]">
+                    <button onClick={onClose} className="flex-1 py-2.5 bg-[#222] text-gray-400 font-black rounded-xl">HỦY</button>
+                    <button onClick={handleSave} disabled={isSaving} className="flex-[2] py-2.5 bg-blue-500 text-black font-black rounded-xl">{isSaving ? 'ĐANG GHI...' : 'LƯU SỐ LIỆU'}</button>
+                </div>
+            </div>
+        </div>
+    );
+}
+</script>
