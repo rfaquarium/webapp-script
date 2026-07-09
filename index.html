@@ -1,14 +1,53 @@
 <!DOCTYPE html>
-<html>
+<html lang="vi">
 <head>
-  <meta charset="UTF-8">
-  <title>Chuyển hướng...</title>
-  <script>
-    // Tự động chuyển hướng thẳng sang link Google Script trực tiếp
-    window.location.href = "https://script.google.com/macros/s/AKfycbytd9c_FzcqJ_65nqNI-xplYVRD3gstZcIL6PBk34P81XdSqXTNcRWsYt5bbeqjg66N/exec";
-  </script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>RFWorkspace Pro</title>
+    
+    <!-- KHAI BÁO PWA -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#000000">
+    <!-- Cấu hình riêng cho iOS (iPhone/iPad) -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-title" content="RFWorkspace Pro">
+    <link rel="apple-touch-icon" href="icon.png">
+
+    <style>
+        body, html { 
+            margin: 0; 
+            padding: 0; 
+            height: 100%; 
+            overflow: hidden; 
+        }
+        .app-container { 
+            position: relative; 
+            width: 100%; 
+            height: 100vh; 
+            overflow: hidden; 
+        }
+        .app-container iframe {
+            position: absolute;
+            top: -28px; 
+            left: 0;
+            width: 100%;
+            height: calc(100% + 28px);
+            border: none;
+        }
+    </style>
 </head>
 <body>
-  Đang chuyển hướng đến hệ thống...
+    <div class="app-container">
+        <iframe src="https://script.google.com/macros/s/AKfycbytd9c_FzcqJ_65nqNI-xplYVRD3gstZcIL6PBk34P81XdSqXTNcRWsYt5bbeqjg66N/exec"></iframe>
+    </div>
+
+    <!-- ĐĂNG KÝ SERVICE WORKER -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js')
+            .then(() => console.log('Service Worker Registered'));
+        }
+    </script>
 </body>
 </html>
