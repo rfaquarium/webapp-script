@@ -271,7 +271,9 @@ function App() {
   if (loading) return (
     <div className="fixed inset-0 flex flex-col items-center justify-center bg-[#09090b] text-[#d4af37] z-[9999]" style={{fontFamily: "'Plus Jakarta Sans', sans-serif"}}>
       <div className="flex flex-col items-center px-8 text-center drop-shadow-2xl">
-        <div className="mb-8 animate-pulse"><i className="fas fa-crown text-5xl drop-shadow-[0_0_15px_rgba(212,175,55,0.6)]"></i></div>
+        <div className="mb-8 animate-pulse">
+          <RFLogo className="w-16 h-16 mx-auto drop-shadow-[0_0_15px_rgba(2,132,199,0.5)]" size={64} />
+        </div>
         <p className="text-[16px] italic font-medium leading-relaxed text-zinc-300 mb-4">"Sự sang trọng nằm ở sự tối giản của trí tuệ."</p>
         <div className="w-12 h-[1px] bg-[#d4af37] mx-auto mb-4"></div>
         <p className="text-[10px] tracking-[0.3em] font-black uppercase text-[#d4af37]">RFaquarium Philosophy</p>

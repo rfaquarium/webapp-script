@@ -4,6 +4,18 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>CTV Workspace - RichFish Aquarium</title>
+  
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#000000">
+  
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="CTV Workspace">
+  <link rel="apple-touch-icon" href="https://img.icons8.com/fluency/512/shark-fin.png">
+  <link rel="shortcut icon" href="https://img.icons8.com/fluency/512/shark-fin.png" type="image/png">
+  
+  <link rel="manifest" href='data:application/manifest+json,{"name":"CTV Workspace","short_name":"CTV Work","start_url":".","display":"standalone","background_color":"#000000","theme_color":"#000000","icons":[{"src":"https://img.icons8.com/fluency/512/shark-fin.png","sizes":"512x512","type":"image/png"}]}'>
+
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -11,6 +23,75 @@
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
   <style>
+    /* =========================================================================
+       📱 SMARTPHONE APP LAYOUT MOCKUP FOR DESKTOP
+       ========================================================================= */
+    @media (min-width: 768px) {
+      body {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        min-height: 100vh !important;
+        background: radial-gradient(circle at 10% 25%, rgba(212, 175, 55, 0.05) 0%, transparent 40%),
+                    radial-gradient(circle at 85% 30%, rgba(2, 132, 199, 0.05) 0%, transparent 45%),
+                    #050508 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+      }
+      
+      #root {
+        position: relative !important;
+        width: 412px !important;
+        height: 840px !important;
+        border: 12px solid #1a1a1f !important;
+        border-radius: 42px !important;
+        box-shadow: 0 30px 70px -10px rgba(0, 0, 0, 0.9), 
+                    inset 0 0 15px rgba(0, 0, 0, 0.8), 
+                    0 0 0 2px rgba(255, 255, 255, 0.04) !important;
+        background-color: #000000 !important;
+        overflow: hidden !important;
+        display: flex !important;
+        flex-direction: column !important;
+        transform: translate(0, 0) !important;
+      }
+
+      #root::before {
+        content: "";
+        position: absolute;
+        top: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 110px;
+        height: 22px;
+        background: #1a1a1f;
+        border-radius: 11px;
+        z-index: 99999;
+        box-shadow: inset 0 0 4px rgba(255, 255, 255, 0.1);
+        pointer-events: none;
+      }
+      
+      #root::after {
+        content: "";
+        position: absolute;
+        bottom: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 130px;
+        height: 5px;
+        background: rgba(255, 255, 255, 0.25);
+        border-radius: 3px;
+        z-index: 99999;
+        pointer-events: none;
+      }
+
+      #root .min-h-screen, 
+      #root .h-screen {
+        min-height: 100% !important;
+        height: 100% !important;
+      }
+    }
+
     body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #000000; color: #f1f5f9; }
     .custom-scrollbar::-webkit-scrollbar { width: 4px; }
     .custom-scrollbar::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
@@ -23,6 +104,24 @@
     const runGAS = (func, ...args) => new Promise((resolve, reject) => {
         google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[func](...args);
     });
+
+    const RFLogo = ({ className = "w-10 h-10", size = 40 }) => (
+      <svg width={size} height={size} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+        <defs>
+          <linearGradient id="sharkFinGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#1e3a8a" />
+            <stop offset="40%" stopColor="#0284c7" />
+            <stop offset="70%" stopColor="#06b6d4" />
+            <stop offset="100%" stopColor="#38bdf8" />
+          </linearGradient>
+        </defs>
+        <path 
+          d="M25,80 C25,80 30,45 50,30 C65,18 80,25 78,35 C75,45 60,52 65,65 C70,78 78,80 78,80 C50,80 37,80 25,80 Z" 
+          fill="url(#sharkFinGrad)" 
+          style={{ filter: "drop-shadow(0px 3px 6px rgba(6, 182, 212, 0.4))" }}
+        />
+      </svg>
+    );
 
     // ==========================================
     // 1. MÀN HÌNH ĐĂNG NHẬP (PREMIUM)
@@ -61,7 +160,7 @@
                         {/* Logo Box */}
                         <div className="w-20 h-20 mx-auto bg-gradient-to-br from-[#1a1a1a] to-[#000] border border-[#d4af37]/30 rounded-2xl flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(212,175,55,0.15)] relative overflow-hidden">
                             <div className="absolute inset-0 bg-gradient-to-tr from-[#d4af37]/20 to-transparent opacity-50"></div>
-                            <i className="fas fa-crown text-4xl text-[#d4af37] drop-shadow-[0_0_10px_rgba(212,175,55,0.5)] z-10"></i>
+                            <RFLogo className="w-12 h-12 z-10" size={48} />
                         </div>
                         
                         <h1 className="text-[22px] font-black bg-gradient-to-r from-[#d4af37] to-[#fde08b] bg-clip-text text-transparent mb-1 tracking-tight">RICH FISH</h1>
@@ -175,7 +274,9 @@
       if (loading) return (
     <div className="fixed inset-0 flex flex-col items-center justify-center bg-[#09090b] text-[#d4af37] z-[9999]" style={{fontFamily: "'Plus Jakarta Sans', sans-serif"}}>
       <div className="flex flex-col items-center px-8 text-center drop-shadow-2xl">
-        <div className="mb-8 animate-pulse"><i className="fas fa-crown text-5xl drop-shadow-[0_0_15px_rgba(212,175,55,0.6)]"></i></div>
+        <div className="mb-8 animate-pulse">
+          <RFLogo className="w-16 h-16 mx-auto drop-shadow-[0_0_15px_rgba(2,132,199,0.5)]" size={64} />
+        </div>
         <p className="text-[16px] italic font-medium leading-relaxed text-zinc-300 mb-4">"Sự sang trọng nằm ở sự tối giản của trí tuệ."</p>
         <div className="w-12 h-[1px] bg-[#d4af37] mx-auto mb-4"></div>
         <p className="text-[10px] tracking-[0.3em] font-black uppercase text-[#d4af37]">RFaquarium Philosophy</p>
@@ -187,9 +288,12 @@
         <div className="h-screen flex flex-col text-[12px] max-w-md mx-auto bg-[#000000] text-zinc-100 pb-[70px] relative overflow-hidden">
           <ToastManager toasts={toasts} />
           <div className="p-4 pt-8 sticky top-0 z-50 bg-[#0a0a0a] border-b border-[#222] flex justify-between items-center shadow-md">
-            <div>
-                <div className="text-[10px] font-black text-gray-500 uppercase tracking-widest">CỘNG TÁC VIÊN</div>
-                <div className="font-black text-[#d4af37] text-[16px]">{currentUser.split(' ').pop()}</div>
+            <div className="flex items-center gap-2.5">
+                <RFLogo className="w-8 h-8" size={32} />
+                <div>
+                    <div className="text-[10px] font-black text-gray-500 uppercase tracking-widest">CỘNG TÁC VIÊN</div>
+                    <div className="font-black text-[#d4af37] text-[16px]">{currentUser.split(' ').pop()}</div>
+                </div>
             </div>
             <button onClick={() => { localStorage.removeItem('rf_user'); setCurrentUser(''); }} className="w-8 h-8 rounded-full bg-[#1a1a1a] text-rose-500 border border-[#333] flex items-center justify-center"><i className="fas fa-sign-out-alt"></i></button>
           </div>
