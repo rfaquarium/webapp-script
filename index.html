@@ -3,29 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>RFWorkspace Pro</title>
-    
-    <!-- KHAI BÁO PWA -->
-    <link rel="manifest" href="manifest.json">
+    <meta name="description" content="RF Workspace Pro - Hệ thống quản lý Rich Fish Aquarium (Sản xuất bể kính, layout thuỷ sinh, kho vận, KPI, đơn hàng)">
     <meta name="theme-color" content="#000000">
-    <!-- Cấu hình riêng cho iOS (iPhone/iPad) -->
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black">
-    <meta name="apple-mobile-web-app-title" content="RFWorkspace Pro">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="RF Workspace Pro">
+    
+    <title>RF Workspace Pro</title>
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json">
+    
+    <!-- Favicon & Icons -->
+    <link rel="icon" type="image/png" sizes="32x32" href="icon.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="icon.png">
     <link rel="apple-touch-icon" href="icon.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="icon.png">
+    <link rel="apple-touch-icon" sizes="512x512" href="icon.png">
+    <link rel="apple-touch-icon" sizes="1024x1024" href="icon.png">
 
     <style>
         body, html { 
             margin: 0; 
             padding: 0; 
             height: 100%; 
-            overflow: hidden; 
+            overflow: hidden;
+            background: #000000;
         }
         .app-container { 
             position: relative; 
-            width: 100%; 
-            height: 100vh; 
-            overflow: hidden; 
+            width: 100%;
+            height: 100vh;
+            overflow: hidden;
         }
         .app-container iframe {
             position: absolute;
@@ -34,19 +43,25 @@
             width: 100%;
             height: calc(100% + 28px);
             border: none;
+            background: #000000;
         }
     </style>
 </head>
 <body>
     <div class="app-container">
-        <iframe src="https://script.google.com/macros/s/AKfycbytd9c_FzcqJ_65nqNI-xplYVRD3gstZcIL6PBk34P81XdSqXTNcRWsYt5bbeqjg66N/exec"></iframe>
+        <iframe 
+            src="https://script.google.com/macros/s/AKfycbytd9c_FzcqJ_65nqNI-xplYVRD3gstZcIL6PBk34P81XdSqXTNcRWsYt5bbeqjg66N/exec"
+            allow="clipboard-read; clipboard-write"
+            title="RF Workspace Pro">
+        </iframe>
     </div>
 
-    <!-- ĐĂNG KÝ SERVICE WORKER -->
+    <!-- Service Worker -->
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js')
-            .then(() => console.log('Service Worker Registered'));
+                .then(() => console.log('%c[RF] Service Worker registered', 'color:#0af'))
+                .catch(err => console.warn('SW registration failed', err));
         }
     </script>
 </body>
