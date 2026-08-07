@@ -6,16 +6,12 @@
 // =========================================================================
 // -------------------------------------------------------------------------
 
-// -------------------------------------------------------------------------
-// COMPONENT: QUÉT HOÀN HÀNG (SÚNG MÃ VẠCH + QUÉT FILE PDF AI TRƠN TRU)
-// -------------------------------------------------------------------------
+// ---------------------------------// COMPONENT: MÁY QUÉT ĐƠN HOÀN (EMAIL, FILE EXCEL ORDER.ALL, FILE PDF BIÊN BẢN, SÚNG MÃ VẠCH)
 function ReturnScannerModal({ onClose, orders, pushDeltas, triggerToast }) {
     const [scanVal, setScanVal] = React.useState('');
     const [isProcessing, setIsProcessing] = React.useState(false);
     
-    // STATE CHO TÍNH NĂNG OCR QUÉT PDF
     const [preview, setPreview] = React.useState('');
-    const [isPdf, setIsPdf] = React.useState(false); 
     const [scannedOrders, setScannedOrders] = React.useState([]);
     const [unmatchedCodes, setUnmatchedCodes] = React.useState([]);
 
@@ -23,12 +19,10 @@ function ReturnScannerModal({ onClose, orders, pushDeltas, triggerToast }) {
     const fileInputRef = React.useRef(null);
     const lastScanRef = React.useRef({ code: '', time: 0 });
 
-    // Tự động focus vào ô nhập mã khi vừa bật Modal (Để sẵn sàng dùng súng)
     React.useEffect(() => {
         if (inputRef.current && !isProcessing && !preview) inputRef.current.focus();
     }, [isProcessing, preview]);
 
-    // 1. XỬ LÝ KHI QUÉT BẰNG SÚNG TÍT MÃ VẠCH / HOẶC GÕ TAY
     const processCode = async (rawCode) => {
         if (!rawCode) return;
         let originalRaw = String(rawCode).trim();
@@ -55,13 +49,14 @@ function ReturnScannerModal({ onClose, orders, pushDeltas, triggerToast }) {
         
         const order = orders.find(o => {
             const rawOrderCode = String(o.orderCode || '').toUpperCase();
+            const rawShippingCode = String(o.shippingCode || '').toUpperCase();
             const phone = String(o.phone || '').replace(/[^0-9]/g, '');
             let maDon = rawOrderCode.replace(/[^A-Z0-9]/g, '');
-            let mvd = '';
+            let mvd = rawShippingCode.replace(/[^A-Z0-9]/g, '');
             if (rawOrderCode.indexOf('MVĐ') > -1) {
                 const parts = rawOrderCode.split('MVĐ');
                 maDon = parts[0].replace(/[^A-Z0-9]/g, '');
-                if (parts[1]) mvd = parts[1].replace(/[^A-Z0-9]/g, '');
+                if (parts[1]) mvd = parts[1].replace(/[^A-Z0-9]/g, '') || mvd;
             }
             if (mvd && (mvd === code || mvd.indexOf(code) > -1 || code.indexOf(mvd) > -1)) return true;
             if (maDon && (maDon === code || maDon.indexOf(code) > -1 || code.indexOf(maDon) > -1)) return true;
@@ -79,7 +74,7 @@ function ReturnScannerModal({ onClose, orders, pushDeltas, triggerToast }) {
                 try {
                     const newOrder = { ...order, status: 'Hàng Hoàn' };
                     await pushDeltas({ orders: [newOrder] }, `Đã nhận hoàn đơn: ${order.orderCode}!`, 'fa-undo');
-                    triggerToast(`Thành công! Đơn [${order.orderCode}] đã chuyển về Kho Hoàn Chờ Xử.`, 'fa-check', 'success');
+                    triggerToast(`Thành công! Đơn [${order.orderCode}] đã chuyển về Kho Hoàn.`, 'fa-check', 'success');
                 } catch (err) { triggerToast('Lỗi kết nối đồng bộ kho hoàn!', 'fa-times', 'danger'); }
             }
         } else {
@@ -92,80 +87,148 @@ function ReturnScannerModal({ onClose, orders, pushDeltas, triggerToast }) {
 
     const handleScanInput = (e) => { if (e.key === 'Enter') processCode(scanVal); };
 
-    // 2. XỬ LÝ OCR CHỈ ĐỌC FILE PDF BIÊN BẢN TRẢ HÀNG
-    const handleOCRUpload = async (e) => {
+    const handleEmailScan = async () => {
+        setIsProcessing(true);
+        triggerToast('Đang tự động quét email đơn hoàn...', 'fa-sync fa-spin', 'info');
+        try {
+            const res = await runGAS('scanReturnedOrdersFromEmail');
+            if (res && res.success) {
+                triggerToast(res.message, 'fa-check', 'success');
+                if (res.count > 0) window.dispatchEvent(new CustomEvent('triggerReloadData'));
+                onClose();
+            } else {
+                triggerToast(res?.message || 'Lỗi quét email đơn hoàn', 'fa-times', 'danger');
+            }
+        } catch (e) { triggerToast('Lỗi kết nối Server', 'fa-times', 'danger'); }
+        setIsProcessing(false);
+    };
+
+    const handleFileUpload = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
 
-        // BẮT BUỘC ĐỊNH DẠNG PDF
-        if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-            triggerToast("Hệ thống hiện tại chỉ chấp nhận file PDF biên bản!", "fa-times", "danger");
-            e.target.value = ''; // Reset input để cho phép chọn lại
+        const fName = file.name.toLowerCase();
+        setIsProcessing(true);
+
+        if (fName.endsWith('.xlsx') || fName.endsWith('.xls') || fName.endsWith('.csv')) {
+            triggerToast("Đang phân tích file Excel Order.all...", "fa-spinner fa-spin", "info");
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                try {
+                    const data = new Uint8Array(evt.target.result);
+                    const wb = window.XLSX.read(data, { type: 'array' });
+                    let sheetName = wb.SheetNames[0];
+                    const rows = window.XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
+                    
+                    if (rows.length < 2) throw new Error("File rỗng");
+                    let headerIdx = 0;
+                    for (let i = 0; i < Math.min(15, rows.length); i++) {
+                        const rStr = (rows[i] || []).join(' ').toLowerCase();
+                        if (rStr.includes('mã đơn') || rStr.includes('order id')) { headerIdx = i; break; }
+                    }
+                    const headers = rows[headerIdx].map(h => String(h).toLowerCase().trim());
+                    const iCode = headers.findIndex(h => h.includes('mã đơn') || h.includes('order id'));
+                    let statusCols = [];
+                    headers.forEach((h, idx) => {
+                        if (h.includes('trạng thái') || h.includes('lý do') || h.includes('status') || h.includes('hoàn tiền')) statusCols.push(idx);
+                    });
+
+                    let foundOrders = [];
+                    let notFound = [];
+
+                    for (let i = headerIdx + 1; i < rows.length; i++) {
+                        const cols = rows[i];
+                        if (iCode < 0 || !cols[iCode]) continue;
+                        let oCode = String(cols[iCode]).trim();
+                        if (oCode.length < 5) {
+                            for(let c=0; c<cols.length; c++) {
+                                const val = String(cols[c] || '').trim();
+                                if (val.length >= 8 && /[A-Z0-9]{8,}/i.test(val) && !val.includes(' ') && !val.includes(':')) {
+                                    oCode = val; break;
+                                }
+                            }
+                        }
+                        if (!oCode || oCode.length < 5 || oCode.toLowerCase().includes('mã đơn')) continue;
+
+                        let rowStatus = '';
+                        statusCols.forEach(idx => { if (cols[idx]) rowStatus += String(cols[idx]).toLowerCase() + ' '; });
+
+                        if ((rowStatus.includes('hoàn') && !rowStatus.includes('hoàn thành') && !rowStatus.includes('hoàn tất')) || rowStatus.includes('trả hàng') || rowStatus.includes('return') || rowStatus.includes('refund')) {
+                            const cleanCode = oCode.split(' | ')[0].trim().toUpperCase();
+                            const matchOrder = orders.find(o => {
+                                const dbCode = String(o.orderCode || '').toUpperCase();
+                                if (cleanCode.length < 5) return dbCode === cleanCode;
+                                return dbCode === cleanCode || dbCode.includes(cleanCode);
+                            });
+                            if (matchOrder) {
+                                const currentStatus = String(matchOrder.status || '').toUpperCase().trim();
+                                if (currentStatus !== 'HÀNG HOÀN' && !currentStatus.includes('HOÀN CHỜ XỬ') && !currentStatus.includes('HOÀN KHO')) {
+                                    if (!foundOrders.find(fo => fo.id === matchOrder.id)) foundOrders.push(matchOrder);
+                                }
+                            } else {
+                                if (!notFound.includes(cleanCode)) notFound.push(cleanCode);
+                            }
+                        }
+                    }
+
+                    setScannedOrders(foundOrders);
+                    setUnmatchedCodes(notFound);
+                    setPreview('file_loaded');
+                    if (foundOrders.length > 0) {
+                        triggerToast(`Phân tích xong! Khớp ${foundOrders.length} đơn hoàn hợp lệ.`, "fa-check", "success");
+                    } else {
+                        triggerToast(`Không tìm thấy đơn hoàn mới nào cần cập nhật trong file!`, "fa-info", "warning");
+                    }
+                } catch (err) {
+                    triggerToast("Lỗi đọc tệp Excel!", "fa-times", "danger");
+                } finally {
+                    e.target.value = '';
+                    setIsProcessing(false);
+                }
+            };
+            reader.readAsArrayBuffer(file);
             return;
         }
 
-        setIsProcessing(true);
-        triggerToast("AI đang đọc dữ liệu PDF, xin chờ...", "fa-spinner fa-spin", "info");
+        if (fName.endsWith('.pdf')) {
+            triggerToast("AI đang đọc dữ liệu PDF biên bản...", "fa-spinner fa-spin", "info");
+            try {
+                const base64Data = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result.split(',')[1]);
+                    reader.onerror = reject;
+                    reader.readAsDataURL(file);
+                });
 
-        try {
-            const base64Data = await new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => resolve(reader.result.split(',')[1]);
-                reader.onerror = reject;
-                reader.readAsDataURL(file);
-            });
+                setPreview('file_loaded');
+                let textResult = "";
+                if (typeof runGAS === 'function') {
+                    try { textResult = await runGAS('processOCR', base64Data); } catch (e) { textResult = ""; }
+                }
 
-            // Set state báo hiệu đã load file thành công
-            setPreview('pdf_loaded');
-            setIsPdf(true);
+                const matches = textResult.match(/(SPXVN[\s-]*[A-Z0-9]+|SPX[\s-]*[A-Z0-9]+|GYX[\s-]*[A-Z0-9]+|JT[\s-]*[A-Z0-9]+|GHN[\s-]*[A-Z0-9]+|[0-9]{6}[\s-]*[A-Z0-9]{8,9})/gi) || [];
+                const uniqueCodes = [...new Set(matches.map(c => c.replace(/[^A-Z0-9]/gi, '').toUpperCase()))];
 
-            let textResult = "";
-            if (typeof runGAS === 'function') {
-                try { textResult = await runGAS('processOCR', base64Data); } catch (e) { textResult = ""; }
-            }
+                let foundOrders = []; let notFound = [];
+                uniqueCodes.forEach(code => {
+                    const order = orders.find(o => String(o.orderCode || '').toUpperCase().includes(code) || String(o.shippingCode || '').toUpperCase().includes(code));
+                    if (order) {
+                        const currentStatus = String(order.status || '').toUpperCase().trim();
+                        if (currentStatus !== 'HÀNG HOÀN' && !currentStatus.includes('HOÀN KHO')) {
+                            if (!foundOrders.find(fo => fo.id === order.id)) foundOrders.push(order);
+                        }
+                    } else { notFound.push(code); }
+                });
 
-            const matches = textResult.match(/(SPXVN[A-Z0-9]+|SPX[A-Z0-9]+|GYX[A-Z0-9]+|JT[A-Z0-9]+|GHN[A-Z0-9]+|[0-9]{6}[A-Z0-9]{8,9})/gi) || [];
-            const uniqueCodes = [...new Set(matches.map(c => c.toUpperCase()))];
-
-            if (uniqueCodes.length === 0) {
-                 triggerToast("Không tìm thấy mã vận đơn/mã đơn nào trong file PDF!", "fa-exclamation-triangle", "danger");
-                 return; // Không return sớm mà để finally xử lý tắt loading
-            }
-
-            let foundOrders = [];
-            let notFound = [];
-
-            uniqueCodes.forEach(code => {
-                 const order = orders.find(o => {
-                     const rawOrderCode = String(o.orderCode || '').toUpperCase();
-                     return rawOrderCode.includes(code);
-                 });
-                 if (order) {
-                     const currentStatus = String(order.status || '').toUpperCase().trim();
-                     if (!(currentStatus === 'HÀNG HOÀN' || currentStatus.indexOf('HOÀN CHỜ XỬ') > -1 || currentStatus.indexOf('HOÀN KHO') > -1)) {
-                         if (!foundOrders.find(fo => fo.id === order.id)) foundOrders.push(order);
-                     }
-                 } else {
-                     notFound.push(code);
-                 }
-            });
-
-            setScannedOrders(foundOrders);
-            setUnmatchedCodes(notFound);
-
-            if (foundOrders.length > 0) {
-                triggerToast(`Bóc tách thành công! Khớp ${foundOrders.length} đơn hợp lệ.`, "fa-check", "success");
-            } else {
-                triggerToast(`Tìm thấy mã nhưng không khớp với đơn nào (Hoặc đã hoàn rồi)!`, "fa-info", "warning");
-            }
-
-        } catch (err) { 
-            triggerToast("Lỗi phân tích tệp PDF!", "fa-times", "danger"); 
-        } finally {
-            // FIX BUG QUAN TRỌNG: Luôn dọn dẹp thẻ input và tắt tiến trình xoay
-            e.target.value = ''; 
-            setIsProcessing(false);
+                setScannedOrders(foundOrders);
+                setUnmatchedCodes(notFound);
+            } catch (err) { triggerToast("Lỗi phân tích tệp PDF!", "fa-times", "danger"); }
+            finally { e.target.value = ''; setIsProcessing(false); }
+            return;
         }
+
+        triggerToast("Vui lòng chọn file Excel Order.all (.xlsx/.xls) hoặc PDF!", "fa-times", "danger");
+        e.target.value = ''; setIsProcessing(false);
     };
 
     const confirmBulkReturn = async () => {
@@ -173,98 +236,312 @@ function ReturnScannerModal({ onClose, orders, pushDeltas, triggerToast }) {
         setIsProcessing(true);
         try {
             const updatedOrders = scannedOrders.map(o => ({ ...o, status: 'Hàng Hoàn' }));
-            await pushDeltas({ orders: updatedOrders }, `Đã chuyển ${updatedOrders.length} đơn về Kho Hoàn!`, 'fa-undo');
-            triggerToast(`Đã xử lý hoàn loạt ${updatedOrders.length} đơn!`, 'fa-check', 'success');
+            await pushDeltas({ orders: updatedOrders }, `Đã chuyển ${updatedOrders.length} đơn về Hàng Hoàn!`, 'fa-undo');
+            triggerToast(`Thành công! Đã chuyển ${updatedOrders.length} đơn sang Hàng Hoàn.`, 'fa-check', 'success');
             onClose();
         } catch (err) { triggerToast('Lỗi đồng bộ!', 'fa-times', 'danger'); }
         setIsProcessing(false);
     };
 
-    const resetOCR = () => {
+    const resetScan = () => {
         setPreview('');
-        setIsPdf(false);
         setScannedOrders([]);
         setUnmatchedCodes([]);
     };
 
     return (
         <div className="fixed inset-0 bg-black/95 flex items-center justify-center z-[9999] p-4 backdrop-blur-md animate-fade-in" onClick={() => onClose()}>
-            <div className="bg-[#141414] border border-orange-500/50 w-full max-w-md rounded-3xl p-6 shadow-[0_0_50px_rgba(249,115,22,0.2)] text-center relative animate-slide-up flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="bg-[#141414] border border-purple-500/50 w-full max-w-md rounded-3xl p-6 shadow-[0_0_50px_rgba(168,85,247,0.2)] text-center relative animate-slide-up flex flex-col" onClick={e => e.stopPropagation()}>
                 <button onClick={onClose} disabled={isProcessing} className="absolute top-4 right-4 w-8 h-8 rounded-full bg-[#222] text-gray-500 hover:text-white hover:bg-rose-500 flex items-center justify-center transition-all z-20"><i className="fas fa-times text-sm"></i></button>
                 
                 <h3 className="font-black text-white text-[15px] uppercase tracking-widest mb-1 flex items-center justify-center gap-2 mt-2">
-                    <i className="fas fa-undo-alt text-orange-500"></i> Xác Nhận Hoàn Hàng
+                    <i className="fas fa-undo text-purple-400"></i> Quét Đơn Hoàn Tự Động
                 </h3>
 
                 {preview ? (
-                    // MÀN HÌNH SAU KHI TẢI FILE PDF
                     <div className="mt-4 flex flex-col space-y-4 animate-fade-in text-left">
-                        <div className="relative w-full h-32 bg-black rounded-xl border border-[#333] overflow-hidden flex items-center justify-center shadow-inner">
-                            <div className="flex flex-col items-center justify-center text-rose-500 animate-pulse">
-                                <i className="fas fa-file-pdf text-5xl mb-2"></i>
-                                <span className="text-[11px] font-black uppercase tracking-widest text-white mt-1">Đã Tải File PDF Biên Bản</span>
+                        <div className="relative w-full h-24 bg-black rounded-xl border border-[#333] overflow-hidden flex items-center justify-center shadow-inner">
+                            <div className="flex flex-col items-center justify-center text-purple-400">
+                                <i className="fas fa-file-excel text-3xl mb-1"></i>
+                                <span className="text-[11px] font-black uppercase tracking-widest text-white">Đã Tải & Đọc File Báo Cáo</span>
                             </div>
-                            <button onClick={resetOCR} disabled={isProcessing} className="absolute top-3 right-3 w-8 h-8 bg-black/80 rounded-full text-white border border-white/20 flex items-center justify-center hover:bg-rose-500 transition-colors shadow-md"><i className="fas fa-redo text-xs"></i></button>
+                            <button onClick={resetScan} disabled={isProcessing} className="absolute top-3 right-3 w-8 h-8 bg-black/80 rounded-full text-white border border-white/20 flex items-center justify-center hover:bg-rose-500 transition-colors shadow-md"><i className="fas fa-redo text-xs"></i></button>
                         </div>
 
                         <div className="bg-[#0a0a0a] border border-[#222] rounded-xl p-3">
-                            <div className="text-[10px] font-black text-emerald-400 uppercase tracking-widest border-b border-[#333] pb-2 mb-2">
-                                <i className="fas fa-check-circle mr-1"></i> Khớp {scannedOrders.length} Đơn Trong Xưởng
+                            <div className="text-[10px] font-black text-purple-400 uppercase tracking-widest border-b border-[#333] pb-2 mb-2 flex justify-between">
+                                <span><i className="fas fa-check-circle mr-1"></i> Khớp {scannedOrders.length} Đơn Hoàn</span>
                             </div>
                             {scannedOrders.length > 0 ? (
-                                <div className="max-h-[120px] overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
+                                <div className="max-h-[140px] overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
                                     {scannedOrders.map((o, idx) => (
-                                        <div key={idx} className="bg-[#141414] border border-[#333] p-2 rounded-lg flex justify-between items-center hover:border-emerald-500/50 transition-colors">
+                                        <div key={idx} className="bg-[#141414] border border-[#333] p-2 rounded-lg flex justify-between items-center hover:border-purple-500/50 transition-colors">
                                             <span className="text-[10px] text-white font-mono font-black truncate">{o.orderCode.split(' | ')[0]}</span>
-                                            <span className="text-[9px] bg-[#222] px-1.5 py-0.5 rounded text-gray-400 truncate max-w-[100px]">{o.customer}</span>
+                                            <span className="text-[9px] bg-[#222] px-1.5 py-0.5 rounded text-gray-400 truncate max-w-[120px]">{o.customer}</span>
                                         </div>
                                     ))}
                                 </div>
                             ) : (
-                                <div className="text-gray-500 text-[10px] font-bold py-2 text-center">Không có mã nào khớp, hoặc đơn đã hoàn rồi!</div>
+                                <div className="text-gray-500 text-[10px] font-bold py-2 text-center">Không có đơn hoàn mới nào khớp!</div>
                             )}
                         </div>
 
                         {unmatchedCodes.length > 0 && (
                             <div className="bg-rose-500/5 border border-rose-500/20 rounded-xl p-3">
-                                <div className="text-[10px] font-black text-rose-500 uppercase tracking-widest border-b border-rose-500/20 pb-2 mb-2">
-                                    <i className="fas fa-exclamation-triangle mr-1"></i> Bỏ Qua {unmatchedCodes.length} Mã (Không có trong hệ thống)
+                                <div className="text-[10px] font-black text-rose-400 uppercase tracking-widest border-b border-rose-500/20 pb-1 mb-1.5">
+                                    <i className="fas fa-exclamation-triangle mr-1"></i> Không Khớp {unmatchedCodes.length} Mã Trong File
                                 </div>
-                                <div className="flex flex-wrap gap-1.5 max-h-[60px] overflow-y-auto custom-scrollbar">
+                                <div className="flex flex-wrap gap-1 max-h-[50px] overflow-y-auto custom-scrollbar">
                                     {unmatchedCodes.map((code, idx) => (
-                                        <span key={idx} className="text-[9px] bg-rose-500/10 text-rose-400 px-1.5 py-0.5 rounded border border-rose-500/20 font-mono">{code}</span>
+                                        <span key={idx} className="text-[9px] bg-rose-500/10 text-rose-400 px-1 py-0.5 rounded font-mono">{code}</span>
                                     ))}
                                 </div>
                             </div>
                         )}
 
-                        <button onClick={confirmBulkReturn} disabled={isProcessing || scannedOrders.length === 0} className={`w-full py-4 rounded-xl font-black text-[13px] tracking-wide shadow-md flex items-center justify-center gap-2 transition-all active:scale-95 mt-2 ${isProcessing || scannedOrders.length === 0 ? 'bg-[#333] text-gray-500' : 'bg-gradient-to-r from-orange-500 to-rose-500 text-white hover:opacity-90 shadow-[0_0_20px_rgba(249,115,22,0.4)]'}`}>
-                            {isProcessing ? <><i className="fas fa-spinner fa-spin"></i> ĐANG CHUYỂN TRẠNG THÁI...</> : `XÁC NHẬN CHUYỂN HOÀN ${scannedOrders.length} ĐƠN NÀY`}
+                        <button onClick={confirmBulkReturn} disabled={isProcessing || scannedOrders.length === 0} className={`w-full py-3.5 rounded-xl font-black text-[12px] tracking-wide shadow-md flex items-center justify-center gap-2 transition-all active:scale-95 mt-1 ${isProcessing || scannedOrders.length === 0 ? 'bg-[#333] text-gray-500' : 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white hover:opacity-90 shadow-purple-900/30'}`}>
+                            {isProcessing ? <><i className="fas fa-spinner fa-spin"></i> ĐANG CẬP NHẬT TRẠNG THÁI...</> : `XÁC NHẬN ĐƯA ${scannedOrders.length} ĐƠN VỀ HÀNG HOÀN`}
                         </button>
                     </div>
                 ) : (
-                    // MÀN HÌNH MẶC ĐỊNH - CHỜ TÍT MÃ HOẶC TẢI PDF
                     <>
-                        <p className="text-gray-400 text-[11px] mb-4 leading-relaxed mt-2">Dùng súng bắn mã vạch tít vào ô bên dưới, hoặc tải file PDF biên bản trả hàng để AI quét hàng loạt.</p>
+                        <p className="text-gray-400 text-[11px] mb-3 leading-relaxed mt-1">Dùng súng bắn mã vạch, bấm Quét Email tự động, hoặc ném file Excel Order.all / PDF vào đây.</p>
 
                         <div className="w-full flex flex-col items-center">
                             <div className="relative w-full mb-2">
                                 <input 
                                     ref={inputRef} type="text" value={scanVal} onChange={e => setScanVal(e.target.value)} onKeyDown={handleScanInput} disabled={isProcessing}
                                     placeholder="Dùng Súng Tít vào Mã Đơn / MVĐ"
-                                    className="w-full bg-[#0a0a0a] border-2 border-[#333] focus:border-orange-500 rounded-xl pl-10 pr-4 py-4 text-center font-mono text-[14px] font-black text-white outline-none focus:shadow-[0_0_20px_rgba(249,115,22,0.3)] transition-all uppercase placeholder:font-sans placeholder:font-medium placeholder:normal-case placeholder:text-[12px]"
+                                    className="w-full bg-[#0a0a0a] border-2 border-[#333] focus:border-purple-500 rounded-xl pl-10 pr-4 py-3 text-center font-mono text-[13px] font-black text-white outline-none focus:shadow-[0_0_20px_rgba(168,85,247,0.3)] transition-all uppercase placeholder:font-sans placeholder:font-medium placeholder:normal-case placeholder:text-[11px]"
                                 />
-                                <i className="fas fa-barcode absolute left-4 top-1/2 -translate-y-1/2 text-orange-500 text-lg"></i>
+                                <i className="fas fa-barcode absolute left-4 top-1/2 -translate-y-1/2 text-purple-400 text-base"></i>
                             </div>
                         </div>
-                        
-                        {isProcessing && <div className="mt-4 text-emerald-500 text-[10px] font-black uppercase tracking-widest"><i className="fas fa-spinner fa-spin mr-2 text-sm"></i>Đang phân tích PDF...</div>}
-                        
-                        <div className="mt-5 border-t border-[#333] pt-5 flex flex-col gap-3">
-                            <button onClick={() => fileInputRef.current?.click()} disabled={isProcessing} className={`w-full py-4 rounded-xl font-black text-[13px] uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 bg-gradient-to-br from-orange-500/20 to-rose-500/20 border border-orange-500/40 text-orange-400 hover:from-orange-500 hover:to-rose-500 hover:text-white active:scale-95 ${isProcessing ? 'opacity-50 pointer-events-none' : ''}`}>
-                                <i className="fas fa-file-pdf text-xl"></i> TẢI FILE PDF BIÊN BẢN
+
+                        <div className="mt-3 border-t border-[#333] pt-4 flex flex-col gap-2.5">
+                            <button onClick={handleEmailScan} disabled={isProcessing} className="w-full py-3 rounded-xl font-black text-[12px] uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:opacity-90 shadow-md active:scale-95">
+                                <i className="fas fa-envelope-open-text text-base"></i> 1. QUÉT EMAIL ĐƠN HOÀN TỰ ĐỘNG
                             </button>
-                            <input ref={fileInputRef} type="file" accept="application/pdf, .pdf" className="hidden" onChange={handleOCRUpload} disabled={isProcessing} />
+                            <button onClick={() => fileInputRef.current?.click()} disabled={isProcessing} className="w-full py-3 rounded-xl font-black text-[12px] uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 bg-gradient-to-br from-purple-500/20 to-indigo-500/20 border border-purple-500/40 text-purple-300 hover:bg-purple-600 hover:text-white active:scale-95">
+                                <i className="fas fa-file-excel text-base"></i> 2. TẢI FILE EXCEL (ORDER.ALL) / PDF
+                            </button>
+                            <input ref={fileInputRef} type="file" accept=".xlsx, .xls, .csv, .pdf" className="hidden" onChange={handleFileUpload} disabled={isProcessing} />
+                        </div>
+                    </>
+                )}
+            </div>
+        </div>
+    );
+}
+
+// COMPONENT: MÁY QUÉT ĐƠN HỦY (EMAIL, FILE EXCEL ORDER.ALL)
+function CancelScannerModal({ onClose, orders, prodItems, pushDeltas, triggerToast }) {
+    const [isProcessing, setIsProcessing] = React.useState(false);
+    const [preview, setPreview] = React.useState('');
+    const [scannedOrders, setScannedOrders] = React.useState([]);
+    const [unmatchedCodes, setUnmatchedCodes] = React.useState([]);
+    const fileInputRef = React.useRef(null);
+
+    const handleEmailScan = async () => {
+        setIsProcessing(true);
+        triggerToast('Đang tự động quét email đơn hủy...', 'fa-sync fa-spin', 'info');
+        try {
+            const res = await runGAS('scanCancelledOrdersFromEmail');
+            if (res && res.success) {
+                triggerToast(res.message, 'fa-check', 'success');
+                if (res.count > 0) window.dispatchEvent(new CustomEvent('triggerReloadData'));
+                onClose();
+            } else {
+                triggerToast(res?.message || 'Lỗi quét email đơn hủy', 'fa-times', 'danger');
+            }
+        } catch (e) { triggerToast('Lỗi kết nối Server', 'fa-times', 'danger'); }
+        setIsProcessing(false);
+    };
+
+    const handleFileUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setIsProcessing(true);
+        triggerToast("Đang đọc file Excel Order.all...", "fa-spinner fa-spin", "info");
+
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+            try {
+                const data = new Uint8Array(evt.target.result);
+                const wb = window.XLSX.read(data, { type: 'array' });
+                let sheetName = wb.SheetNames[0];
+                const rows = window.XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
+                
+                if (rows.length < 2) throw new Error("File rỗng");
+                let headerIdx = 0;
+                for (let i = 0; i < Math.min(15, rows.length); i++) {
+                    const rStr = (rows[i] || []).join(' ').toLowerCase();
+                    if (rStr.includes('mã đơn') || rStr.includes('order id')) { headerIdx = i; break; }
+                }
+                const headers = rows[headerIdx].map(h => String(h).toLowerCase().trim());
+                const iCode = headers.findIndex(h => h.includes('mã đơn') || h.includes('order id'));
+                let statusCols = [];
+                headers.forEach((h, idx) => {
+                    if (h.includes('trạng thái') || h.includes('lý do') || h.includes('status') || h.includes('hủy') || h.includes('huỷ')) statusCols.push(idx);
+                });
+
+                let foundOrders = [];
+                let notFound = [];
+
+                for (let i = headerIdx + 1; i < rows.length; i++) {
+                    const cols = rows[i];
+                    if (iCode < 0 || !cols[iCode]) continue;
+                    let oCode = String(cols[iCode]).trim();
+                    if (oCode.length < 5) {
+                        for(let c=0; c<cols.length; c++) {
+                            const val = String(cols[c] || '').trim();
+                            if (val.length >= 8 && /[A-Z0-9]{8,}/i.test(val) && !val.includes(' ') && !val.includes(':')) {
+                                oCode = val; break;
+                            }
+                        }
+                    }
+                    if (!oCode || oCode.length < 5 || oCode.toLowerCase().includes('mã đơn')) continue;
+
+                    let rowStatus = '';
+                    statusCols.forEach(idx => { if (cols[idx]) rowStatus += String(cols[idx]).toLowerCase() + ' '; });
+
+                    if (rowStatus.includes('hủy') || rowStatus.includes('huỷ') || rowStatus.includes('cancel')) {
+                        const cleanCode = oCode.split(' | ')[0].trim().toUpperCase();
+                        const matchOrder = orders.find(o => {
+                            const dbCode = String(o.orderCode || '').toUpperCase();
+                            if (cleanCode.length < 5) return dbCode === cleanCode;
+                            return dbCode === cleanCode || dbCode.includes(cleanCode);
+                        });
+                        if (matchOrder) {
+                            const currentStatus = String(matchOrder.status || '').toUpperCase().trim();
+                            if (currentStatus !== 'ĐƠN HUỶ' && !currentStatus.includes('HỦY') && !currentStatus.includes('HUỶ')) {
+                                if (!foundOrders.find(fo => fo.id === matchOrder.id)) foundOrders.push(matchOrder);
+                            }
+                        } else {
+                            if (!notFound.includes(cleanCode)) notFound.push(cleanCode);
+                        }
+                    }
+                }
+
+                setScannedOrders(foundOrders);
+                setUnmatchedCodes(notFound);
+                setPreview('file_loaded');
+                if (foundOrders.length > 0) {
+                    triggerToast(`Phân tích xong! Khớp ${foundOrders.length} đơn hủy hợp lệ.`, "fa-check", "success");
+                } else {
+                    triggerToast(`Không tìm thấy đơn hủy mới nào cần cập nhật trong file!`, "fa-info", "warning");
+                }
+            } catch (err) {
+                triggerToast("Lỗi đọc tệp Excel!", "fa-times", "danger");
+            } finally {
+                e.target.value = '';
+                setIsProcessing(false);
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    };
+
+    const confirmBulkCancel = async () => {
+        if (scannedOrders.length === 0) return;
+        setIsProcessing(true);
+        try {
+            const updatedOrders = scannedOrders.map(o => ({ ...o, status: 'Đơn Huỷ' }));
+            
+            let updatedProdItems = [];
+            scannedOrders.forEach(order => {
+                const relatedProds = (prodItems || []).filter(p => p.orderId && p.orderId.includes(order.id));
+                relatedProds.forEach(p => {
+                    const isComp = p.fulfilledFromStock === true || String(p.fulfilledFromStock).toUpperCase() === 'TRUE';
+                    // Huỷ lệnh với đơn bù kho (isComp == true), còn sản xuất mới thì GIỮ LẠI (status giữ nguyên)
+                    if (isComp) {
+                        updatedProdItems.push({ ...p, status: 'Đã Huỷ' });
+                    }
+                });
+            });
+
+            let payload = { orders: updatedOrders };
+            if (updatedProdItems.length > 0) payload.prodItems = updatedProdItems;
+
+            await pushDeltas(payload, `Đã chuyển ${updatedOrders.length} đơn sang Đơn Hủy!`, 'fa-ban');
+            triggerToast(`Thành công! Đã chuyển ${updatedOrders.length} đơn sang Đơn Hủy.`, 'fa-check', 'success');
+            onClose();
+        } catch (err) { triggerToast('Lỗi đồng bộ!', 'fa-times', 'danger'); }
+        setIsProcessing(false);
+    };
+
+    const resetScan = () => {
+        setPreview('');
+        setScannedOrders([]);
+        setUnmatchedCodes([]);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/95 flex items-center justify-center z-[9999] p-4 backdrop-blur-md animate-fade-in" onClick={() => onClose()}>
+            <div className="bg-[#141414] border border-rose-500/50 w-full max-w-md rounded-3xl p-6 shadow-[0_0_50px_rgba(244,63,94,0.2)] text-center relative animate-slide-up flex flex-col" onClick={e => e.stopPropagation()}>
+                <button onClick={onClose} disabled={isProcessing} className="absolute top-4 right-4 w-8 h-8 rounded-full bg-[#222] text-gray-500 hover:text-white hover:bg-rose-500 flex items-center justify-center transition-all z-20"><i className="fas fa-times text-sm"></i></button>
+                
+                <h3 className="font-black text-white text-[15px] uppercase tracking-widest mb-1 flex items-center justify-center gap-2 mt-2">
+                    <i className="fas fa-ban text-rose-500"></i> Quét Đơn Hủy Tự Động
+                </h3>
+
+                {preview ? (
+                    <div className="mt-4 flex flex-col space-y-4 animate-fade-in text-left">
+                        <div className="relative w-full h-24 bg-black rounded-xl border border-[#333] overflow-hidden flex items-center justify-center shadow-inner">
+                            <div className="flex flex-col items-center justify-center text-rose-400">
+                                <i className="fas fa-file-excel text-3xl mb-1"></i>
+                                <span className="text-[11px] font-black uppercase tracking-widest text-white">Đã Tải & Đọc File Báo Cáo</span>
+                            </div>
+                            <button onClick={resetScan} disabled={isProcessing} className="absolute top-3 right-3 w-8 h-8 bg-black/80 rounded-full text-white border border-white/20 flex items-center justify-center hover:bg-rose-500 transition-colors shadow-md"><i className="fas fa-redo text-xs"></i></button>
+                        </div>
+
+                        <div className="bg-[#0a0a0a] border border-[#222] rounded-xl p-3">
+                            <div className="text-[10px] font-black text-rose-400 uppercase tracking-widest border-b border-[#333] pb-2 mb-2 flex justify-between">
+                                <span><i className="fas fa-check-circle mr-1"></i> Khớp {scannedOrders.length} Đơn Hủy</span>
+                            </div>
+                            {scannedOrders.length > 0 ? (
+                                <div className="max-h-[140px] overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
+                                    {scannedOrders.map((o, idx) => (
+                                        <div key={idx} className="bg-[#141414] border border-[#333] p-2 rounded-lg flex justify-between items-center hover:border-rose-500/50 transition-colors">
+                                            <span className="text-[10px] text-white font-mono font-black truncate">{o.orderCode.split(' | ')[0]}</span>
+                                            <span className="text-[9px] bg-[#222] px-1.5 py-0.5 rounded text-gray-400 truncate max-w-[120px]">{o.customer}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="text-gray-500 text-[10px] font-bold py-2 text-center">Không có đơn hủy mới nào khớp!</div>
+                            )}
+                        </div>
+
+                        {unmatchedCodes.length > 0 && (
+                            <div className="bg-rose-500/5 border border-rose-500/20 rounded-xl p-3">
+                                <div className="text-[10px] font-black text-rose-400 uppercase tracking-widest border-b border-rose-500/20 pb-1 mb-1.5">
+                                    <i className="fas fa-exclamation-triangle mr-1"></i> Không Khớp {unmatchedCodes.length} Mã Trong File
+                                </div>
+                                <div className="flex flex-wrap gap-1 max-h-[50px] overflow-y-auto custom-scrollbar">
+                                    {unmatchedCodes.map((code, idx) => (
+                                        <span key={idx} className="text-[9px] bg-rose-500/10 text-rose-400 px-1 py-0.5 rounded font-mono">{code}</span>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        <button onClick={confirmBulkCancel} disabled={isProcessing || scannedOrders.length === 0} className={`w-full py-3.5 rounded-xl font-black text-[12px] tracking-wide shadow-md flex items-center justify-center gap-2 transition-all active:scale-95 mt-1 ${isProcessing || scannedOrders.length === 0 ? 'bg-[#333] text-gray-500' : 'bg-gradient-to-r from-rose-600 to-red-600 text-white hover:opacity-90 shadow-rose-900/30'}`}>
+                            {isProcessing ? <><i className="fas fa-spinner fa-spin"></i> ĐANG CẬP NHẬT TRẠNG THÁI...</> : `XÁC NHẬN ĐƯA ${scannedOrders.length} ĐƠN VỀ ĐƠN HỦY`}
+                        </button>
+                    </div>
+                ) : (
+                    <>
+                        <p className="text-gray-400 text-[11px] mb-3 leading-relaxed mt-1">Bấm Quét Email tự động để phát hiện email hủy đơn, hoặc ném file Excel Order.all vào đây.</p>
+
+                        <div className="mt-3 border-t border-[#333] pt-4 flex flex-col gap-2.5">
+                            <button onClick={handleEmailScan} disabled={isProcessing} className="w-full py-3.5 rounded-xl font-black text-[12px] uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 bg-gradient-to-r from-rose-600 to-red-600 text-white hover:opacity-90 shadow-md active:scale-95">
+                                <i className="fas fa-envelope-open-text text-base"></i> 1. QUÉT EMAIL ĐƠN HỦY TỰ ĐỘNG
+                            </button>
+                            <button onClick={() => fileInputRef.current?.click()} disabled={isProcessing} className="w-full py-3.5 rounded-xl font-black text-[12px] uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 bg-gradient-to-br from-rose-500/20 to-red-500/20 border border-rose-500/40 text-rose-300 hover:bg-rose-600 hover:text-white active:scale-95">
+                                <i className="fas fa-file-excel text-base"></i> 2. TẢI FILE EXCEL (ORDER.ALL)
+                            </button>
+                            <input ref={fileInputRef} type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={handleFileUpload} disabled={isProcessing} />
                         </div>
                     </>
                 )}
@@ -276,7 +553,56 @@ function ReturnScannerModal({ onClose, orders, pushDeltas, triggerToast }) {
 // -------------------------------------------------------------------------
 // MỤC 1: GIAO DIỆN TAB ĐƠN HÀNG (OrdersTab)
 // -------------------------------------------------------------------------
-function OrdersTab({ 
+
+// COMPONENT BỌC ĐƠN HÀNG THÊM LOGIC SLA VÀ PHÂN LOẠI
+const RFOrderWrapper = React.memo(({ order, prods, ...props }) => {
+    const hasTank = prods.some(p => String(p.name).toLowerCase().includes('bể') || String(p.category).toLowerCase() === 'bể kính');
+    const hasLayout = prods.some(p => String(p.name).toLowerCase().includes('bố cục') || String(p.category).toLowerCase() === 'layout');
+    const hasAcc = prods.some(p => String(p.name).toLowerCase().includes('phụ kiện') || String(p.name).toLowerCase().includes('lọc') || String(p.name).toLowerCase().includes('đèn') || String(p.name).toLowerCase().includes('bơm'));
+
+    const isEcom = String(order.channel).toUpperCase().includes('SHOPEE') || String(order.channel).toUpperCase().includes('TIKTOK');
+    const createdDate = new Date(order.createdAt || order.date || Date.now());
+    let deadline = new Date(createdDate);
+    if (isEcom) {
+        deadline.setDate(deadline.getDate() + 1);
+        deadline.setHours(14, 0, 0, 0); // Deadline 14:00 hôm sau
+    } else {
+        deadline.setDate(deadline.getDate() + 3); // Khách lẻ 3 ngày
+    }
+    
+    const now = new Date();
+    const isLate = now > deadline;
+    const hoursLeft = Math.max(0, Math.round((deadline - now) / (1000 * 60 * 60)));
+    const isDone = String(order._effectiveStatus || order.status || '').toUpperCase().includes('BÀN GIAO') || String(order._effectiveStatus || order.status || '').toUpperCase().includes('HOÀN THÀNH');
+
+    return (
+        <div className="relative mb-6 mt-4">
+            <div className="absolute -top-3 left-4 flex gap-2 z-20">
+                {hasTank && <RFBadge text="BỂ KÍNH" type="info" icon="fa-water" className="shadow-sm" />}
+                {hasLayout && <RFBadge text="BỐ CỤC" type="success" icon="fa-leaf" className="shadow-sm" />}
+                {hasAcc && <RFBadge text="PHỤ KIỆN" type="warning" icon="fa-plug" className="shadow-sm" />}
+            </div>
+            
+            {!isDone && (
+                <div className="absolute -top-3 right-4 z-20">
+                    {isLate ? (
+                        <RFBadge text="QUÁ HẠN SLA" type="danger" icon="fa-exclamation-triangle" className="animate-pulse shadow-[0_0_10px_rgba(225,29,72,0.5)]" />
+                    ) : (
+                        <RFBadge text={`SLA: ${hoursLeft}h`} type={hoursLeft < 12 ? 'warning' : 'primary'} icon="fa-clock" className="shadow-sm" />
+                    )}
+                </div>
+            )}
+            
+            <OrderCardV2 order={order} prods={prods} {...props} />
+        </div>
+    );
+});
+
+const OrdersTab = React.memo(function OrdersTab({ 
+    loadArchiveData,
+    isArchiveLoaded,
+    isLoadingArchive,
+    attendance,
     orders, 
     prodItems, 
     packings, 
@@ -287,22 +613,61 @@ function OrdersTab({
     pushDeltas, 
     userConfigs, 
     triggerToast, 
-    kpiConfig 
+    kpiConfig,
+    configGiaLayout
 }) {
     const [searchCode, setSearchCode] = React.useState('');
     const [filterTime, setFilterTime] = React.useState('Tháng Này');
+    const [customMonth, setCustomMonth] = React.useState(() => {
+        const d = new Date();
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    });
     const [filterStatus, setFilterStatus] = React.useState('Chờ Sản Xuất');
+    const [handoverSubTab, setHandoverSubTab] = React.useState('ALL');
+    const [renderLimit, setRenderLimit] = React.useState(30);
     const [addingMode, setAddingMode] = React.useState(false);
     const [draftData, setDraftData] = React.useState(null); 
     const [selectedIds, setSelectedIds] = React.useState([]);
     
-    // STATE KÍCH HOẠT MÁY QUÉT HOÀN HÀNG
+    // STATE KÍCH HOẠT MÁY QUÉT HOÀN HÀNG & HỦY ĐƠN
     const [isScanningReturn, setIsScanningReturn] = React.useState(false);
+    const [isScanningCancel, setIsScanningCancel] = React.useState(false);
+    const [isBulkFinanceOpen, setIsBulkFinanceOpen] = React.useState(false);
     const [showRules, setShowRules] = React.useState(false);
+    const [editingOrder, setEditingOrder] = React.useState(null);
+    const isCTV = localStorage.getItem('rf_role') === 'CTV' || localStorage.getItem('rf_role') === 'CỘNG TÁC VIÊN';
+
+// Removed buggy handleImportShopeeOrders, use BulkFinanceModal instead
 
     React.useEffect(() => {
         setSelectedIds([]);
+        setRenderLimit(30);
     }, [filterStatus, filterTime, searchCode]);
+
+    // Tự động đồng bộ Hàng Hoàn (chưa đóng gói) -> Đơn Huỷ
+    const autoFixRef = React.useRef(false);
+    React.useEffect(() => {
+        if (!orders || !packings || orders.length === 0 || autoFixRef.current) return;
+        
+        const toFix = orders.filter(o => {
+            let eff = String(o.status || '').toUpperCase().trim();
+            if (eff === 'HÀNG HOÀN' || eff === 'HOÀN' || eff.includes('HOÀN CHỜ XỬ')) {
+                const isPacked = packings.some(p => p.orderId === o.id && (p.status === 'Done' || p.status === 'Hoàn thành' || p.status === 'Đã Xong'));
+                return !isPacked;
+            }
+            return false;
+        });
+
+        if (toFix.length > 0) {
+            autoFixRef.current = true; // Chỉ chạy 1 lần khi load app
+            const updatedOrders = toFix.map(o => ({ ...o, status: 'ĐƠN HUỶ', updatedBy: currentUser || 'AUTO_FIX' }));
+            setTimeout(() => {
+                if (typeof pushDeltas === 'function') {
+                    pushDeltas({ orders: updatedOrders }, `Hệ thống tự động đồng bộ ${toFix.length} đơn bị khách huỷ (chưa đóng gói) về trạng thái Đơn Hủy!`, 'fa-magic');
+                }
+            }, 5000); 
+        }
+    }, [orders, packings, currentUser, pushDeltas]);
 
     const toggleSelect = (orderId) => {
         setSelectedIds(prev => prev.includes(orderId) ? prev.filter(id => id !== orderId) : [...prev, orderId]);
@@ -310,29 +675,87 @@ function OrdersTab({
 
     const clearSelection = () => setSelectedIds([]);
 
+    const isDateInRangeLocal = (dateStr, filterStr, customM) => {
+        if (!dateStr) return false;
+        if (filterStr === 'Tất Cả') return true;
+        const d = new Date(dateStr); const today = new Date();
+        if (filterStr === 'Hôm Nay') return d.toDateString() === today.toDateString();
+        if (filterStr === 'Hôm Qua') { const y = new Date(today); y.setDate(y.getDate() - 1); return d.toDateString() === y.toDateString(); }
+        if (filterStr === 'Tuần Này') {
+            const currentDay = today.getDay();
+            const diff = today.getDate() - currentDay + (currentDay === 0 ? -6 : 1);
+            const monday = new Date(today.setDate(diff)); monday.setHours(0,0,0,0);
+            const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6); sunday.setHours(23,59,59,999);
+            return d >= monday && d <= sunday;
+        }
+        if (filterStr === 'Tháng Này') return d.getMonth() === new Date().getMonth() && d.getFullYear() === new Date().getFullYear();
+        if (filterStr === 'Tháng Trước') {
+            const lastMonth = new Date();
+            lastMonth.setMonth(lastMonth.getMonth() - 1);
+            return d.getMonth() === lastMonth.getMonth() && d.getFullYear() === lastMonth.getFullYear();
+        }
+        if (filterStr === 'Tuỳ Chỉnh' || filterStr === 'Chọn Tháng') {
+            if (!customM) return true;
+            const [year, month] = customM.split('-');
+            return d.getFullYear() === parseInt(year, 10) && d.getMonth() === (parseInt(month, 10) - 1);
+        }
+        return true;
+    };
+
     const baseFiltered = React.useMemo(() => {
-        return (orders || []).filter(o => {
+        return (orders || []).map(o => {
+            let eff = String(o._effectiveStatus || o.status || '').toUpperCase().trim();
+            // Nếu là HÀNG HOÀN nhưng chưa hề đóng gói -> bản chất là ĐƠN HỦY
+            if (eff === 'HÀNG HOÀN' || eff === 'HOÀN' || eff.includes('HOÀN CHỜ XỬ')) {
+                const isPacked = (packings || []).some(p => p.orderId === o.id && (p.status === 'Done' || p.status === 'Hoàn thành' || p.status === 'Đã Xong'));
+                if (!isPacked) {
+                    eff = 'ĐƠN HUỶ';
+                }
+            }
+            return { ...o, _effectiveStatus: eff };
+        }).filter(o => {
+            const isCtvOrder = String(o.channel || '').toUpperCase().includes('CỘNG TÁC VIÊN') || String(o.channel || '').toUpperCase() === 'CTV';
+            if (isCTV && o.createdBy !== currentUser && o.sale !== currentUser && o.responsibleUser !== currentUser && !isCtvOrder) return false;
+            if (o.channel === 'Sản Xuất Tồn' || o.channel === 'Sản Xuất Bù Kho') return false;
+            
             const mvd = String(o.orderCode || '').toLowerCase();
             const cus = String(o.customer || '').toLowerCase();
             const matchSearch = mvd.includes(searchCode.toLowerCase()) || cus.includes(searchCode.toLowerCase());
-            return matchSearch && isDateInRange(o.createdAt || o.date, filterTime);
+            // Sử dụng reconciledAt để các đơn hoàn cũ khi được xử lý trong tháng này vẫn hiện ra
+            const dateToFilter = o.reconciledAt || o.createdAt || o.date;
+            return matchSearch && isDateInRangeLocal(dateToFilter, filterTime, customMonth);
         });
-    }, [orders, searchCode, filterTime]);
+    }, [orders, searchCode, filterTime, customMonth, currentUser, packings]);
 
     const filtered = React.useMemo(() => {
         return baseFiltered.filter(o => {
-            if (filterStatus === 'Hàng Hoàn') return o.status === 'Hàng Hoàn';
-            
             let effectiveStatus = String(o._effectiveStatus || o.status || '').toUpperCase().trim();
             
-            if (effectiveStatus === 'CHỜ SẢN XUẤT' || effectiveStatus === 'QUÉT TỰ ĐỘNG' || effectiveStatus === 'ĐANG SẢN XUẤT') {
-                const related = (prodItems || []).filter(p => p.orderId === o.id);
+            if (effectiveStatus === 'CHỜ SẢN XUẤT' || effectiveStatus === 'QUÉT TỰ ĐỘNG' || effectiveStatus === 'ĐANG SẢN XUẤT' || effectiveStatus === 'SẴN SÀNG ĐÓNG GÓI') {
+                const isGHNShipping = String(o.shippingMethod || '').trim() === 'Gửi GHN';
+                const isGuiXeShipping = String(o.shippingMethod || '').trim() === 'Gửi Xe';
+                let pureShippingCode = String(o.shippingCode || '').trim();
+                if (!pureShippingCode && String(o.orderCode || '').includes('MVĐ:')) {
+                    pureShippingCode = String(o.orderCode).split('MVĐ:')[1].trim();
+                }
+                const hasShippingCode = pureShippingCode && pureShippingCode.length >= 3;
+                const shippingGatePassed = (!isGHNShipping && !isGuiXeShipping) || hasShippingCode;
+
+                const related = (prodItems || []).filter(p => p.orderId && p.orderId.includes(o.id));
                 if (related.length > 0) {
                     const allDone = related.every(p => {
                         const pStatus = String(p.status || '').toUpperCase().trim();
                         return pStatus === 'DONE' || pStatus === 'ĐÃ XONG' || pStatus === 'HỦY/VỠ' || pStatus === 'HOÀN KHO ĐẠT' || p.fulfilledFromStock === true || String(p.fulfilledFromStock).toUpperCase() === 'TRUE';
                     });
-                    if (allDone) effectiveStatus = 'SẴN SÀNG ĐÓNG GÓI';
+                    if (allDone && shippingGatePassed) {
+                        effectiveStatus = 'SẴN SÀNG ĐÓNG GÓI';
+                    } else {
+                        effectiveStatus = 'CHỜ SẢN XUẤT';
+                    }
+                } else {
+                    if (effectiveStatus === 'SẴN SÀNG ĐÓNG GÓI' && !shippingGatePassed) {
+                        effectiveStatus = 'CHỜ SẢN XUẤT';
+                    }
                 }
             }
             
@@ -342,12 +765,29 @@ function OrdersTab({
             }
             if (targetStatus === 'SẴN SÀNG ĐÓNG GÓI') return effectiveStatus === 'SẴN SÀNG ĐÓNG GÓI';
             if (targetStatus === 'CHỜ BÀN GIAO') return effectiveStatus === 'CHỜ BÀN GIAO';
-            if (targetStatus === 'ĐÃ BÀN GIAO') return effectiveStatus === 'ĐÃ BÀN GIAO' || effectiveStatus === 'ĐÃ NHẬP KHO';
-            if (targetStatus === 'ĐƠN HUỶ') return effectiveStatus === 'ĐƠN HUỶ' || effectiveStatus === 'HUỶ';
+            if (targetStatus === 'ĐÃ BÀN GIAO') {
+                if (effectiveStatus === 'ĐÃ BÀN GIAO' || effectiveStatus === 'ĐÃ NHẬP KHO') {
+                    if (handoverSubTab === 'ALL') return true;
+                    const channel = String(o.channel || '').toUpperCase();
+                    if (handoverSubTab === 'SHOPEE') return channel.includes('SHOPEE') || channel.includes('SHP') || channel.includes('SPX');
+                    if (handoverSubTab === 'BÁN LẺ') return channel.includes('BÁN LẺ') || channel.includes('BAN LE') || channel.includes('ZALO') || channel.includes('FACEBOOK') || channel.includes('MESSENGER');
+                    if (handoverSubTab === 'CTV') return channel.includes('CỘNG TÁC VIÊN') || channel === 'CTV';
+                    if (handoverSubTab === 'TIKTOK') return channel.includes('TIKTOK') || channel.includes('TT') || channel.includes('TIK TOK');
+                    return false;
+                }
+                return false;
+            }
+            if (targetStatus === 'ĐƠN HUỶ' || targetStatus === 'ĐƠN HỦY') return effectiveStatus === 'ĐƠN HUỶ' || effectiveStatus === 'HUỶ' || effectiveStatus === 'ĐƠN HỦY' || effectiveStatus === 'HỦY';
+            if (targetStatus === 'HÀNG HOÀN') return effectiveStatus === 'HÀNG HOÀN' || effectiveStatus.includes('HOÀN TRẢ') || effectiveStatus.includes('HOÀN CHỜ XỬ');
+            if (targetStatus === 'HOÀN THÀNH') {
+                if (effectiveStatus === 'HOÀN THÀNH' || effectiveStatus === 'ĐÃ NHẬP KHO' || effectiveStatus === 'ĐỐI SOÁT THÀNH CÔNG' || effectiveStatus === 'GIAO HÀNG THÀNH CÔNG') return true;
+                const knownStatuses = ['CHỜ SẢN XUẤT', 'QUÉT TỰ ĐỘNG', 'ĐANG SẢN XUẤT', 'SẴN SÀNG ĐÓNG GÓI', 'CHỜ BÀN GIAO', 'ĐÃ BÀN GIAO', 'ĐƠN HUỶ', 'HUỶ', 'ĐƠN HỦY', 'HỦY'];
+                return !knownStatuses.includes(effectiveStatus) && !effectiveStatus.includes('HOÀN');
+            }
             
             return effectiveStatus === targetStatus;
         });
-    }, [baseFiltered, filterStatus, prodItems]);
+    }, [baseFiltered, filterStatus, handoverSubTab, prodItems]);
 
     const sortedFiltered = React.useMemo(() => {
         return [...filtered].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
@@ -362,30 +802,48 @@ function OrdersTab({
     }, [packings]);
 
     const stats = React.useMemo(() => {
-        let pending = 0, ready = 0, shipping = 0, done = 0, cancel = 0, returns = 0;
+        let pending = 0, ready = 0, shipping = 0, done = 0, cancel = 0, returns = 0, completed = 0;
         
         baseFiltered.forEach(o => {
             let finalStatus = String(o._effectiveStatus || o.status || '').toUpperCase().trim();
             
-            if (finalStatus === 'CHỜ SẢN XUẤT' || finalStatus === 'QUÉT TỰ ĐỘNG' || finalStatus === 'ĐANG SẢN XUẤT') {
-                const related = (prodItems || []).filter(p => p.orderId === o.id);
+            if (finalStatus === 'CHỜ SẢN XUẤT' || finalStatus === 'QUÉT TỰ ĐỘNG' || finalStatus === 'ĐANG SẢN XUẤT' || finalStatus === 'SẴN SÀNG ĐÓNG GÓI') {
+                const isGHNShipping = String(o.shippingMethod || '').trim() === 'Gửi GHN';
+                const isGuiXeShipping = String(o.shippingMethod || '').trim() === 'Gửi Xe';
+                let pureShippingCode = String(o.shippingCode || '').trim();
+                if (!pureShippingCode && String(o.orderCode || '').includes('MVĐ:')) {
+                    pureShippingCode = String(o.orderCode).split('MVĐ:')[1].trim();
+                }
+                const hasShippingCode = pureShippingCode && pureShippingCode.length >= 3;
+                const shippingGatePassed = (!isGHNShipping && !isGuiXeShipping) || hasShippingCode;
+
+                const related = (prodItems || []).filter(p => p.orderId && p.orderId.includes(o.id));
                 if (related.length > 0) {
                     const allDone = related.every(p => {
                         const pStatus = String(p.status || '').toUpperCase().trim();
                         return pStatus === 'DONE' || pStatus === 'ĐÃ XONG' || pStatus === 'HỦY/VỠ' || pStatus === 'HOÀN KHO ĐẠT' || p.fulfilledFromStock === true || String(p.fulfilledFromStock).toUpperCase() === 'TRUE';
                     });
-                    if (allDone) finalStatus = 'SẴN SÀNG ĐÓNG GÓI';
+                    if (allDone && shippingGatePassed) {
+                        finalStatus = 'SẴN SÀNG ĐÓNG GÓI';
+                    } else {
+                        finalStatus = 'CHỜ SẢN XUẤT';
+                    }
+                } else {
+                    if (finalStatus === 'SẴN SÀNG ĐÓNG GÓI' && !shippingGatePassed) {
+                        finalStatus = 'CHỜ SẢN XUẤT';
+                    }
                 }
             }
             
             if (finalStatus === 'CHỜ SẢN XUẤT' || finalStatus === 'QUÉT TỰ ĐỘNG' || finalStatus === 'ĐANG SẢN XUẤT') pending++;
             else if (finalStatus === 'SẴN SÀNG ĐÓNG GÓI') ready++;
             else if (finalStatus === 'CHỜ BÀN GIAO') shipping++;
-            else if (finalStatus === 'ĐÃ BÀN GIAO' || finalStatus === 'ĐÃ NHẬP KHO') done++;
-            else if (finalStatus === 'ĐƠN HUỶ' || finalStatus === 'HUỶ') cancel++;
-            else if (finalStatus === 'HÀNG HOÀN') returns++;
+            else if (finalStatus === 'ĐÃ BÀN GIAO') done++;
+            else if (finalStatus === 'ĐƠN HUỶ' || finalStatus === 'HUỶ' || finalStatus === 'ĐƠN HỦY' || finalStatus === 'HỦY') cancel++;
+            else if (finalStatus === 'HÀNG HOÀN' || finalStatus.includes('HOÀN TRẢ') || finalStatus.includes('HOÀN CHỜ XỬ')) returns++;
+            else completed++;
         });
-        return { pending, ready, shipping, done, cancel, returns };
+        return { pending, ready, shipping, done, cancel, returns, completed };
     }, [baseFiltered, prodItems]);
 
     const tabs = React.useMemo(() => [
@@ -393,24 +851,15 @@ function OrdersTab({
         { id: 'Sẵn Sàng Đóng Gói', label: 'Sẵn Sàng Đóng Gói', count: stats.ready },
         { id: 'Chờ Bàn Giao', label: 'Chờ Bàn Giao', count: stats.shipping },
         { id: 'Đã Bàn Giao', label: 'Đã Bàn Giao', count: stats.done },
-        { id: 'Đơn Hủy', label: 'Đơn Hủy', count: stats.cancel },
-        { id: 'Hàng Hoàn', label: 'Hàng Hoàn Chờ Xử', count: stats.returns }
+        { id: 'Đơn Huỷ', label: 'Đơn Huỷ', count: stats.cancel },
+        { id: 'Hàng Hoàn', label: 'Hàng Hoàn Chờ Xử', count: stats.returns },
+        { id: 'Hoàn Thành', label: 'Hoàn Thành', count: stats.completed }
     ], [stats]);
 
     const realTimeSummary = React.useMemo(() => {
         const todayStr = new Date().toISOString().split('T')[0];
         const getCleanStatus = (status) => String(status || '').toUpperCase().trim();
         
-        const needPack = (orders || []).filter(o => getCleanStatus(o.status) === 'SẴN SÀNG ĐÓNG GÓI').length;
-        const needInspect = (orders || []).filter(o => getCleanStatus(o.status) === 'HÀNG HOÀN' || getCleanStatus(o.status) === 'KIỂM ĐỊNH').length;
-        const needHandover = (orders || []).filter(o => getCleanStatus(o.status) === 'CHỜ BÀN GIAO').length;
-        
-        const canceledToday = (orders || []).filter(o => {
-            const orderDate = String(o.updatedAt || o.createdAt || o.date || '');
-            const cleanSt = getCleanStatus(o.status);
-            return (cleanSt === 'ĐƠN HỦY' || cleanSt === 'HUỶ' || cleanSt === 'ĐƠN HUỶ') && orderDate.includes(todayStr);
-        }).length;
-
         const urgentAlerts = (orders || []).filter(o => {
             const orderDate = String(o.updatedAt || o.createdAt || o.date || '');
             const isToday = orderDate.includes(todayStr);
@@ -418,21 +867,67 @@ function OrdersTab({
             return (cleanSt === 'ĐƠN HỦY' || cleanSt === 'ĐƠN HUỶ' || cleanSt === 'HÀNG HOÀN') && isToday;
         }).sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
 
-        // Tính doanh thu hôm nay (Chỉ tính các đơn active)
-        const revenueToday = (orders || []).filter(o => {
-            const orderDate = String(o.createdAt || o.date || '');
-            const cleanSt = getCleanStatus(o.status);
-            return orderDate.includes(todayStr) && cleanSt !== 'ĐƠN HỦY' && cleanSt !== 'ĐƠN HUỶ' && cleanSt !== 'HUỶ';
-        }).reduce((acc, o) => acc + Number(o.revenue || 0), 0);
-
-        // Tính số lượng đơn mới hôm nay
-        const ordersToday = (orders || []).filter(o => {
-            const orderDate = String(o.createdAt || o.date || '');
-            return orderDate.includes(todayStr);
-        }).length;
-
-        return { needPack, needInspect, needHandover, canceledToday, urgentAlerts, revenueToday, ordersToday };
+        return { urgentAlerts };
     }, [orders]);
+
+    const summaryStats = React.useMemo(() => {
+        let totalOrderValue = 0;
+        let totalCancelledValue = 0;
+        let totalReturnedValue = 0;
+        let totalRetail = 0;
+        let totalCtv = 0;
+        
+        let debugRetailOrders = [];
+
+        baseFiltered.forEach(o => {
+            const val = Number(o.revenue) || 0;
+            const st = String(o._effectiveStatus || o.status || '').toUpperCase().trim();
+            const ch = String(o.channel || '').toUpperCase().trim();
+            const sale = String(o.responsibleUser || o.sale || o.createdBy || '').toUpperCase().trim();
+
+            const isCancelled = st === 'ĐƠN HUỶ' || st === 'HUỶ' || st === 'ĐƠN HỦY' || st === 'HỦY';
+            const isReturned = st === 'HÀNG HOÀN' || (st.includes('HOÀN') && !st.includes('HOÀN THÀNH'));
+
+            totalOrderValue += val;
+
+            if (isCancelled) {
+                totalCancelledValue += val;
+            }
+            if (isReturned) {
+                totalReturnedValue += val;
+            }
+
+            const valid = !isCancelled && !isReturned;
+
+            if (ch.includes('BÁN LẺ') || ch.includes('BAN LE') || ch.includes('ZALO') || ch.includes('FACEBOOK') || ch.includes('MESSENGER')) {
+                if (valid) {
+                    totalRetail += val;
+                    debugRetailOrders.push({
+                        'Mã Đơn': o.orderCode,
+                        'Kênh': o.channel,
+                        'Sale': sale || 'Không có',
+                        'Trạng Thái': st,
+                        'Doanh Thu': Number(val).toLocaleString('vi-VN')
+                    });
+                }
+            }
+
+            if (ch.includes('CỘNG TÁC VIÊN') || ch === 'CTV') {
+                if (valid) totalCtv += val;
+            }
+        });
+
+        if (debugRetailOrders.length > 0) {
+            console.log("%c=== BẢNG KÊ CHI TIẾT DOANH THU BÁN LẺ (" + filterTime + ") ===", "color: #3b82f6; font-size: 14px; font-weight: bold;");
+            console.log("Tổng doanh thu Bán Lẻ đang tính: ", Number(totalRetail).toLocaleString('vi-VN') + "đ");
+            console.table(debugRetailOrders);
+        }
+
+        const totalRevenue = totalOrderValue - totalCancelledValue - totalReturnedValue;
+        return { totalReturnedValue, totalRevenue, totalRetail, totalCtv };
+    }, [baseFiltered]);
+
+    const formatMoney = (n) => Number(n).toLocaleString('vi-VN');
 
     const handleExportExcel = () => {
         const columns = [
@@ -448,60 +943,79 @@ function OrdersTab({
             { key: 'prePaid', label: 'Đã Cọc' },
             { key: 'cod', label: 'COD' },
             { key: 'costTotal', label: 'Tổng Vốn' },
+            { key: 'sizeCoefficient', label: 'Hệ Số K.Thước' },
+            { key: 'cogs', label: 'Giá Vốn (Thực Tế)' },
             { key: 'note', label: 'Ghi Chú' }
         ];
         exportToExcel(sortedFiltered, columns, `Danh_Sach_Don_Hang_${new Date().toISOString().slice(0,10)}.xlsx`);
     };
 
     const handleBulkHandover = async () => {
-        const selectedOrders = filtered.filter(o => selectedIds.includes(o.id) && (o._effectiveStatus || o.status) === 'Chờ Bàn Giao');
+        const selectedOrders = filtered.filter(o => selectedIds.includes(o.id)); // Đã sửa: Cho phép Admin ép bàn giao mọi trạng thái
         if (selectedOrders.length === 0) {
             triggerToast('Chỉ bàn giao được đơn ở trạng thái "Chờ Bàn Giao"!', 'fa-exclamation', 'warning');
             return;
         }
         if (!window.confirm(`Xác nhận BÀN GIAO & XUẤT KHO ${selectedOrders.length} đơn đã chọn?`)) return;
         
+        const isLayoutOrGlass = (pName) => {
+            const match = (erpProducts || []).find(x => String(x.name).trim() === String(pName).trim());
+            const cat = String(match?.category || '').toUpperCase();
+            return cat === 'LAYOUT' || cat === 'BỂ KÍNH';
+        };
+
         try {
             let productUpdates = [];
             let ieLogs = [];
 
-            selectedOrders.forEach(order => {
-                let itemsToExport = [];
-                let totalExportValue = 0;
+            let allItemsToExport = [];
+            let totalExportValue = 0;
+            let orderCodes = [];
 
-                const accs = typeof order.accessories === 'string' ? JSON.parse(order.accessories || '[]') : (order.accessories || []);
+            selectedOrders.forEach(order => {
+                orderCodes.push(String(order.orderCode || '').split(' | ')[0] || order.id.slice(-4));
+                const accs = typeof order.accessories === 'string' ? safeJSONParse(order.accessories) : (order.accessories || []);
                 accs.forEach(a => {
                     const qty = Number(a.quantity) || 1;
                     const p = (erpProducts || []).find(x => x.name === a.name);
                     if (p) {
                         productUpdates.push({ ...p, _orderQty: qty });
-                        itemsToExport.push({ name: a.name, qty, price: p.price || 0, unit: p.unit || 'Cái' });
+                        allItemsToExport.push({ name: a.name, qty, price: p.price || 0, unit: p.unit || 'Cái' });
                         totalExportValue += qty * (Number(p.costPrice) || 0);
                     }
                 });
 
-                const relatedProds = (prodItems || []).filter(p => p.orderId === order.id && p.fulfilledFromStock);
+                const relatedProds = (prodItems || []).filter(p => p.orderId && p.orderId.includes(order.id) && (p.fulfilledFromStock || isLayoutOrGlass(p.name)));
                 relatedProds.forEach(rp => {
                     const p = (erpProducts || []).find(x => x.name === rp.name);
                     if (p) {
                         productUpdates.push({ ...p, _orderQty: 1 });
-                        itemsToExport.push({ name: rp.name, qty: 1, price: p.price || 0, unit: p.unit || 'Cái' });
+                        allItemsToExport.push({ name: rp.name, qty: 1, price: p.price || 0, unit: p.unit || 'Cái' });
                         totalExportValue += 1 * (Number(p.costPrice) || 0);
                     }
                 });
-
-                if (itemsToExport.length > 0) {
-                    ieLogs.push({
-                        id: 'IE_OUT_' + Date.now() + '_' + order.id.slice(-4),
-                        type: 'Xuất',
-                        target: order.channel || 'Bán Lẻ',
-                        totalAmount: totalExportValue,
-                        date: new Date().toISOString().slice(0, 16).replace('T', ' '),
-                        note: `Xuất kho giao hàng cho đơn: ${order.orderCode}`,
-                        itemsData: JSON.stringify(itemsToExport)
-                    });
-                }
             });
+
+            if (allItemsToExport.length > 0) {
+                let groupedItems = {};
+                allItemsToExport.forEach(item => {
+                    if (!groupedItems[item.name]) {
+                        groupedItems[item.name] = { ...item };
+                    } else {
+                        groupedItems[item.name].qty += item.qty;
+                    }
+                });
+                
+                ieLogs.push({
+                    id: 'IE_OUT_BULK_' + Date.now(),
+                    type: 'Xuất',
+                    target: 'Bàn Giao Khách Hàng',
+                    totalAmount: totalExportValue,
+                    date: new Date().toISOString().slice(0, 16).replace('T', ' '),
+                    note: `Xuất kho hàng loạt cho ${selectedOrders.length} đơn: ${orderCodes.join(', ')}`,
+                    itemsData: JSON.stringify(Object.values(groupedItems))
+                });
+            }
 
             const mergedProducts = {};
             productUpdates.forEach(p => {
@@ -529,18 +1043,77 @@ function OrdersTab({
     };
 
     const handleCancelOrder = async (order) => {
+        const isLayoutOrGlass = (pName) => {
+            const match = (erpProducts || []).find(x => String(x.name).trim() === String(pName).trim());
+            const cat = String(match?.category || '').toUpperCase();
+            return cat === 'LAYOUT' || cat === 'BỂ KÍNH';
+        };
+
         let currentStatus = String(order.status || '').toUpperCase().trim();
-        let isPackedOrShipped = currentStatus === 'SẴN SÀNG ĐÓNG GÓI' || currentStatus === 'CHỜ BÀN GIAO' || currentStatus === 'ĐÃ BÀN GIAO';
+        let isShipped = currentStatus === 'ĐÃ BÀN GIAO';
         
-        let targetStatus = isPackedOrShipped ? 'Hàng Hoàn' : 'Đơn Huỷ';
+        let targetStatus = isShipped ? 'Hàng Hoàn' : 'Đơn Huỷ';
         
         if (!window.confirm(`Xác nhận xử lý đơn ${order.orderCode}?\nĐơn sẽ được chuyển sang danh mục: [${targetStatus.toUpperCase()}]`)) return;
         
+        const localCode = (order.orderCode || '').split(' | MVĐ: ')[0];
+        let relatedTransactions = (erpData?.Transactions || []).filter(tx => 
+            (tx.title && tx.title.includes(localCode)) || 
+            (tx.note && tx.note.includes(localCode))
+        );
+        
+        if (relatedTransactions.length > 0) {
+            if (!window.confirm(`Đơn hàng này có ${relatedTransactions.length} phiếu thu/chi kèm theo.\nBạn có muốn XÓA luôn các phiếu này không?\nChọn OK để Xóa, Cancel để Giữ lại.`)) {
+                relatedTransactions = [];
+            }
+        }
+
+        let pureShippingCode = String(order.shippingCode || '').trim();
+        if (!pureShippingCode && String(order.orderCode || '').includes('MVĐ:')) {
+            pureShippingCode = String(order.orderCode).split('MVĐ:')[1].trim();
+        }
+        const codeToCancel = pureShippingCode.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+
+        if (codeToCancel && codeToCancel.length > 5) {
+            try {
+                const TOKEN = "5c588da0-1d0a-11ef-b3d7-824e1db0c320";
+                let shopId = "";
+                const shopRes = await fetch("https:\/\/online-gateway.ghn.vn/shiip/public-api/v2/shop/all", { headers: { "Content-Type": "application/json", "Token": TOKEN } }).then(r=>r.json()).catch(()=>({}));
+                if (shopRes.code === 200 && shopRes.data?.shops?.length > 0) shopId = shopRes.data.shops[0]._id;
+                const h = { "Content-Type": "application/json", "Token": TOKEN };
+                if (shopId) h["ShopId"] = shopId;
+                await fetch("https:\/\/online-gateway.ghn.vn/shiip/public-api/v2/switch-status/cancel", {
+                    method: "POST", headers: h, body: JSON.stringify({ order_codes: [codeToCancel] })
+                }).catch(()=>{});
+            } catch(e){}
+        }
+        
         try {
             let payload = { orders: [{ ...order, status: targetStatus }] };
-            const relatedProds = (prodItems || []).filter(p => p.orderId === order.id);
+            if (relatedTransactions.length > 0) {
+                payload.deletes = { Transactions: relatedTransactions.map(tx => tx.id) };
+            }
+            const relatedKPIs = (erpData?.BonusPenalty || []).filter(bp => 
+                bp.orderCode === order.orderCode || bp.orderCode === localCode || 
+                (bp.note && bp.note.includes(localCode))
+            );
+            if (relatedKPIs.length > 0) {
+                payload.deletes = payload.deletes || {};
+                payload.deletes.BonusPenalty = relatedKPIs.map(bp => bp.id);
+            }
+            const relatedProds = (prodItems || []).filter(p => p.orderId && p.orderId.includes(order.id));
             if (relatedProds.length > 0) {
-                payload.prodItems = relatedProds.map(p => ({ ...p, status: isPackedOrShipped ? 'Hàng Hoàn' : 'Đã Huỷ' }));
+                payload.prodItems = relatedProds.map(p => {
+                    const isComp = p.fulfilledFromStock === true || String(p.fulfilledFromStock).toUpperCase() === 'TRUE';
+                    let nextStatus = p.status;
+                    if (isShipped) {
+                        nextStatus = 'Hàng Hoàn';
+                    } else {
+                        // Cập nhật theo yêu cầu: Cứ Huỷ đơn là Huỷ luôn lệnh sản xuất (xóa sổ lệnh sản xuất)
+                        nextStatus = 'Đã Huỷ';
+                    }
+                    return { ...p, status: nextStatus };
+                });
             }
             
             if (currentStatus === 'ĐÃ BÀN GIAO') {
@@ -548,7 +1121,7 @@ function OrdersTab({
                 let productUpdates = [];
                 let totalRefundValue = 0;
                 
-                const accs = typeof order.accessories === 'string' ? JSON.parse(order.accessories || '[]') : (order.accessories || []);
+                const accs = typeof order.accessories === 'string' ? safeJSONParse(order.accessories) : (order.accessories || []);
                 accs.forEach(a => {
                     const qty = Number(a.quantity) || 1;
                     const p = (erpProducts || []).find(x => x.name === a.name);
@@ -560,7 +1133,7 @@ function OrdersTab({
                 });
 
                 relatedProds.forEach(rp => {
-                    if (rp.fulfilledFromStock) {
+                    if (rp.fulfilledFromStock || isLayoutOrGlass(rp.name)) {
                         const p = (erpProducts || []).find(x => x.name === rp.name);
                         if (p) {
                             productUpdates.push({ ...p, quantity: Number(p.quantity || 0) + 1 });
@@ -594,8 +1167,8 @@ function OrdersTab({
                 }
             }
             
-            await pushDeltas(payload, isPackedOrShipped ? 'Đã chuyển đơn về nhóm Chờ Hoàn!' : 'Đã hủy đơn thành công!', 'fa-ban');
-            if(isPackedOrShipped) {
+            await pushDeltas(payload, isShipped ? 'Đã chuyển đơn về nhóm Chờ Hoàn!' : 'Đã hủy đơn thành công!', 'fa-ban');
+            if(isShipped) {
                 triggerToast('Đơn hàng đã đóng gói/giao đi, hệ thống đã chuyển về mục Hàng Hoàn Chờ Xử!', 'fa-undo', 'warning');
             }
         } catch (e) {
@@ -606,7 +1179,7 @@ function OrdersTab({
     const handleConfirmStockIn = async (order) => {
         if (!window.confirm(`Xác nhận NHẬP KHO toàn bộ sản phẩm của lệnh ${order.orderCode}?`)) return;
         try {
-            const relatedProds = (prodItems || []).filter(p => p.orderId === order.id);
+            const relatedProds = (prodItems || []).filter(p => p.orderId && p.orderId.includes(order.id));
             if (relatedProds.length === 0) return triggerToast('Không có sản phẩm nào để nhập!', 'fa-exclamation', 'warning');
 
             let productUpdates = [];
@@ -644,151 +1217,328 @@ function OrdersTab({
 
     const openReturnModal = (order, item) => { triggerToast('Chức năng đang phát triển', 'fa-info', 'warning'); };
 
-    return (
-        <div className="space-y-4 pb-10">
-            <div className="space-y-3">
-                {/* 1. KHUNG TĨNH: NỘI QUY & QUY CHUẨN PHẠT (COLLAPSIBLE TO SAVE SPACE) */}
-                <div className="bg-gradient-to-r from-[#2a0808]/40 to-[#141414]/90 border border-rose-500/20 rounded-2xl shadow-md overflow-hidden transition-all duration-300">
-                    <div 
-                        onClick={() => setShowRules(!showRules)} 
-                        className="p-3 flex justify-between items-center cursor-pointer hover:bg-rose-500/5 transition-colors"
-                    >
-                        <div className="flex items-center gap-2">
-                            <i className="fas fa-gavel text-rose-500 text-[13px]"></i>
-                            <span className="font-black text-[11px] text-rose-400 uppercase tracking-widest">Nội Quy & Phạt Đóng Gói ({showRules ? 'Thu gọn' : 'Xem chi tiết'})</span>
-                        </div>
-                        <i className={`fas fa-chevron-${showRules ? 'up' : 'down'} text-rose-500/70 text-[10px] transition-transform`}></i>
-                    </div>
-                    
-                    {showRules && (
-                        <div className="p-4 pt-0 border-t border-rose-500/10 animate-fade-in">
-                            <ul className="text-[11px] text-gray-300 font-medium space-y-2.5 pl-1">
-                                <li className="flex items-start gap-2 leading-snug">
-                                    <i className="fas fa-times-circle text-[10px] text-rose-500/70 mt-0.5 shrink-0"></i>
-                                    <span>Kết thúc ca làm còn đơn sàn chưa đóng <b className="text-rose-400 bg-rose-500/10 px-1 py-0.5 rounded ml-1 border border-rose-500/20">-50k</b> <span className="text-gray-500 text-[9px]">/ 1 đơn</span></span>
-                                </li>
-                                <li className="flex items-start gap-2 leading-snug">
-                                    <i className="fas fa-times-circle text-[10px] text-rose-500/70 mt-0.5 shrink-0"></i>
-                                    <span>Có đơn hoàn huỷ trả về không kiểm <b className="text-rose-400 bg-rose-500/10 px-1 py-0.5 rounded ml-1 border border-rose-500/20">-20k</b> <span className="text-gray-500 text-[9px]">/ 1 đơn</span></span>
-                                </li>
-                                <li className="flex items-start gap-2 leading-snug">
-                                    <i className="fas fa-times-circle text-[10px] text-rose-500/70 mt-0.5 shrink-0"></i>
-                                    <span>Ảnh không khớp với đơn hàng, nhoè, mờ,... <b className="text-rose-400 bg-rose-500/10 px-1 py-0.5 rounded ml-1 border border-rose-500/20">-50k</b> <span className="text-gray-500 text-[9px]">/ 1 đơn</span></span>
-                                </li>
-                                <li className="flex items-start gap-2 leading-snug">
-                                    <i className="fas fa-times-circle text-[10px] text-rose-500/70 mt-0.5 shrink-0"></i>
-                                    <span>Trễ bàn giao cho shiper lỗi do đóng gói <b className="text-rose-400 bg-rose-500/10 px-1 py-0.5 rounded ml-1 border border-rose-500/20">-100k</b> <span className="text-gray-500 text-[9px]">/ tổng đơn</span></span>
-                                </li>
-                            </ul>
-                        </div>
-                    )}
-                </div>
+    const reconciliationInputRef = React.useRef(null);
+    const [isReconciling, setIsReconciling] = React.useState(false);
 
-                {/* 2. KHUNG CẬP NHẬT REALTIME 4 CỘT - DOANH THU & VẬN HÀNH */}
-                <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-[#0f0f11] border border-white/[0.07] p-3.5 rounded-2xl flex items-center justify-between group hover:border-emerald-500/20 transition-colors">
-                        <div>
-                            <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">Doanh thu hôm nay</span>
-                            <span className="text-[17px] font-black text-[#10b981] leading-none">{(realTimeSummary.revenueToday || 0).toLocaleString('vi-VN')}đ</span>
-                        </div>
-                        <div className="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center text-sm text-[#10b981] group-hover:scale-110 transition-transform"><i className="fas fa-wallet"></i></div>
+    const handleReconciliationImport = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        setIsReconciling(true);
+        triggerToast('Đang quét file báo cáo đối soát...', 'fa-spinner fa-spin', 'info');
+
+        try {
+            const reader = new FileReader();
+            reader.onload = async (evt) => {
+                try {
+                    const data = evt.target.result;
+                    const workbook = window.XLSX.read(data, { type: 'binary' });
+                    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const rows = window.XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+                    if (!rows || rows.length < 2) throw new Error('File rỗng');
+
+                    let headerIdx = 0;
+                    for (let i = 0; i < Math.min(15, rows.length); i++) {
+                        const rowStr = (rows[i] || []).join(' ').toLowerCase();
+                        if (rowStr.includes('mã đơn') || rowStr.includes('mã giao dịch') || rowStr.includes('order id') || rowStr.includes('mã tham chiếu')) {
+                            headerIdx = i; break;
+                        }
+                    }
+
+                    const headers = rows[headerIdx].map(h => String(h).toLowerCase().trim());
+                    
+                    const getCol = (keys) => headers.findIndex(h => keys.some(k => h.includes(k)));
+
+                    const iCode = getCol(['mã đơn', 'mã vận đơn', 'order id', 'mã tham chiếu']);
+                    const iAmt = getCol(['tổng số tiền được thanh toán', 'thực nhận', 'được thanh toán', 'thanh toán', 'số tiền', 'giá trị']);
+                    
+                    if (iCode === -1) {
+                        triggerToast('Không tìm thấy cột chứa Mã đơn hoặc Mã vận đơn!', 'fa-exclamation-triangle', 'danger');
+                        setIsReconciling(false);
+                        return;
+                    }
+
+                    const iFeeFixed = getCol(['phí cố định']);
+                    const iFeeService = getCol(['phí dịch vụ']);
+                    const iFeePayment = getCol(['phí thanh toán', 'phí giao dịch']);
+                    const iFeeAffiliate = getCol(['phí tiếp thị', 'affiliate']);
+                    const iShopVoucher = getCol(['mã giảm giá của shopee', 'shopee voucher']);
+                    const iTax = getCol(['thuế']);
+
+                    let matchedOrders = [];
+                    for (let i = headerIdx + 1; i < rows.length; i++) {
+                        const row = rows[i];
+                        if (!row[iCode]) continue;
+                        let code = String(row[iCode]).trim();
+                        
+                        // Prevent fake order codes (like STT 1,2,3)
+                        if (code.length < 5) {
+                            for(let c=0; c<row.length; c++) {
+                                const val = String(row[c] || '').trim();
+                                if (val.length >= 8 && /[A-Z0-9]{8,}/i.test(val) && !val.includes(' ') && !val.includes(':')) {
+                                    code = val; break;
+                                }
+                            }
+                        }
+
+                        let amt = 0;
+                        if (iAmt !== -1) {
+                            amt = Number(String(row[iAmt]).replace(/[^0-9.-]+/g,"")) || 0;
+                        }
+                        if (code && code !== 'undefined' && code.length >= 5) {
+                            matchedOrders.push({
+                                code: code, amount: amt,
+                                feeFixed: iFeeFixed !== -1 ? Number(String(row[iFeeFixed]).replace(/[^0-9.-]+/g,"")) || 0 : 0,
+                                feeService: iFeeService !== -1 ? Number(String(row[iFeeService]).replace(/[^0-9.-]+/g,"")) || 0 : 0,
+                                feePayment: iFeePayment !== -1 ? Number(String(row[iFeePayment]).replace(/[^0-9.-]+/g,"")) || 0 : 0,
+                                feeAffiliate: iFeeAffiliate !== -1 ? Number(String(row[iFeeAffiliate]).replace(/[^0-9.-]+/g,"")) || 0 : 0,
+                                shopVoucher: iShopVoucher !== -1 ? Number(String(row[iShopVoucher]).replace(/[^0-9.-]+/g,"")) || 0 : 0,
+                                tax: iTax !== -1 ? Number(String(row[iTax]).replace(/[^0-9.-]+/g,"")) || 0 : 0
+                            });
+                        }
+                    }
+
+                    if (matchedOrders.length === 0) {
+                        triggerToast('Không tìm thấy dữ liệu hợp lệ trong file.', 'fa-info-circle', 'info');
+                        setIsReconciling(false);
+                        return;
+                    }
+
+                    if (window.confirm(`Tìm thấy ${matchedOrders.length} mã đơn. Bạn có muốn kích hoạt chuyển trạng thái sang HOÀN THÀNH cho các đơn hợp lệ không?`)) {
+                        const accs = erpData?.Accounts || [];
+                        let defaultAcc = accs.find(a => a.accountName.toLowerCase().includes('shopee'));
+                        if (!defaultAcc) defaultAcc = accs[0];
+                        const accInput = window.prompt(`Nhập ID hoặc Tên Quỹ để chứa tiền Đối Soát (VD: Ví Shopee). Để trống sẽ bỏ qua tạo Sổ Quỹ.`, defaultAcc ? defaultAcc.accountName : '');
+                        let targetAccId = '';
+                        if (accInput) {
+                            const match = accs.find(a => a.id === accInput || a.accountName.toLowerCase().includes(accInput.toLowerCase()));
+                            if (match) targetAccId = match.id;
+                            else targetAccId = accInput; // fallback
+                        }
+
+                        triggerToast('Đang xử lý đối soát (Batch Process)...', 'fa-spinner fa-spin', 'info');
+                        const res = await runGAS('processReconciliationBatch', matchedOrders, targetAccId);
+                        if (res && res.success) {
+                            triggerToast(res.message + ` (Bỏ qua: ${res.notFoundCount})`, 'fa-check', 'success');
+                            if (res.updatedCount > 0) window.dispatchEvent(new CustomEvent('triggerReloadData'));
+                        } else {
+                            triggerToast(res?.message || 'Lỗi đối soát', 'fa-times', 'danger');
+                        }
+                    }
+                } catch (err) {
+                    triggerToast('File không đúng định dạng hoặc lỗi đọc dữ liệu', 'fa-exclamation-triangle', 'danger');
+                }
+                setIsReconciling(false);
+                if (reconciliationInputRef.current) reconciliationInputRef.current.value = '';
+            };
+            reader.readAsArrayBuffer(file);
+        } catch (err) {
+            triggerToast('Lỗi đọc file', 'fa-times', 'danger');
+            setIsReconciling(false);
+        }
+    };
+
+        // ==========================================
+        // 6. RENDER GIAO DIỆN
+        // ==========================================
+        return (
+            <div className="space-y-4 animate-fade-in relative pb-10">
+
+                <input type="file" accept=".xlsx, .xls" ref={reconciliationInputRef} className="hidden" onChange={handleReconciliationImport} />
+
+                {/* THANH CÔNG CỤ TÌM KIẾM & BỘ LỌC (SỬ DỤNG ATOMIC COMPONENTS) */}
+                <RFCard noPadding className="p-2 flex flex-col md:flex-row items-center gap-3 overflow-x-auto custom-scrollbar no-scrollbar shrink-0">
+                    <div className="flex items-center gap-2 pl-2 border-r border-[#333] pr-3 shrink-0">
+                        <i className="fas fa-bolt text-[#d4af37]"></i>
+                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">ACTIONS</span>
                     </div>
-                    <div className="bg-[#0f0f11] border border-white/[0.07] p-3.5 rounded-2xl flex items-center justify-between group hover:border-blue-500/20 transition-colors">
-                        <div>
-                            <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">Đơn mới hôm nay</span>
-                            <span className="text-[18px] font-black text-[#3b82f6] leading-none">{realTimeSummary.ordersToday} <span className="text-[9px] text-gray-500 font-bold">đơn</span></span>
-                        </div>
-                        <div className="w-8 h-8 rounded-xl bg-blue-500/10 flex items-center justify-center text-sm text-[#3b82f6] group-hover:scale-110 transition-transform"><i className="fas fa-shopping-cart"></i></div>
+                    <div className="flex gap-2 shrink-0">
+                        {(isAdmin || isCTV) && (
+                            <RFButton variant="outline" onClick={() => setAddingMode(true)} className="w-10 h-10 !p-0 rounded-xl" title="Thêm Đơn Mới">
+                                <i className="fas fa-plus text-lg"></i>
+                            </RFButton>
+                        )}
+                        {isAdmin && (
+                            <>
+                            <RFButton variant="ghost" onClick={() => window.dispatchEvent(new CustomEvent('openBulkImport'))} className="w-10 h-10 !p-0 rounded-xl hover:text-[#3b82f6]" title="Nhập File Excel">
+                                <i className="fas fa-file-excel"></i>
+                            </RFButton>
+                            <RFButton variant="ghost" onClick={() => setIsScanningReturn(true)} className="w-10 h-10 !p-0 rounded-xl hover:text-[#a855f7]" title="Quét Đơn Hoàn">
+                                <i className="fas fa-undo"></i>
+                            </RFButton>
+                            <RFButton variant="ghost" onClick={() => setIsBulkFinanceOpen(true)} className="w-10 h-10 !p-0 rounded-xl hover:text-[#10b981]" title="Đối Soát">
+                                <i className="fas fa-check-double"></i>
+                            </RFButton>
+                            <RFButton variant="ghost" onClick={() => setIsScanningCancel(true)} className="w-10 h-10 !p-0 rounded-xl hover:text-[#ef4444]" title="Quét Đơn Huỷ">
+                                <i className="fas fa-ban"></i>
+                            </RFButton>
+                            </>
+                        )}
                     </div>
-                    <div className="bg-[#0f0f11] border border-white/[0.07] p-3.5 rounded-2xl flex items-center justify-between group hover:border-yellow-500/20 transition-colors">
-                        <div>
-                            <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">Chờ đóng gói</span>
-                            <span className="text-[18px] font-black text-[#d4af37] leading-none">{realTimeSummary.needPack} <span className="text-[9px] text-gray-500 font-bold">đơn</span></span>
-                        </div>
-                        <div className="w-8 h-8 rounded-xl bg-yellow-500/10 flex items-center justify-center text-sm text-[#d4af37] group-hover:scale-110 transition-transform"><i className="fas fa-box-open"></i></div>
+                    <div className="flex-1"></div>
+                    <div className="flex gap-2 shrink-0 items-center mr-4">
+                        <RFButton 
+                            variant={isArchiveLoaded ? "outline" : "primary"} 
+                            onClick={loadArchiveData}
+                            disabled={isArchiveLoaded || isLoadingArchive}
+                            className={`rounded-xl px-4 py-2 ${isArchiveLoaded ? 'opacity-50 cursor-not-allowed border-green-500 text-green-500' : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg hover:scale-105'}`}
+                        >
+                            {isLoadingArchive ? <><i className="fas fa-spinner fa-spin mr-2"></i> Đang tải...</> : 
+                             isArchiveLoaded ? <><i className="fas fa-check-circle mr-2"></i> Đã nạp lịch sử</> : 
+                             <><i className="fas fa-history mr-2"></i> Tra cứu lịch sử cũ</>}
+                        </RFButton>
                     </div>
-                    <div className="bg-[#0f0f11] border border-white/[0.07] p-3.5 rounded-2xl flex items-center justify-between group hover:border-purple-500/20 transition-colors">
-                        <div>
-                            <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">Chờ bàn giao</span>
-                            <span className="text-[18px] font-black text-[#a78bfa] leading-none">{realTimeSummary.needHandover} <span className="text-[9px] text-gray-500 font-bold">đơn</span></span>
+                    <div className="flex gap-2 w-full md:max-w-xl shrink-0 items-center">
+                        <div className="flex-1">
+                            <RFInput value={searchCode} onChange={e => setSearchCode(e.target.value)} placeholder="Tìm mã đơn, khách hàng..." icon="fa-search" />
                         </div>
-                        <div className="w-8 h-8 rounded-xl bg-purple-500/10 flex items-center justify-center text-sm text-[#a78bfa] group-hover:scale-110 transition-transform"><i className="fas fa-shipping-fast"></i></div>
+                        <select value={filterTime} onChange={e => { setFilterTime(e.target.value); if (e.target.value !== 'Chọn Tháng' && e.target.value !== 'Tuỳ Chỉnh') setCustomMonth(''); }} className="h-[42px] w-[95px] bg-[#0a0a0a] border border-[#333] rounded-xl px-2 text-[10px] font-bold text-gray-300 outline-none focus:border-[#d4af37]">
+                            <option>Hôm Nay</option><option>Hôm Qua</option><option>Tuần Này</option><option>Tháng Này</option><option>Tháng Trước</option><option>Chọn Tháng</option><option>Tất Cả</option>
+                        </select>
+                        {(filterTime === 'Tuỳ Chỉnh' || filterTime === 'Chọn Tháng') && (
+                            <input type="month" value={customMonth} onChange={e => setCustomMonth(e.target.value)} className="h-[42px] w-[100px] bg-[#0a0a0a] border border-[#333] rounded-xl px-2 text-[10px] font-bold text-gray-300 outline-none focus:border-[#d4af37]" />
+                        )}
+                        {isAdmin && (
+                            <RFButton variant="ghost" onClick={async () => {
+                                triggerToast('Đang kết nối API GHN...', 'fa-spinner fa-spin', 'info');
+                                try {
+                                    const res = await runGAS('syncGHNViaAPI');
+                                    if (res.success) {
+                                        triggerToast(res.message, 'fa-check', 'success');
+                                        if (res.count > 0) window.dispatchEvent(new CustomEvent('triggerReloadData'));
+                                    } else {
+                                        triggerToast(res.message, 'fa-times', 'danger');
+                                    }
+                                } catch(e) { triggerToast('Lỗi server', 'fa-times', 'danger'); }
+                            }} className="w-10 h-10 !p-0 rounded-xl hover:text-[#f97316]" title="Đồng bộ tiến trình GHN">
+                                <i className="fas fa-sync"></i>
+                            </RFButton>
+                        )}
                     </div>
-                </div>
+                </RFCard>
+
 
                 {/* 3. CẢNH BÁO URGENT TỰ ĐỘNG */}
-                {realTimeSummary.urgentAlerts.length > 0 && (
+                {!isCTV && realTimeSummary.urgentAlerts.length > 0 && (
                     <div className="bg-[#2a0808] border border-red-900/40 rounded-2xl p-3 space-y-2 animate-pulse">
                         <div className="flex items-center gap-2 text-red-400 font-black text-[10px] uppercase tracking-wider border-b border-red-950/60 pb-1.5">
                             <i className="fas fa-exclamation-triangle text-red-500 text-sm"></i>
                             <span>CẢNH BÁO: ĐƠN HỦY & HOÀN TRẢ</span>
                         </div>
                         <div className="max-h-[130px] overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
-                            {realTimeSummary.urgentAlerts.map(alertOrder => (
-                                <div key={alertOrder.id} className="flex justify-between items-center bg-black/40 border border-red-950/50 px-2.5 py-1.5 rounded-xl text-[11px] font-bold">
-                                    <div className="flex items-center gap-2 truncate">
-                                        <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${alertOrder.status === 'Đơn Huỷ' ? 'bg-red-600 text-white' : 'bg-orange-500 text-white'}`}>
-                                            {alertOrder.status === 'Đơn Huỷ' ? 'HỦY' : 'HOÀN VỀ'}
-                                        </span>
-                                        <span className="text-zinc-100 font-mono font-black tracking-wide">{alertOrder.orderCode}</span>
-                                        <span className="text-zinc-500 truncate text-[10px]">({alertOrder.customer || 'Ẩn Danh'})</span>
+                            {realTimeSummary.urgentAlerts.map(alertOrder => {
+                                const isHuy = String(alertOrder.status || '').toUpperCase().includes('HỦY') || String(alertOrder.status || '').toUpperCase() === 'HUỶ';
+                                return (
+                                    <div key={alertOrder.id} className="flex justify-between items-center bg-black/40 border border-red-950/50 px-2.5 py-1.5 rounded-xl text-[11px] font-bold">
+                                        <div className="flex items-center gap-2 truncate">
+                                            <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase ${isHuy ? 'bg-red-600 text-white' : 'bg-orange-500 text-white'}`}>
+                                                {isHuy ? 'HUỶ' : 'HOÀN'}
+                                            </span>
+                                            <span className="text-zinc-100 font-mono font-black tracking-wide truncate">{alertOrder.orderCode.split(' | ')[0]}</span>
+                                        </div>
+                                        {isHuy ? (
+                                            <button onClick={() => {
+                                                setSearchCode(alertOrder.orderCode.split(' | ')[0]);
+                                                setFilterStatus('Đơn Hủy');
+                                            }} className="text-[9px] bg-red-600 hover:bg-red-500 text-white px-2.5 py-1 rounded-lg transition-all font-black uppercase tracking-wider shrink-0 active:scale-95">
+                                                Xem đơn
+                                            </button>
+                                        ) : (
+                                            <button onClick={() => {
+                                                setSearchCode(alertOrder.orderCode.split(' | ')[0]);
+                                                setFilterStatus('Hàng Hoàn');
+                                            }} className="text-[9px] bg-orange-600 hover:bg-orange-500 text-white px-2.5 py-1 rounded-lg transition-all font-black uppercase tracking-wider shrink-0 active:scale-95">
+                                                Kiểm hoàn
+                                            </button>
+                                        )}
                                     </div>
-                                    <span className={`font-black tracking-wider text-[9px] shrink-0 px-2 py-0.5 rounded border ${alertOrder.status === 'Đơn Huỷ' ? 'text-red-400 bg-red-950/40 border-red-900/30' : 'text-orange-400 bg-orange-950/40 border-orange-900/30'}`}>
-                                        {alertOrder.status === 'Đơn Huỷ' ? '⚠️ NGỪNG ĐÓNG GÓI' : '🔍 CHỜ KIỂM ĐỊNH'}
-                                    </span>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </div>
                 )}
-            </div>
-
-            {/* THANH CÔNG CỤ TÌM KIẾM & BỘ LỌC */}
-            <div className="flex gap-2 mb-4">
-                <div className="relative flex-1">
-                    <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"></i>
-                    <input type="text" placeholder="Tìm mã đơn, khách..." value={searchCode} onChange={e => setSearchCode(e.target.value)} className="w-full pl-9 pr-4 py-2.5 bg-[#0f0f11] border border-white/[0.07] rounded-xl text-[12px] font-bold text-[#f5f5f5] outline-none focus:border-[#d4af37]" />
+            {/* TỔNG HỢP DOANH THU THÁNG */}
+            {!isCTV && (
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                    <RFCard className="flex items-center justify-between group">
+                        <div className="absolute -right-6 -top-6 w-24 h-24 bg-[#10b981]/5 rounded-full blur-xl group-hover:bg-[#10b981]/15 transition-all"></div>
+                        <div className="relative z-10">
+                            <div className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Tổng Doanh Thu</div>
+                            <div className="text-[#10b981] font-black text-2xl drop-shadow-[0_0_10px_rgba(16,185,129,0.3)]">{formatMoney(summaryStats.totalRevenue)}đ</div>
+                        </div>
+                        <div className="w-12 h-12 rounded-2xl bg-[#10b981]/10 flex items-center justify-center text-[#10b981] text-xl border border-[#10b981]/20 relative z-10 group-hover:scale-110 transition-transform"><i className="fas fa-coins"></i></div>
+                    </RFCard>
+                    <RFCard className="flex items-center justify-between group">
+                        <div className="absolute -right-6 -top-6 w-24 h-24 bg-[#f97316]/5 rounded-full blur-xl group-hover:bg-[#f97316]/15 transition-all"></div>
+                        <div className="relative z-10">
+                            <div className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Hoàn Trả</div>
+                            <div className="text-[#f97316] font-black text-2xl drop-shadow-[0_0_10px_rgba(249,115,22,0.3)]">{formatMoney(summaryStats.totalReturnedValue)}đ</div>
+                        </div>
+                        <div className="w-12 h-12 rounded-2xl bg-[#f97316]/10 flex items-center justify-center text-[#f97316] text-xl border border-[#f97316]/20 relative z-10 group-hover:scale-110 transition-transform"><i className="fas fa-undo"></i></div>
+                    </RFCard>
+                    <RFCard className="flex items-center justify-between group">
+                        <div className="absolute -right-6 -top-6 w-24 h-24 bg-[#3b82f6]/5 rounded-full blur-xl group-hover:bg-[#3b82f6]/15 transition-all"></div>
+                        <div className="relative z-10">
+                            <div className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Bán Lẻ</div>
+                            <div className="text-[#3b82f6] font-black text-2xl drop-shadow-[0_0_10px_rgba(59,130,246,0.3)]">{formatMoney(summaryStats.totalRetail)}đ</div>
+                        </div>
+                        <div className="w-12 h-12 rounded-2xl bg-[#3b82f6]/10 flex items-center justify-center text-[#3b82f6] text-xl border border-[#3b82f6]/20 relative z-10 group-hover:scale-110 transition-transform"><i className="fas fa-store"></i></div>
+                    </RFCard>
+                    <RFCard className="flex items-center justify-between group">
+                        <div className="absolute -right-6 -top-6 w-24 h-24 bg-[#d4af37]/5 rounded-full blur-xl group-hover:bg-[#d4af37]/15 transition-all"></div>
+                        <div className="relative z-10">
+                            <div className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Cộng Tác Viên</div>
+                            <div className="text-[#d4af37] font-black text-2xl drop-shadow-[0_0_10px_rgba(212,175,55,0.3)]">{formatMoney(summaryStats.totalCtv)}đ</div>
+                        </div>
+                        <div className="w-12 h-12 rounded-2xl bg-[#d4af37]/10 flex items-center justify-center text-[#d4af37] text-xl border border-[#d4af37]/20 relative z-10 group-hover:scale-110 transition-transform"><i className="fas fa-handshake"></i></div>
+                    </RFCard>
                 </div>
-                
-                {/* NÚT KÍCH HOẠT MÁY QUÉT MÃ ĐƠN HOÀN */}
-                <button onClick={() => setIsScanningReturn(true)} className="bg-gradient-to-r from-orange-500 to-rose-500 hover:from-orange-400 hover:to-rose-400 text-white px-3.5 rounded-xl flex items-center justify-center font-black shadow-[0_0_15px_rgba(249,115,22,0.4)] active:scale-95 shrink-0 border border-orange-400/50 transition-all" title="Quét Đơn Hoàn bằng súng mã vạch hoặc PDF">
-                    <i className="fas fa-barcode text-lg"></i>
-                </button>
-
-                {isAdmin && (
-                    <button onClick={() => window.dispatchEvent(new CustomEvent('openBulkImport'))} className="bg-[#1e40af] text-white px-3 rounded-xl font-black text-[9px] shadow-sm active:scale-95 flex flex-col justify-center items-center border border-[#2563eb]/50 shrink-0">
-                        <i className="fas fa-file-excel mb-1 text-sm"></i> BƠM EXCEL
-                    </button>
-                )}
-                {isAdmin && (
-                    <button onClick={handleExportExcel} className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 rounded-xl font-black text-[9px] shadow-sm active:scale-95 flex flex-col justify-center items-center border border-emerald-500/50 shrink-0 transition-colors">
-                        <i className="fas fa-download mb-1 text-sm"></i> XUẤT EXCEL
-                    </button>
-                )}
-                {isAdmin && (
-                    <button onClick={() => setAddingMode(true)} className="bg-[#d4af37] hover:bg-yellow-500 text-[#0a0a0a] px-4 rounded-xl flex items-center justify-center font-black shadow-md active:scale-90 shrink-0 transition-colors">
-                        <i className="fas fa-plus text-lg"></i>
-                    </button>
-                )}
-                <select value={filterTime} onChange={e => setFilterTime(e.target.value)} className="w-[85px] bg-[#141414] rounded-xl border border-[#333] text-[9px] font-bold text-[#ccc] text-center shrink-0 outline-none">
-                    <option>Hôm Nay</option><option>Hôm Qua</option><option>Tuần Này</option><option>Tháng Này</option><option>Tất Cả</option>
-                </select>
-            </div>
+            )}
 
             {/* MENU TABS */}
-            <div className="flex gap-1.5 overflow-x-auto pb-2 custom-scrollbar no-scrollbar">
+            <div className="flex gap-2 overflow-x-auto pb-2 border-b border-[#2d313e] custom-scrollbar no-scrollbar w-full max-w-4xl mx-auto">
                 {tabs.map(t => {
                     const isActive = filterStatus === t.id;
                     return (
-                        <div key={t.id} onClick={() => setFilterStatus(t.id)} className={`flex-none px-3 py-2 border-b-2 rounded-t-lg text-[10px] font-black uppercase tracking-wider cursor-pointer transition-all ${isActive ? 'bg-[#0f0f11] text-[#d4af37] border-[#d4af37]' : 'bg-[#0a0a0c] border-transparent text-gray-500 hover:text-gray-300'}`}>
-                            {t.label} ({t.count})
+                        <div key={t.id} onClick={() => setFilterStatus(t.id)} className={`flex-1 text-center py-2 text-[11px] font-black uppercase tracking-wider cursor-pointer border-b-2 transition-all duration-300 ${isActive ? 'border-[var(--rf-primary)] text-[var(--rf-primary)]' : 'border-transparent text-[var(--rf-text-muted)] hover:text-white'}`}>
+                            {t.label} <span className={`ml-1 px-1.5 py-0.5 rounded text-[9px] ${isActive ? 'bg-[var(--rf-primary)] text-black' : 'bg-black/40 text-gray-300'}`}>({t.count})</span>
                         </div>
                     );
                 })}
             </div>
 
+            {/* SUB TABS FOR ĐÃ BÀN GIAO */}
+            {filterStatus === 'Đã Bàn Giao' && (
+                <div className="flex gap-2 overflow-x-auto pb-2 mb-2 custom-scrollbar no-scrollbar animate-fade-in border-b border-[#2d313e]">
+                    {['ALL', 'SHOPEE', 'BÁN LẺ', 'CTV', 'TIKTOK'].map(subTab => {
+                        const isActive = handoverSubTab === subTab;
+                        const labelMap = { 'ALL': 'Tất Cả', 'SHOPEE': 'Shopee', 'BÁN LẺ': 'Bán Lẻ', 'CTV': 'Cộng Tác Viên', 'TIKTOK': 'TikTok Shop' };
+                        return (
+                            <div key={subTab} onClick={() => setHandoverSubTab(subTab)} className={`flex-none px-4 py-2 text-[10px] font-bold uppercase tracking-wider cursor-pointer border-b-2 transition-all ${isActive ? 'border-[var(--rf-primary)] text-[var(--rf-primary)]' : 'border-transparent text-[var(--rf-text-muted)] hover:text-white'}`}>
+                                {labelMap[subTab]}
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* CHỌN TẤT CẢ (CHỜ BÀN GIAO) */}
+            {(filterStatus === 'Chờ Bàn Giao' || isAdmin || isBossRole || currentRole === 'QUẢN LÝ BÁN HÀNG') && !isCTV && sortedFiltered.length > 0 && (
+                <div className="flex items-center gap-3 bg-[#10b981]/10 border border-[#10b981]/20 rounded-xl p-3 mb-4 cursor-pointer hover:bg-[#10b981]/20 transition-colors" onClick={() => {
+                    const allIds = sortedFiltered.map(o => o.id);
+                    const allSelected = allIds.every(id => selectedIds.includes(id));
+                    if (allSelected) {
+                        setSelectedIds([]);
+                    } else {
+                        setSelectedIds(allIds);
+                    }
+                }}>
+                    <input type="checkbox" checked={sortedFiltered.every(o => selectedIds.includes(o.id))} readOnly className="w-5 h-5 accent-[#10b981] rounded cursor-pointer pointer-events-none" />
+                    <span className="text-[#10b981] font-black text-[12px] uppercase tracking-wider">CHỌN TẤT CẢ ({sortedFiltered.length} ĐƠN)</span>
+                </div>
+            )}
+
             {/* TÁC VỤ HÀNG LOẠT */}
-            {selectedIds.length > 0 && (
+            {!isCTV && selectedIds.length > 0 && (
                 <div className="sticky top-0 z-40 bg-[#0a0a0c] border border-white/[0.07] rounded-2xl p-4 mb-4 flex items-center justify-between gen2-glass">
                     <div className="flex items-center gap-3">
                         <div className="bg-[#2563eb] text-white px-4 py-1.5 rounded-xl font-black text-sm">ĐÃ CHỌN: {selectedIds.length} đơn</div>
@@ -807,41 +1557,74 @@ function OrdersTab({
                         <i className="fas fa-box-open text-3xl block mb-2 opacity-30"></i> Trống
                     </div>
                 ) : (
-                    sortedFiltered.map((o, idx) => {
+                    <>
+                    {sortedFiltered.slice(0, renderLimit).map((o, idx) => {
                         const latestPack = latestPackMap[o.id];
+                        const matchedProds = (prodItems || []).filter(p => {
+                            if (!p || !p.orderId || !o || !o.id) return false;
+                            const pOrd = String(p.orderId).trim();
+                            const oOrd = String(o.id).trim();
+                            if (pOrd === oOrd) return true;
+                            if (pOrd.startsWith(oOrd + '_')) return true;
+                            const parts = pOrd.split('|').map(x => x.trim());
+                            if (parts.includes(oOrd)) return true;
+                            if (parts.some(part => part.startsWith(oOrd + '_'))) return true;
+                            return false;
+                        });
                         return (
-                            <div key={o.id} className="mb-4">
-                                <OrderCardV2 
-                                    order={o} 
-                                    prods={(prodItems || []).filter(p => p.orderId === o.id)} 
-                                    pack={latestPack} 
-                                    erpProducts={erpProducts} 
-                                    erpData={erpData} 
-                                    isAdmin={isAdmin} 
-                                    currentUser={currentUser} 
-                                    pushDeltas={pushDeltas} 
-                                    prodItems={prodItems} 
-                                    userConfigs={userConfigs} 
-                                    triggerToast={triggerToast} 
-                                    isSelected={selectedIds.includes(o.id)} 
-                                    onToggleSelect={() => toggleSelect(o.id)}
-                                    kpiConfig={kpiConfig} 
-                                    idx_num={idx + 1}
-                                    handleCancelOrder={handleCancelOrder} 
-                                    handleConfirmStockIn={handleConfirmStockIn}
-                                    openReturnModal={openReturnModal} 
-                                    filterStatus={filterStatus}
-                                />
-                            </div>
+                            <RFOrderWrapper 
+                                key={o.id}
+                                attendance={attendance}
+                                order={o} 
+                                prods={matchedProds} 
+                                pack={latestPack} 
+                                erpProducts={erpProducts} 
+                                erpData={erpData} 
+                                isAdmin={isAdmin} 
+                                currentUser={currentUser} 
+                                pushDeltas={pushDeltas} 
+                                prodItems={prodItems} 
+                                userConfigs={userConfigs} 
+                                triggerToast={triggerToast} 
+                                isSelected={selectedIds.includes(o.id)} 
+                                onToggleSelect={() => toggleSelect(o.id)}
+                                kpiConfig={kpiConfig} 
+                                idx_num={idx + 1}
+                                handleCancelOrder={handleCancelOrder} 
+                                handleConfirmStockIn={handleConfirmStockIn}
+                                openReturnModal={openReturnModal} 
+                                filterStatus={filterStatus}
+                                onEditOrder={() => setEditingOrder({ order: o, prods: matchedProds })}
+                            />
                         );
-                    })
+                    })}
+                    {renderLimit < sortedFiltered.length && (
+                        <div className="pt-4 pb-2 flex justify-center">
+                            <RFButton variant="outline" onClick={() => setRenderLimit(prev => prev + 50)} className="w-full max-w-sm rounded-xl py-3 text-sm font-bold border-white/20 hover:bg-white/5">
+                                Tải thêm ({sortedFiltered.length - renderLimit} đơn)
+                            </RFButton>
+                        </div>
+                    )}
+                    </>
                 )}
             </div>
 
             {/* Modal Tạo Đơn & Máy Quét Mã Đơn Hoàn */}
-            {(addingMode || draftData) && <AddModal onClose={() => { setAddingMode(false); setDraftData(null); }} pushDeltas={pushDeltas} products={erpProducts} erpData={erpData} triggerToast={triggerToast} userConfigs={userConfigs} draftData={draftData} />}
+            {(addingMode || draftData || editingOrder) && <AddModal onClose={() => { setAddingMode(false); setDraftData(null); setEditingOrder(null); }} pushDeltas={pushDeltas} products={erpProducts} erpData={erpData} triggerToast={triggerToast} userConfigs={userConfigs} configGiaLayout={configGiaLayout} draftData={draftData} editOrder={editingOrder ? editingOrder.order : null} editProds={editingOrder ? editingOrder.prods : []} />}
             {isScanningReturn && <ReturnScannerModal onClose={() => setIsScanningReturn(false)} orders={orders} pushDeltas={pushDeltas} triggerToast={triggerToast} />}
+            {isScanningCancel && <CancelScannerModal onClose={() => setIsScanningCancel(false)} orders={orders} prodItems={prodItems} pushDeltas={pushDeltas} triggerToast={triggerToast} />}
+
+            {/* TRẠM ĐỐI SOÁT TÀI CHÍNH */}
+            {isBulkFinanceOpen && typeof BulkFinanceModal !== 'undefined' && (
+                <BulkFinanceModal
+                    onClose={() => setIsBulkFinanceOpen(false)}
+                    pushDeltas={pushDeltas}
+                    orders={orders}
+                    transactions={erpData?.Transactions || []}
+                    accounts={erpData?.Accounts || []}
+                />
+            )}
         </div>
     );
-}
+});
 </script>

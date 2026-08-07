@@ -6,29 +6,52 @@ function Login({ onLogin }) {
   const [pin, setPin] = React.useState("");
   const [loading, setLoading] = React.useState(false);
 
-  const handlePinChange = async (e) => {
-    const value = e.target.value;
-    setPin(value);
-
-    if (value.length >= 6) {
-      setLoading(true);
-      try {
-        const result = await runGAS('validatePin', value);
-        if (result && result.valid && result.user) {
-          if (result.isAdmin) localStorage.setItem('rf_admin', 'true');
-          if (result.isBoss) localStorage.setItem('rf_boss', 'true');
-          if (result.role) localStorage.setItem('rf_role', result.role);
-          
-          onLogin(result.user, result.isAdmin || false, result.isBoss || false, result.role || '');
-        } else {
-          alert('Sai mã PIN!');
-          setPin('');
+  const submitPin = async (value) => {
+    setLoading(true);
+    try {
+      const result = await runGAS('validatePin', value);
+      if (result && result.valid && result.user) {
+        localStorage.setItem('rf_pin', value);
+        document.cookie = `rf_pin=${value}; max-age=31536000; path=/`;
+        
+        if (result.isAdmin) {
+            localStorage.setItem('rf_admin', 'true');
+            document.cookie = `rf_admin=true; max-age=31536000; path=/`;
         }
-      } catch (err) {
-        alert('Lỗi xác thực. Vui lòng thử lại.');
+        if (result.isBoss) {
+            localStorage.setItem('rf_boss', 'true');
+            document.cookie = `rf_boss=true; max-age=31536000; path=/`;
+        }
+        if (result.role) {
+            localStorage.setItem('rf_role', result.role);
+            document.cookie = `rf_role=${result.role}; max-age=31536000; path=/`;
+        }
+        
+        onLogin(result.user, result.isAdmin || false, result.isBoss || false, result.role || '');
+      } else {
+        alert('Sai mã PIN!');
         setPin('');
       }
-      setLoading(false);
+    } catch (err) {
+      alert('Lỗi xác thực. Vui lòng thử lại.');
+      setPin('');
+    }
+    setLoading(false);
+  };
+
+  const handlePinChange = (e) => {
+    const value = e.target.value;
+    setPin(value);
+    
+    // Auto submit only if max length is reached (6)
+    if (value.length === 6) {
+      submitPin(value);
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && pin.length >= 4) {
+      submitPin(pin);
     }
   };
 
@@ -46,7 +69,7 @@ function Login({ onLogin }) {
               <p className="text-slate-500 text-[11px] font-bold mb-8 uppercase tracking-widest text-center">Nền tảng quản trị nội bộ</p>
               
               <div className="w-full relative">
-                  <input type="password" value={pin} onChange={handlePinChange} disabled={loading} className="w-full bg-white/60 border-2 border-slate-200 rounded-2xl px-4 py-4 text-center text-2xl font-black text-slate-800 tracking-[0.5em] outline-none focus:border-[#0284c7] focus:ring-4 focus:ring-sky-500/20 transition-all shadow-inner" placeholder="MÃ PIN" maxLength={6} autoFocus />
+                  <input type="password" inputMode="numeric" pattern="[0-9]*" value={pin} onChange={handlePinChange} onKeyDown={handleKeyDown} disabled={loading} className="w-full bg-white/60 border-2 border-slate-200 rounded-2xl px-4 py-4 text-center text-2xl font-black text-slate-800 tracking-[0.5em] outline-none focus:border-[#0284c7] focus:ring-4 focus:ring-sky-500/20 transition-all shadow-inner" placeholder="MÃ PIN" maxLength={6} autoFocus />
                   {loading && <div className="absolute right-4 top-1/2 -translate-y-1/2 text-[#0284c7]"><i className="fas fa-spinner fa-spin text-xl"></i></div>}
               </div>
           </div>
@@ -325,6 +348,988 @@ function ReturnSosModal({ sosTarget, erpProducts, order, packRecord, onClose, pu
                     <button onClick={handleSubmit} disabled={processing || !reason} className="flex-[2] py-3 bg-[#e11d48] text-white font-black rounded-xl text-[11px] active:scale-95 transition-all shadow-md disabled:opacity-50">
                         {processing ? <><i className="fas fa-spinner fa-spin"></i> ĐANG XỬ LÝ...</> : 'XÁC NHẬN SỰ CỐ'}
                     </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ==========================================
+// 6. MODAL TÍNH GIÁ CƯỚC VẬN CHUYỂN
+// ==========================================
+function FreightCalculatorModal({ visible, onClose }) {
+    const [length, setLength] = React.useState('');
+    const [width, setWidth] = React.useState('');
+    const [height, setHeight] = React.useState('');
+    const [priceType, setPriceType] = React.useState('light');
+
+    if (!visible) return null;
+
+    const l = parseFloat(length) || 0;
+    const w = parseFloat(width) || 0;
+    const h = parseFloat(height) || 0;
+
+    const convertedWeight = (l * w * h) / 5000;
+    const weightToUse = Math.ceil(convertedWeight);
+
+    let estimatedPrice = 0;
+    if (priceType === 'light') {
+        if (weightToUse <= 5) {
+            estimatedPrice = 30000;
+        } else {
+            estimatedPrice = 30000 + (weightToUse - 5) * 7000;
+        }
+    } else {
+        if (weightToUse <= 20) {
+            estimatedPrice = 140000;
+        } else {
+            estimatedPrice = 140000 + (weightToUse - 20) * 7000;
+        }
+    }
+
+    return (
+        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[9999] p-4 backdrop-blur-sm animate-fade-in">
+            <div className="bg-[#141414] border border-[#333] w-full max-w-md rounded-[24px] overflow-hidden shadow-2xl flex flex-col">
+                
+                {/* HEADER */}
+                <div className="bg-[#0a0a0a] p-4 border-b border-[#333] flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center text-lg">
+                            <i className="fas fa-truck-moving"></i>
+                        </div>
+                        <div>
+                            <div className="font-black text-sm text-zinc-100 tracking-wide uppercase">Tính Giá Cước</div>
+                            <div className="text-[10px] text-gray-500 font-bold uppercase">Dự toán cước vận chuyển</div>
+                        </div>
+                    </div>
+                    <button onClick={onClose} className="w-8 h-8 rounded-full bg-[#222] hover:bg-[#333] text-gray-400 flex items-center justify-center transition-colors active:scale-95">
+                        <i className="fas fa-times"></i>
+                    </button>
+                </div>
+
+                <div className="p-5 overflow-y-auto custom-scrollbar max-h-[80vh]">
+                    
+                    {/* BẢNG GIÁ ÁP DỤNG */}
+                    <div className="mb-5">
+                        <label className="text-[10px] font-black text-gray-400 block mb-3 uppercase tracking-wider">Bảng giá áp dụng</label>
+                        <div className="flex gap-2">
+                            <label className={`flex-1 p-3 rounded-xl border cursor-pointer flex flex-col gap-1 transition-all ${priceType === 'light' ? 'bg-orange-500/10 border-orange-500/50 text-orange-400' : 'bg-[#0a0a0a] border-[#333] text-gray-500'}`}>
+                                <input type="radio" name="priceType" className="hidden" checked={priceType === 'light'} onChange={() => setPriceType('light')} />
+                                <div className="font-black text-xs uppercase tracking-wide">Hàng nhẹ</div>
+                                <div className="text-[9px] opacity-80 font-bold">30k/5kg (thêm 1kg +7k)</div>
+                            </label>
+                            <label className={`flex-1 p-3 rounded-xl border cursor-pointer flex flex-col gap-1 transition-all ${priceType === 'heavy' ? 'bg-orange-500/10 border-orange-500/50 text-orange-400' : 'bg-[#0a0a0a] border-[#333] text-gray-500'}`}>
+                                <input type="radio" name="priceType" className="hidden" checked={priceType === 'heavy'} onChange={() => setPriceType('heavy')} />
+                                <div className="font-black text-xs uppercase tracking-wide">Hàng nặng</div>
+                                <div className="text-[9px] opacity-80 font-bold">140k min 20kg (thêm 1kg +7k)</div>
+                            </label>
+                        </div>
+                    </div>
+
+                    {/* THÔNG SỐ KÍCH THƯỚC */}
+                    <div className="mb-5">
+                        <label className="text-[10px] font-black text-gray-400 block mb-3 uppercase tracking-wider">Thông số kiện hàng (cm)</label>
+                        <div className="grid grid-cols-3 gap-3">
+                            <div>
+                                <div className="text-[9px] text-gray-500 mb-1 font-bold pl-1 uppercase">Chiều Dài</div>
+                                <input type="number" value={length} onChange={(e) => setLength(e.target.value)} placeholder="0" className="w-full bg-[#0a0a0a] border border-[#333] text-white text-sm font-black rounded-xl p-3 outline-none focus:border-orange-500/50 transition-colors text-center" />
+                            </div>
+                            <div>
+                                <div className="text-[9px] text-gray-500 mb-1 font-bold pl-1 uppercase">Chiều Rộng</div>
+                                <input type="number" value={width} onChange={(e) => setWidth(e.target.value)} placeholder="0" className="w-full bg-[#0a0a0a] border border-[#333] text-white text-sm font-black rounded-xl p-3 outline-none focus:border-orange-500/50 transition-colors text-center" />
+                            </div>
+                            <div>
+                                <div className="text-[9px] text-gray-500 mb-1 font-bold pl-1 uppercase">Chiều Cao</div>
+                                <input type="number" value={height} onChange={(e) => setHeight(e.target.value)} placeholder="0" className="w-full bg-[#0a0a0a] border border-[#333] text-white text-sm font-black rounded-xl p-3 outline-none focus:border-orange-500/50 transition-colors text-center" />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* KẾT QUẢ TÍNH TOÁN */}
+                    <div className="bg-[#0a0a0a] border border-[#333] rounded-2xl p-4 mb-2">
+                        <div className="flex justify-between items-center mb-3 pb-3 border-b border-[#222]">
+                            <span className="text-[11px] font-black text-gray-400 uppercase">Cân nặng quy đổi</span>
+                            <div className="text-right">
+                                <span className="text-lg font-black text-zinc-100">{convertedWeight > 0 ? convertedWeight.toFixed(2) : 0}</span>
+                                <span className="text-[10px] text-gray-500 ml-1">kg</span>
+                            </div>
+                        </div>
+                        <div className="flex justify-between items-center">
+                            <span className="text-[11px] font-black text-orange-400 uppercase">Cước dự kiến</span>
+                            <div className="text-right">
+                                <span className="text-2xl font-black text-orange-400">{estimatedPrice > 0 ? estimatedPrice.toLocaleString('vi-VN') : 0}</span>
+                                <span className="text-[12px] text-orange-400/70 ml-1">đ</span>
+                            </div>
+                        </div>
+                        <div className="text-[9px] text-gray-500 mt-3 text-center italic">
+                            * Giá cước thực tế có thể thay đổi tùy thuộc vào trọng lượng thực tế nếu lớn hơn trọng lượng quy đổi. (Trọng lượng tính cước = {weightToUse}kg)
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ==========================================
+// TÍNH GIÁ BỂ KÍNH
+// ==========================================
+function TankPriceModal({ visible, onClose }) {
+    const [glassType, setGlassType] = React.useState('280000');
+    const [glassPrice, setGlassPrice] = React.useState(280000);
+    const [length, setLength] = React.useState('');
+    const [width, setWidth] = React.useState('');
+    const [height, setHeight] = React.useState('');
+    const [extraCost, setExtraCost] = React.useState(50000);
+    const [showResult, setShowResult] = React.useState(false);
+
+    if (!visible) return null;
+
+    const handleGlassTypeChange = (e) => {
+        setGlassType(e.target.value);
+        setGlassPrice(Number(e.target.value));
+    };
+
+    const l = parseFloat(length) || 0;
+    const w = parseFloat(width) || 0;
+    const h = parseFloat(height) || 0;
+    const extra = parseFloat(extraCost) || 0;
+
+    const L = l / 100;
+    const W = w / 100;
+    const H = h / 100;
+
+    const area = (L * W) + (2 * L * H) + (2 * W * H);
+    const topPerimeter = (L + W) * 2;
+
+    const costOfGlass = area * glassPrice;
+    const costOfGrinding = topPerimeter * 25000;
+
+    const totalCost = costOfGlass + costOfGrinding + extra;
+    const sellPrice = totalCost * 1.45;
+
+    const handleCalculate = () => {
+        if (glassPrice <= 0 || l <= 0 || w <= 0 || h <= 0) {
+            alert("Vui lòng nhập đầy đủ Kích thước và Đơn giá (lớn hơn 0)!");
+            return;
+        }
+        setShowResult(true);
+    };
+
+    const role = localStorage.getItem('rf_role') || '';
+    const isBoss = localStorage.getItem('rf_boss') === 'true' || localStorage.getItem('rf_admin') === 'true';
+    const canViewCost = isBoss || ['QUẢN LÝ KHO', 'QUẢN LÝ KHO VẬN', 'KHO VẬN', 'KẾ TOÁN'].includes(role.toUpperCase());
+
+    // Close on outside click
+    const handleBackdropClick = (e) => {
+        if (e.target === e.currentTarget) {
+            onClose();
+            setShowResult(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={handleBackdropClick}>
+            <div className="bg-[#111] p-6 rounded-3xl border border-[#333] max-w-md w-full shadow-2xl flex flex-col relative animate-scale-up">
+                {/* Close Button */}
+                <button onClick={() => { onClose(); setShowResult(false); }} className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-[#222] text-gray-400 hover:text-white hover:bg-rose-500 transition-colors">
+                    <i className="fas fa-times"></i>
+                </button>
+
+                <h2 className="text-xl font-black text-center text-[#c084fc] mb-6 uppercase tracking-wider">Công Cụ Định Giá Bể Kính</h2>
+
+                <div className="space-y-4">
+                    {/* Chọn loại kính và Đơn giá tự động */}
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-[10px] font-black text-gray-400 mb-1.5 uppercase">Loại kính (li)</label>
+                            <select value={glassType} onChange={handleGlassTypeChange} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg px-3 py-2.5 text-sm font-bold text-white outline-none focus:border-[#c084fc] transition-colors">
+                                <option value="150000">Kính 3 li</option>
+                                <option value="200000">Kính 4 li</option>
+                                <option value="280000">Kính 5 li</option>
+                                <option value="450000">Kính 8 li</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-black text-gray-400 mb-1.5 uppercase">Đơn giá kính (VNĐ/m2)</label>
+                            <input type="number" value={glassPrice} onChange={(e) => setGlassPrice(Number(e.target.value))} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg px-3 py-2.5 text-sm font-bold text-white outline-none focus:border-[#c084fc]" placeholder="Nhập giá..." />
+                        </div>
+                    </div>
+
+                    {/* Kích thước */}
+                    <div>
+                        <label className="block text-[10px] font-black text-gray-400 mb-1.5 uppercase">Kích thước Bể (Dài x Rộng x Cao) - CM</label>
+                        <div className="flex items-center gap-2">
+                            <input type="number" value={length} onChange={e => setLength(e.target.value)} min="1" placeholder="Dài" className="w-1/3 bg-[#0a0a0a] border border-[#333] rounded-lg px-3 py-2.5 text-sm font-bold text-center text-white outline-none focus:border-[#c084fc]" />
+                            <span className="text-gray-500 font-bold">x</span>
+                            <input type="number" value={width} onChange={e => setWidth(e.target.value)} min="1" placeholder="Rộng" className="w-1/3 bg-[#0a0a0a] border border-[#333] rounded-lg px-3 py-2.5 text-sm font-bold text-center text-white outline-none focus:border-[#c084fc]" />
+                            <span className="text-gray-500 font-bold">x</span>
+                            <input type="number" value={height} onChange={e => setHeight(e.target.value)} min="1" placeholder="Cao" className="w-1/3 bg-[#0a0a0a] border border-[#333] rounded-lg px-3 py-2.5 text-sm font-bold text-center text-white outline-none focus:border-[#c084fc]" />
+                        </div>
+                    </div>
+
+                    {/* Chi phí phụ */}
+                    <div>
+                        <label className="block text-[10px] font-black text-gray-400 mb-1.5 uppercase">Chi phí phụ (Keo, nhân công, xốp) - VNĐ</label>
+                        <input type="number" value={extraCost} onChange={e => setExtraCost(e.target.value)} min="0" className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg px-3 py-2.5 text-sm font-bold text-white outline-none focus:border-[#c084fc]" placeholder="Nhập chi phí phụ..." />
+                    </div>
+
+                    <button onClick={handleCalculate} className="w-full py-3 mt-4 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white rounded-lg font-black tracking-wider uppercase transition-all shadow-[0_0_15px_rgba(147,51,234,0.3)] active:scale-[0.98]">
+                        Tính Giá Thành
+                    </button>
+                </div>
+
+                {/* Kết quả */}
+                {showResult && (
+                    <div className="mt-6 p-4 bg-[#1a1a1a] rounded-xl border-l-4 border-purple-500">
+                        {canViewCost && (
+                            <div className="flex justify-between items-center mb-2">
+                                <span className="text-gray-400 font-semibold text-sm">Giá Vốn Tổng:</span>
+                                <strong className="text-white text-lg">{Math.round(totalCost).toLocaleString('vi-VN')} đ</strong>
+                            </div>
+                        )}
+                        <div className="flex justify-between items-center mb-3">
+                            <span className="text-rose-400 font-black text-sm uppercase">Giá Bán (Biên độ 45%):</span>
+                            <strong className="text-rose-500 text-2xl font-black">{Math.round(sellPrice).toLocaleString('vi-VN')} đ</strong>
+                        </div>
+                        <div className="w-full h-px bg-[#333] my-3"></div>
+                        <p className="text-[11px] text-gray-500 text-center leading-relaxed">
+                            Sử dụng <strong className="text-gray-300">{area.toFixed(3)}</strong> m2 kính | Mài <strong className="text-gray-300">{topPerimeter.toFixed(2)}</strong> mét vi tính miệng bể.<br />
+                            Chi phí phụ được tính: <strong className="text-gray-300">{Math.round(extra).toLocaleString('vi-VN')}</strong> VNĐ.
+                        </p>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+// ==========================================
+// TÍNH GIÁ LAYOUT
+// ==========================================
+function LayoutCalculatorModal({ visible, onClose, configGiaLayout }) {
+    const [priceMode, setPriceMode] = React.useState('TÍNH GIÁ NHẬP CTV');
+    const [l, setL] = React.useState(50);
+    const [w, setW] = React.useState(30);
+    const [h, setH] = React.useState(30);
+    const [kieuDang, setKieuDang] = React.useState(1.0);
+    const [optDongGoi, setOptDongGoi] = React.useState(false);
+    const [optReu, setOptReu] = React.useState(false);
+    const [chiPhiPhu, setChiPhiPhu] = React.useState('');
+    
+    if (!visible) return null;
+
+    // Tính diện tích = (Dài*Rộng + Dài*Cao)/10000
+    const area = (l * w + l * h) / 10000;
+    const parseNum = (val) => {
+        if (!val && val !== 0) return 0;
+        const num = Number(String(val).replace(/[^0-9.-]+/g, ''));
+        return isNaN(num) ? 0 : num;
+    };
+    
+    const lNum = parseNum(l);
+    const wNum = parseNum(w);
+    const hNum = parseNum(h);
+    const maxSize = Math.max(lNum, wNum, hNum);
+    
+    let matchingRows = configGiaLayout ? configGiaLayout.filter(r => parseNum(r.Size_Max) >= maxSize).sort((a, b) => parseNum(a.Size_Max) - parseNum(b.Size_Max)) : [];
+    
+    let isFallback = false;
+    let maxBaremSize = 0;
+
+    if (matchingRows.length === 0 && configGiaLayout && configGiaLayout.length > 0) {
+        const sortedDesc = [...configGiaLayout].sort((a, b) => parseNum(b.Size_Max) - parseNum(a.Size_Max));
+        matchingRows = [sortedDesc[0]];
+        isFallback = true;
+        maxBaremSize = parseNum(sortedDesc[0].Size_Max) || 1;
+    }
+    
+    const barem = matchingRows.length > 0 ? matchingRows[0] : null;
+    let donGiaCoBan = barem ? parseNum(priceMode === 'BÁN LẺ' ? (barem.Gia_Ban_Le || barem.He_So_Gia) : barem.He_So_Gia) : 0;
+
+    // Áp dụng hệ số phụ trội nếu kích thước vượt barem lớn nhất
+    if (isFallback && maxBaremSize > 0) {
+        donGiaCoBan = donGiaCoBan * (maxSize / maxBaremSize);
+    }
+
+    const phiDongGoi = (optDongGoi && barem) ? parseNum(barem.Phi_Gui_Xuong) : 0;
+    const phiGanReu = (optReu && barem) ? parseNum(barem.Phi_Gan_Reu) : 0;
+    const extra = parseNum(chiPhiPhu);
+
+    const layoutGoc = area * donGiaCoBan * kieuDang;
+    const tongPhuPhi = phiDongGoi + phiGanReu;
+    const giaGocBanLe = layoutGoc + tongPhuPhi;
+    
+    const tongTien = giaGocBanLe + extra;
+
+    const formatMoney = (n) => Math.round(n).toLocaleString('vi-VN');
+
+    const handleBackdropClick = (e) => {
+        if (e.target === e.currentTarget) onClose();
+    };
+
+    return (
+        <React.Fragment>
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={handleBackdropClick}>
+                <div className="bg-[#0a0a0a] border border-[#d4af37]/30 rounded-2xl w-full max-w-[500px] shadow-[0_0_50px_rgba(212,175,55,0.15)] overflow-hidden flex flex-col max-h-[95vh] animate-scale-up">
+
+                    {/* HEADER */}
+                    <div className="flex justify-between items-center p-4 border-b border-[#222] shrink-0">
+                        <div className="flex items-center gap-3">
+                            <i className="fas fa-calculator text-[#d4af37]"></i>
+                            <h3 className="text-[16px] font-black text-[#d4af37] tracking-widest uppercase">ĐỊNH GIÁ LAYOUT</h3>
+                        </div>
+                        <button onClick={onClose} className="w-8 h-8 rounded-full bg-[#1a1a1a] flex items-center justify-center text-gray-400 hover:text-white hover:bg-[#333] transition-colors"><i className="fas fa-times"></i></button>
+                    </div>
+
+                    <div className="p-5 flex-1 overflow-y-auto custom-scrollbar">
+                        {/* TABS */}
+                        <div className="flex rounded-xl bg-[#141414] border border-[#222] p-1 mb-6">
+                            <div onClick={() => setPriceMode('BÁN LẺ')} className={`flex-1 text-center py-2 text-[12px] font-bold uppercase cursor-pointer rounded-lg transition-colors ${priceMode === 'BÁN LẺ' ? 'text-black bg-gradient-to-r from-emerald-500 to-emerald-400 shadow-sm' : 'text-gray-500 hover:bg-[#222]'}`}>Bán Lẻ</div>
+                            <div onClick={() => setPriceMode('TÍNH GIÁ NHẬP CTV')} className={`flex-1 text-center py-2 text-[12px] font-bold uppercase cursor-pointer rounded-lg transition-colors ${priceMode === 'TÍNH GIÁ NHẬP CTV' ? 'text-black bg-gradient-to-r from-[#d4af37] to-[#b8972e] shadow-sm' : 'text-gray-500 hover:bg-[#222]'}`}>Tính Giá Nhập CTV</div>
+                        </div>
+
+                        {/* KÍCH THƯỚC */}
+                        <div className="mb-5">
+                            <label className="text-[10px] font-bold text-gray-500 uppercase block mb-2 tracking-widest">KÍCH THƯỚC BỂ (DÀI x RỘNG x CAO) - CM</label>
+                            <div className="flex items-center gap-3">
+                                <input type="number" value={l} onChange={e => setL(e.target.value)} className="w-full bg-[#141414] border border-[#333] rounded-xl px-2 py-3 text-[16px] font-black text-white text-center outline-none focus:border-[#d4af37] transition-colors" />
+                                <span className="text-gray-600 font-bold">x</span>
+                                <input type="number" value={w} onChange={e => setW(e.target.value)} className="w-full bg-[#141414] border border-[#333] rounded-xl px-2 py-3 text-[16px] font-black text-white text-center outline-none focus:border-[#d4af37] transition-colors" />
+                                <span className="text-gray-600 font-bold">x</span>
+                                <input type="number" value={h} onChange={e => setH(e.target.value)} className="w-full bg-[#141414] border border-[#333] rounded-xl px-2 py-3 text-[16px] font-black text-white text-center outline-none focus:border-[#d4af37] transition-colors" />
+                            </div>
+                        </div>
+
+                        {/* KIỂU DÁNG & OPTIONS */}
+                        <div className="bg-[#141414] border border-[#222] rounded-xl p-4 mb-5">
+                            <label className="text-[10px] font-bold text-[#d4af37] uppercase block mb-2 tracking-widest">KIỂU DÁNG / MỨC ĐỘ PHỨC TẠP</label>
+                            <select id="ctv-kieu-dang" value={kieuDang} onChange={e => setKieuDang(Number(e.target.value))} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg px-3 py-3 text-[13px] font-bold text-white outline-none focus:border-[#d4af37] mb-4">
+                                <option value={1.0}>TRĂNG, BIOTOP CUỘI, ĐẢO BAY (Hệ số 1.0)</option>
+                                <option value={1.2}>VÁCH SUỐI, NHẤT TRỤ, CỔNG VÒM (Hệ số 1.2)</option>
+                                <option value={1.5}>NATURE, CẦU VỒNG (Hệ số 1.5)</option>
+                                <option value={2.0}>HANG ĐỘNG, HẺM NÚI (Hệ số 2.0)</option>
+                                <option value={2.2}>RỪNG, BONSAI (Hệ số 2.2)</option>
+                                <option value={3.0}>COVER 3.0 (Hệ số 3.0)</option>
+                                <option value={5.0}>LINH THÚ (Hệ số 5.0)</option>
+                            </select>
+
+                            <div className="space-y-3">
+                                <label className="flex items-center justify-between group cursor-pointer">
+                                    <span className="text-[12px] font-bold text-gray-300 group-hover:text-white transition-colors uppercase">Dịch vụ đóng gói gia cố đơn hàng</span>
+                                    <input type="checkbox" checked={optDongGoi} onChange={e => setOptDongGoi(e.target.checked)} className="w-5 h-5 rounded border-[#444] bg-[#0a0a0a] text-[#d4af37] focus:ring-[#d4af37] accent-[#d4af37]" />
+                                </label>
+                                <label className="flex items-center justify-between group cursor-pointer">
+                                    <span className="text-[12px] font-bold text-gray-300 group-hover:text-white transition-colors uppercase">Gắn thêm rêu giả</span>
+                                    <input type="checkbox" checked={optReu} onChange={e => setOptReu(e.target.checked)} className="w-5 h-5 rounded border-[#444] bg-[#0a0a0a] text-[#d4af37] focus:ring-[#d4af37] accent-[#d4af37]" />
+                                </label>
+                            </div>
+                        </div>
+
+                        {/* CHI TẾT GIÁ */}
+                        <div className="mb-6">
+                            <div>
+                                <label className="text-[10px] font-bold text-gray-500 uppercase block mb-2 tracking-widest">CHI PHÍ PHỤ TÙY CHỈNH (VNĐ)</label>
+                                <input type="number" value={chiPhiPhu} onChange={e => setChiPhiPhu(e.target.value)} placeholder="0" className="w-full bg-[#141414] border border-[#222] rounded-xl px-4 py-3 text-[14px] font-bold text-white outline-none focus:border-[#d4af37] transition-colors" />
+                            </div>
+                        </div>
+
+                        {/* KẾT QUẢ */}
+                        <div className="border-t border-[#222] pt-5 space-y-3">
+                            <div className="flex justify-between items-center text-[13px]">
+                                <span className="text-gray-400">Diện tích thiết kế quy đổi:</span>
+                                <span className="text-white font-bold">{area.toFixed(3)} m2</span>
+                            </div>
+                            <div className="flex justify-between items-start text-[13px]">
+                                <div className="flex flex-col">
+                                    <span className={isFallback ? "text-amber-500 font-bold" : "text-gray-400"}>Đơn giá cơ bản {barem ? `(Bể ${barem.Size_Max})` : ''}:</span>
+                                    {isFallback && <span className="text-[10px] text-amber-500/80 italic mt-0.5 max-w-[200px]">Kích thước vượt barem chuẩn. Đang nhân tỷ lệ phụ trội.</span>}
+                                </div>
+                                <span className={`font-bold ${isFallback ? 'text-amber-500' : 'text-white'}`}>{formatMoney(donGiaCoBan)} đ/m2</span>
+                            </div>
+                            <div className="flex justify-between items-center text-[13px]">
+                                <span className="text-gray-400">Tiền Layout (Gốc x Hệ số {kieuDang}):</span>
+                                <span className="text-white font-bold">{formatMoney(layoutGoc)} đ</span>
+                            </div>
+                            <div className="flex justify-between items-center text-[13px]">
+                                <span className="text-gray-400">Tổng phụ phí gia cố, rêu:</span>
+                                <span className="text-white font-bold">{formatMoney(tongPhuPhi)} đ</span>
+                            </div>
+                            
+                            <div className="flex justify-between items-center pt-2 mt-2 border-t border-[#333]">
+                                <span className={`text-[16px] font-black ${priceMode === 'BÁN LẺ' ? 'text-emerald-500' : 'text-[#d4af37]'}`}>GIÁ TỔNG:</span>
+                                <span className={`text-[20px] font-black ${priceMode === 'BÁN LẺ' ? 'text-emerald-500' : 'text-[#d4af37]'}`}>{formatMoney(tongTien)} VNĐ</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </React.Fragment>
+    );
+}
+
+// ==========================================
+// MODAL BẢNG GIÁ SẢN PHẨM
+// ==========================================
+function PriceListModal({ visible, onClose, triggerToast, erpProducts = [] }) {
+    const [activeTab, setActiveTab] = React.useState('be-kinh');
+    const [searchTerm, setSearchTerm] = React.useState('');
+
+    if (!visible) return null;
+
+    const role = localStorage.getItem('rf_role') || '';
+    const isBoss = localStorage.getItem('rf_boss') === 'true' || localStorage.getItem('rf_admin') === 'true';
+    const canViewCost = isBoss || ['QUẢN LÝ KHO', 'QUẢN LÝ KHO VẬN', 'KHO VẬN', 'KẾ TOÁN'].includes(role.toUpperCase());
+
+    const fmt = (val) => new Intl.NumberFormat('vi-VN').format(val || 0);
+    const fmtPrice = (val) => fmt(val) + ' ₫';
+
+    const tabs = [
+        { id: 'layout', label: 'Layout' },
+        { id: 'be-kinh', label: 'Bể Kính' },
+        { id: 'phu-kien', label: 'Phụ Kiện' }
+    ];
+
+    // Lọc dữ liệu theo tab và tìm kiếm
+    const activeData = erpProducts.filter(p => {
+        if (!p.category) return false;
+        const cat = p.category.toLowerCase();
+        
+        if (activeTab === 'layout' && !cat.includes('layout')) return false;
+        if (activeTab === 'be-kinh' && (!cat.includes('kính') && !cat.includes('bể'))) return false;
+        if (activeTab === 'phu-kien' && !cat.includes('phụ kiện')) return false;
+
+        if (searchTerm) {
+            const term = searchTerm.toLowerCase();
+            const skuMatch = p.sku && p.sku.toLowerCase().includes(term);
+            const nameMatch = p.name && p.name.toLowerCase().includes(term);
+            return skuMatch || nameMatch;
+        }
+        return true;
+    });
+
+    // Hàm Copy mã nhanh
+    const handleCopy = (text) => {
+        navigator.clipboard.writeText(text);
+        if (typeof triggerToast === 'function') triggerToast('Đã copy mã: ' + text, 'fa-copy', 'success');
+    };
+
+    return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+            <div className="bg-[#111] rounded-3xl border border-[#333] max-w-4xl w-full shadow-2xl flex flex-col relative h-[80vh] animate-scale-up overflow-hidden">
+                {/* Header */}
+                <div className="p-5 border-b border-[#333] flex justify-between items-center bg-[#0a0a0a]">
+                    <h2 className="text-lg font-black text-sky-400 uppercase tracking-wider flex items-center"><i className="fas fa-tags mr-3"></i> Bảng Giá Sản Phẩm Tham Khảo</h2>
+                    <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full bg-[#222] text-gray-400 hover:text-white hover:bg-rose-500 transition-colors">
+                        <i className="fas fa-times"></i>
+                    </button>
+                </div>
+
+                {/* Body */}
+                <div className="flex-1 overflow-hidden flex flex-col p-6">
+                    {/* Thanh điều khiển (Tab + Search) */}
+                    <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+                        <div className="flex space-x-2 bg-[#1a1a1a] p-1 rounded-xl">
+                            {tabs.map(tab => (
+                                <button key={tab.id} onClick={() => setActiveTab(tab.id)} 
+                                    className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${activeTab === tab.id ? 'bg-sky-500 text-white shadow-md' : 'text-gray-400 hover:text-white hover:bg-[#333]'}`}>
+                                    {tab.label}
+                                </button>
+                            ))}
+                        </div>
+                        <div className="relative w-full md:w-64">
+                            <i className="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500"></i>
+                            <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} placeholder="Tìm mã hoặc tên SP..." 
+                                className="w-full bg-[#1a1a1a] border border-[#333] rounded-xl pl-9 pr-4 py-2 text-sm font-bold text-white outline-none focus:border-sky-500 transition-colors" />
+                        </div>
+                    </div>
+
+                    {/* Vùng Bảng Giá */}
+                    <div className="flex-1 overflow-x-auto overflow-y-auto custom-scrollbar border border-[#333] rounded-xl bg-[#0a0a0a]">
+                        <table className="w-full text-left text-sm text-gray-300 whitespace-nowrap">
+                            <thead className="bg-[#1a1a1a] text-xs uppercase font-black text-gray-500 sticky top-0 z-20 shadow-sm">
+                                <tr>
+                                    <th className="px-4 py-3 sticky left-0 z-30 bg-[#1a1a1a]">Tên Hàng</th>
+                                    <th className="px-4 py-3 text-right text-sky-400">Giá Bán</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-[#222]">
+                                {activeData.length > 0 ? activeData.map((item, idx) => (
+                                    <tr key={idx} className="hover:bg-[#111] transition-colors group">
+                                        <td className="px-4 py-3 font-bold text-white sticky left-0 z-10 bg-[#0a0a0a] group-hover:bg-[#111]">{item.name}</td>
+                                        <td className="px-4 py-3 text-right font-black text-sky-400">{fmtPrice(item.price)}</td>
+                                    </tr>
+                                )) : (
+                                    <tr><td colSpan={2} className="px-4 py-8 text-center text-gray-500 font-bold">Không tìm thấy sản phẩm nào!</td></tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function StaffReimbursementModal({ visible, onClose, pushDeltas, currentUser, triggerToast }) {
+  const [amount, setAmount] = React.useState('');
+  const [reason, setReason] = React.useState('');
+  const [qrCodeUrl, setQrCodeUrl] = React.useState('');
+  const [isUploading, setIsUploading] = React.useState(false);
+
+  if (!visible) return null;
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setIsUploading(true);
+    try {
+        let base64 = "";
+        if (typeof resizeImage === 'function') {
+            const resImg = await resizeImage(file, 800, 800);
+            base64 = resImg.includes(',') ? resImg.split(',')[1] : resImg;
+        } else {
+            base64 = await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (ev) => resolve(ev.target.result.split(',')[1]);
+                reader.readAsDataURL(file);
+            });
+        }
+        
+        triggerToast("Đang tải ảnh lên máy chủ...", "fa-spinner fa-spin", "info");
+        const url = await runGAS('uploadImage', base64, `QR_REIM_${Date.now()}.jpg`);
+        
+        if (url) {
+            setQrCodeUrl(url);
+            triggerToast("Tải ảnh thành công!", "fa-check", "success");
+        } else {
+            triggerToast("Lỗi khi upload ảnh", "fa-times", "danger");
+        }
+        setIsUploading(false);
+    } catch(err) {
+        setIsUploading(false);
+        triggerToast("Lỗi xử lý ảnh", "fa-times", "danger");
+    }
+  };
+
+  const handleSubmit = () => {
+    if (!amount || !reason || !qrCodeUrl) {
+      triggerToast("Vui lòng nhập đủ thông tin và upload QR!", "fa-exclamation-triangle", "warning");
+      return;
+    }
+    const req = {
+      id: 'REIM_' + Date.now(),
+      staffName: currentUser,
+      reason: reason,
+      amount: Number(amount),
+      qrCodeUrl: qrCodeUrl,
+      status: 'Chờ Duyệt',
+      createdAt: new Date().toISOString()
+    };
+    pushDeltas({ Reimbursements: [req] });
+    triggerToast("Đã gửi yêu cầu hoàn tiền!", "fa-check", "success");
+    setAmount('');
+    setReason('');
+    setQrCodeUrl('');
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+      <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
+        <div className="bg-gray-800 p-4 border-b border-gray-700 flex justify-between items-center">
+          <h2 className="text-xl font-bold text-yellow-500"><i className="fas fa-hand-holding-usd mr-2"></i> YÊU CẦU THANH KHOẢN</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-white text-2xl leading-none">&times;</button>
+        </div>
+        <div className="p-6 space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-gray-400 mb-1">SỐ TIỀN (VNĐ)</label>
+            <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full bg-[#1a1a1a] border border-[#333] rounded-lg px-3 py-2 text-white font-bold outline-none focus:border-yellow-500 transition-colors" placeholder="VD: 50000" />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-400 mb-1">LÝ DO ỨNG/HOÀN</label>
+            <input type="text" value={reason} onChange={(e) => setReason(e.target.value)} className="w-full bg-[#1a1a1a] border border-[#333] rounded-lg px-3 py-2 text-white outline-none focus:border-yellow-500 transition-colors" placeholder="VD: Mua keo 502" />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-400 mb-1">MÃ QR NHẬN TIỀN</label>
+            <div className="flex items-center gap-4">
+              <label className="cursor-pointer bg-gray-800 border border-dashed border-gray-600 rounded-lg px-4 py-2 hover:bg-gray-700 transition">
+                <span className="text-sm font-bold text-gray-300">{isUploading ? 'Đang tải...' : 'Tải ảnh lên'}</span>
+                
+                {/* Đã thay đổi accept để tránh lỗi JSX compiler ăn comment */}
+                <input type="file" className="hidden" accept="image/png, image/jpeg, image/webp, image/jpg" onChange={handleFileChange} />
+                
+              </label>
+              {qrCodeUrl && <img src={qrCodeUrl} className="h-16 w-16 object-cover rounded border border-gray-600" alt="QR" />}
+            </div>
+          </div>
+        </div>
+        <div className="p-4 bg-gray-800 flex justify-end gap-3">
+          <button onClick={onClose} className="px-4 py-2 bg-gray-700 text-gray-300 rounded hover:bg-gray-600 font-bold transition-colors">Đóng</button>
+          <button onClick={handleSubmit} className="px-6 py-2 bg-yellow-600 text-white font-bold rounded shadow hover:bg-yellow-500 transition-colors">GỬI YÊU CẦU</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+function AdminApprovalModal({ data, onClose, pushDeltas, triggerToast }) {
+  if (!data) return null;
+  const requestData = data;
+
+  const handleCopyQR = async () => {
+    try {
+      if (requestData.qrCodeUrl.startsWith('data:image')) {
+        const response = await fetch(requestData.qrCodeUrl);
+        const blob = await response.blob();
+        await navigator.clipboard.write([new ClipboardItem({[blob.type]: blob})]);
+        triggerToast('Đã copy mã QR thành công!', 'fa-check', 'success');
+      } else {
+        const img = new Image();
+        img.crossOrigin = 'Anonymous';
+        img.src = requestData.qrCodeUrl;
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0);
+          canvas.toBlob(async (blob) => {
+             try {
+                 await navigator.clipboard.write([new ClipboardItem({'image/png': blob})]);
+                 triggerToast('Đã copy mã QR thành công!', 'fa-check', 'success');
+             } catch(err) {
+                 triggerToast('Trình duyệt chặn copy. Hãy Chuột Phải -> Sao chép hình ảnh', 'fa-info-circle', 'warning');
+             }
+          }, 'image/png');
+        };
+        img.onerror = () => {
+             triggerToast('Trình duyệt chặn tải ảnh. Hãy Chuột Phải -> Sao chép hình ảnh', 'fa-info-circle', 'warning');
+        }
+      }
+    } catch (e) {
+      triggerToast('Hãy bấm Chuột Phải -> Sao chép hình ảnh', 'fa-info-circle', 'warning');
+    }
+  };
+
+  const handleApprove = () => {
+    // Xoá Yêu cầu khỏi Vùng đệm
+    pushDeltas({ deletes: { Reimbursements: [requestData.id] } });
+
+    window.pendingAction = 'createTransaction';
+    window.dispatchEvent(new CustomEvent('globalNavigateAndTrigger', { 
+      detail: { 
+        tab: 'cashflow', 
+        trigger: 'triggerCreateTransaction', 
+        data: {
+          amount: requestData.amount,
+          title: `Hoàn tiền vật tư: ${requestData.reason}`,
+          note: `Hoàn cho nhân viên ${requestData.staffName}`
+        }, 
+        mode: 'ERP' 
+      } 
+    }));
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+      <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
+        
+        {/* Header */}
+        <div className="bg-gray-800 p-4 border-b border-gray-700 flex justify-between items-center">
+          <h2 className="text-xl font-bold text-yellow-500"><i className="fas fa-check-circle mr-2"></i> DUYỆT HOÀN TIỀN</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-white text-2xl leading-none">&times;</button>
+        </div>
+
+        {/* Body - Hiển thị QR và Thông tin */}
+        <div className="p-6 space-y-4">
+          <div className="text-center">
+             <p className="text-gray-300">Người nhận: <span className="text-white font-bold text-lg">{requestData.staffName}</span></p>
+             <p className="text-gray-300">Lý do: <span className="text-white text-lg">{requestData.reason}</span></p>
+             <p className="text-3xl font-black text-green-400 my-4">{Number(requestData.amount).toLocaleString('vi-VN')} VNĐ</p>
+          </div>
+          
+          {/* Vùng hiển thị QR Code */}
+          <div className="flex flex-col items-center">
+              <div className="flex justify-center bg-white p-2 rounded-lg max-w-[220px] mx-auto border-4 border-yellow-500 shadow-lg">
+                 <img src={requestData.qrCodeUrl} alt="QR Code Thanh Toán" className="w-full h-auto object-contain" />
+              </div>
+              <button onClick={handleCopyQR} className="mt-3 px-4 py-1.5 bg-[#333] hover:bg-yellow-500 hover:text-black text-yellow-500 border border-yellow-500/50 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5">
+                  <i className="fas fa-copy"></i> COPY MÃ QR NÀY
+              </button>
+          </div>
+          <p className="text-xs text-center text-gray-500 italic mt-4">* Hãy dùng app ngân hàng quét QR trên để chuyển khoản trước khi bấm Xác nhận.</p>
+        </div>
+
+        {/* Footer - Nút Hành Động */}
+        <div className="p-4 bg-gray-800 flex justify-end gap-3">
+          <button onClick={onClose} className="px-4 py-2 bg-gray-700 text-gray-300 rounded hover:bg-gray-600 font-bold transition-colors">Đóng</button>
+          <button 
+            onClick={handleApprove}
+            className="px-6 py-2 bg-yellow-600 text-white font-bold rounded shadow hover:bg-yellow-500 transition-colors"
+          >
+            ĐÃ CHUYỂN & TẠO PHIẾU CHI
+          </button>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// COMPONENT: BÚT VẼ & ĐÁNH DẤU LỖI TRÊN ẢNH (KÈM LÝ DO NHANH)
+// ==========================================
+function ImageAnnotationModal({ item, onClose, onSave }) {
+    const readOnly = item._readOnly || false;
+    const [selectedImg, setSelectedImg] = React.useState('front'); 
+    const [pinsFront, setPinsFront] = React.useState([]);
+    const [pinsSide, setPinsSide] = React.useState([]);
+    const [activePin, setActivePin] = React.useState(null); 
+    const [quickNotes, setQuickNotes] = React.useState([]);
+    const [extraText, setExtraText] = React.useState('');
+    const imgRef = React.useRef(null);
+
+    React.useEffect(() => {
+        if (item.qc_note) {
+            try {
+                const parsed = JSON.parse(item.qc_note);
+                setPinsFront(parsed.front || []);
+                setPinsSide(parsed.side || []);
+                if (parsed.front && parsed.front.length === 0 && parsed.side && parsed.side.length > 0) {
+                    setSelectedImg('side');
+                }
+            } catch(e) {}
+        }
+    }, [item]);
+
+    const QUICK_REASONS = [
+        "Sai bố cục / Tỷ lệ", 
+        "Rễ đơ / Sai hướng", 
+        "Ghép đá lộ mí", 
+        "Không giống mẫu",
+        "Form chưa bay",
+        "Làm quá ẩu"
+    ];
+
+    const handleImgClick = (e) => {
+        if (activePin) { setActivePin(null); return; } 
+        if (readOnly) return;
+        
+        const currentPins = selectedImg === 'front' ? pinsFront : pinsSide;
+        if (currentPins.length >= 5) {
+            alert('Chỉ được gắn tối đa 5 điểm lỗi trên mỗi ảnh!');
+            return;
+        }
+
+        const rect = e.target.getBoundingClientRect();
+        const x = ((e.clientX - rect.left) / rect.width) * 100;
+        const y = ((e.clientY - rect.top) / rect.height) * 100;
+        
+        const newPin = { x, y, text: '' };
+        if (selectedImg === 'front') {
+            setPinsFront([...pinsFront, newPin]);
+            setActivePin({ imgType: 'front', index: pinsFront.length });
+        } else {
+            setPinsSide([...pinsSide, newPin]);
+            setActivePin({ imgType: 'side', index: pinsSide.length });
+        }
+    };
+
+    const updatePinText = (text) => {
+        if (!activePin) return;
+        const { imgType, index } = activePin;
+        if (imgType === 'front') {
+            const newPins = [...pinsFront];
+            newPins[index].text = text;
+            setPinsFront(newPins);
+        } else {
+            const newPins = [...pinsSide];
+            newPins[index].text = text;
+            setPinsSide(newPins);
+        }
+    };
+
+    const toggleQuickNote = (reason) => {
+        if (readOnly) return;
+        if (quickNotes.includes(reason)) setQuickNotes(quickNotes.filter(r => r !== reason));
+        else setQuickNotes([...quickNotes, reason]);
+    };
+
+    const handleSave = () => {
+        const hasAnyPin = pinsFront.length > 0 || pinsSide.length > 0;
+        
+        let finalReason = [];
+        if (quickNotes.length > 0) finalReason.push(quickNotes.join(', '));
+        if (extraText.trim()) finalReason.push(extraText.trim());
+        
+        let note = "TỪ CHỐI KHUNG";
+        if (finalReason.length > 0) note += `: ${finalReason.join(' | ')}`;
+        if (hasAnyPin) note += " (Có ghim lỗi cụ thể trên ảnh)";
+
+        const upd = JSON.parse(JSON.stringify(item));
+        upd.qc_status = 'Từ chối';
+        upd.status = 'In Progress'; // Đặt lại trạng thái chung để thoát khỏi tab ĐÃ XONG
+        if (upd.phases && upd.phases['phase1']) {
+            upd.phases['phase1'].status = 'In Progress';
+        }
+        upd.note = note + (upd.note ? ' | ' + upd.note : '');
+        
+        if (hasAnyPin) {
+            upd.qc_note = JSON.stringify({
+                front: pinsFront,
+                side: pinsSide
+            });
+        } else {
+            upd.qc_note = '';
+        }
+
+        onSave(upd);
+    };
+
+    const currentImgSrc = selectedImg === 'front' ? item.qc_front_photo : item.qc_side_photo;
+    const currentPins = selectedImg === 'front' ? pinsFront : pinsSide;
+
+    return (
+        <div className="fixed inset-0 z-[99999] bg-[#000000]/95 flex flex-col p-2 md:p-4 animate-fade-in pb-10" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+            <div className="relative max-w-lg w-full mx-auto flex flex-col bg-[#111] rounded-2xl border border-white/10 shadow-2xl overflow-hidden h-full max-h-[90vh]" onClick={e => e.stopPropagation()}>
+                
+                {/* Header */}
+                <div className="flex justify-between items-center p-3 border-b border-white/10 bg-[#1a1a1a] shrink-0">
+                    <h3 className="text-[#fb7185] font-black text-[12px] uppercase tracking-wider"><i className="fas fa-exclamation-circle mr-2"></i> {readOnly ? 'CHI TIẾT LỖI KCS' : 'Báo lỗi khung'}</h3>
+                    <button onClick={onClose} className="text-gray-400 hover:text-white w-8 h-8 flex items-center justify-center bg-white/5 rounded-full"><i className="fas fa-times"></i></button>
+                </div>
+
+                {/* Body scrollable */}
+                <div className="flex-1 overflow-y-auto hide-scrollbar flex flex-col">
+                    {/* Tabs */}
+                    <div className="flex bg-[#0a0a0a] border-b border-white/10 p-2 gap-2 shrink-0">
+                        <button onClick={() => setSelectedImg('front')} className={`flex-1 py-2 rounded-xl font-black text-[11px] uppercase tracking-wide transition-colors ${selectedImg==='front' ? 'bg-[#d4af37] text-black shadow-md' : 'bg-[#18181b] text-gray-400 hover:text-white'}`}>
+                            MẶT TRƯỚC {pinsFront.length>0 && <span className="ml-1 bg-rose-600 text-white px-2 py-0.5 rounded-md text-[9px] shadow-inner">{pinsFront.length}</span>}
+                        </button>
+                        {item.qc_side_photo && (
+                          <button onClick={() => setSelectedImg('side')} className={`flex-1 py-2 rounded-xl font-black text-[11px] uppercase tracking-wide transition-colors ${selectedImg==='side' ? 'bg-[#d4af37] text-black shadow-md' : 'bg-[#18181b] text-gray-400 hover:text-white'}`}>
+                              MẶT NGHIÊNG {pinsSide.length>0 && <span className="ml-1 bg-rose-600 text-white px-2 py-0.5 rounded-md text-[9px] shadow-inner">{pinsSide.length}</span>}
+                          </button>
+                        )}
+                    </div>
+
+                    {/* Image Container */}
+                    <div className="relative w-full bg-[#000] min-h-[250px] md:min-h-[350px] shrink-0 flex items-center justify-center overflow-hidden group select-none">
+                        <img 
+                            ref={imgRef}
+                            src={currentImgSrc} 
+                            className={`w-full h-auto max-h-[50vh] object-contain transition-opacity duration-300 ${!readOnly ? 'cursor-crosshair' : ''}`}
+                            onClick={handleImgClick}
+                            alt="QC Image"
+                            draggable="false"
+                        />
+                        
+                        {currentPins.map((pin, i) => (
+                            <div 
+                                key={i} 
+                                className="absolute"
+                                style={{ left: `${pin.x}%`, top: `${pin.y}%`, transform: 'translate(-50%, -50%)' }}
+                            >
+                                <div 
+                                    className="w-10 h-10 flex items-center justify-center cursor-pointer relative z-10"
+                                    onClick={(e) => { e.stopPropagation(); setActivePin({ imgType: selectedImg, index: i }); }}
+                                >
+                                    <div className="absolute inset-2 bg-yellow-500 rounded-full animate-ping opacity-60"></div>
+                                    <div className="absolute inset-3 bg-[#d4af37] rounded-full shadow-[0_0_10px_rgba(212,175,55,0.8)] border border-white flex items-center justify-center text-black font-black text-[10px]">{i+1}</div>
+                                </div>
+                                
+                                {activePin && activePin.imgType === selectedImg && activePin.index === i && (
+                                    <div className="absolute top-10 left-1/2 -translate-x-1/2 w-[220px] bg-[#1a1a1a] rounded-xl shadow-2xl p-2 z-50 border border-yellow-500/30" onClick={e=>e.stopPropagation()}>
+                                        {readOnly ? (
+                                            <div className="w-full text-[#d4af37] text-[12px] font-black bg-[#0a0a0a] p-3 rounded-lg border border-white/10 break-words whitespace-pre-wrap">
+                                                {pin.text || 'Không có ghi chú.'}
+                                            </div>
+                                        ) : (
+                                            <textarea 
+                                                autoFocus
+                                                value={pin.text}
+                                                onChange={e => updatePinText(e.target.value)}
+                                                placeholder="Ghi chú chi tiết cho điểm này..."
+                                                className="w-full text-white text-[12px] bg-[#0a0a0a] p-3 rounded-lg outline-none border border-white/10 focus:border-[#d4af37] resize-none h-20 transition-colors"
+                                            ></textarea>
+                                        )}
+                                        <div className="flex justify-between mt-2 gap-2">
+                                            {!readOnly && (
+                                                <button 
+                                                    onClick={() => {
+                                                        if (selectedImg === 'front') setPinsFront(pinsFront.filter((_, idx) => idx !== i));
+                                                        else setPinsSide(pinsSide.filter((_, idx) => idx !== i));
+                                                        setActivePin(null);
+                                                    }}
+                                                    className="flex-1 bg-rose-500/10 text-rose-500 text-[10px] font-black uppercase tracking-wider py-2 rounded-lg hover:bg-rose-500 hover:text-white transition-colors"
+                                                >
+                                                    XÓA
+                                                </button>
+                                            )}
+                                            <button 
+                                                onClick={() => setActivePin(null)}
+                                                className="flex-[2] bg-[#d4af37] text-black text-[10px] font-black uppercase tracking-wider py-2 rounded-lg hover:bg-yellow-500 transition-colors shadow-md"
+                                            >
+                                                XONG
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                {(!activePin || activePin.index !== i) && pin.text && (
+                                    <div className="absolute top-7 left-1/2 -translate-x-1/2 bg-black/90 text-[#d4af37] text-[10px] font-black uppercase px-3 py-1.5 rounded-lg whitespace-nowrap border border-[#d4af37]/40 pointer-events-none shadow-xl">
+                                        {pin.text.length > 25 ? pin.text.substring(0, 25) + '...' : pin.text}
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                        
+                        {!currentPins.length && !readOnly && (
+                            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 bg-black/60 backdrop-blur-sm text-gray-300 text-[10px] font-black uppercase tracking-wider px-4 py-2 rounded-full pointer-events-none border border-white/10 flex items-center gap-2">
+                                <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse"></div> Bấm vào vị trí lỗi để đánh dấu
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Quick Reject / Hybrid UI */}
+                    {!readOnly && (
+                        <div className="p-3 bg-[#0a0a0a] flex-1 shrink-0">
+                            <div className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Lý do nhanh (Tùy chọn)</div>
+                            <div className="flex flex-wrap gap-2 mb-3">
+                                {QUICK_REASONS.map(r => (
+                                    <button 
+                                        key={r}
+                                        onClick={() => toggleQuickNote(r)}
+                                        className={`px-3 py-1.5 rounded-full text-[10px] font-bold border transition-all ${quickNotes.includes(r) ? 'bg-rose-600/20 border-rose-500 text-rose-400' : 'bg-[#141414] border-[#333] text-gray-400 hover:border-gray-500'}`}
+                                    >
+                                        {r}
+                                    </button>
+                                ))}
+                            </div>
+                            <textarea 
+                                value={extraText}
+                                onChange={e => setExtraText(e.target.value)}
+                                placeholder="Nhập thêm lý do hoặc mô tả chung (nếu có)..."
+                                className="w-full text-white text-[12px] font-bold bg-[#141414] p-3 rounded-xl outline-none border border-[#333] focus:border-rose-500 resize-none h-16 transition-colors"
+                            ></textarea>
+                        </div>
+                    )}
+                </div>
+
+                {/* Footer */}
+                <div className="p-3 bg-[#1a1a1a] flex gap-2 border-t border-white/10 shrink-0">
+                    <button onClick={onClose} className="flex-1 py-3 rounded-xl bg-zinc-800 text-zinc-400 font-black hover:bg-zinc-700 transition-colors text-[11px] uppercase tracking-wider">
+                        ĐÓNG
+                    </button>
+                    {!readOnly && (
+                        <button onClick={handleSave} className="flex-[2] py-3 rounded-xl bg-[#e11d48] text-white font-black hover:bg-rose-500 transition-colors text-[11px] uppercase tracking-wider shadow-[0_0_15px_rgba(225,29,72,0.3)] flex items-center justify-center gap-2">
+                            <i className="fas fa-paper-plane"></i> GỬI LỖI VỀ XƯỞNG
+                        </button>
+                    )}
                 </div>
             </div>
         </div>

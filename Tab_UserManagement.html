@@ -44,10 +44,13 @@ function UserFormModal({ user, onClose, pushData, data, userConfigs, isBoss, cur
     const [isSaving, setIsSaving] = React.useState(false);
     const [isDeleting, setIsDeleting] = React.useState(false);
 
-    const ROLES = ['TỐI CAO', 'QUẢN LÝ', 'KẾ TOÁN', 'KHO VẬN', 'BÁN HÀNG', 'SẢN XUẤT', 'NHÂN SỰ', 'CHƯA PHÂN QUYỀN'];
+    const ROLES = ['TỐI CAO', 'QUẢN LÝ CẤP TRUNG', 'KẾ TOÁN', 'KIỂM TOÁN', 'QUẢN LÝ KHO VẬN', 'QUẢN LÝ SẢN XUẤT', 'QUẢN LÝ NHÂN SỰ', 'QUẢN LÝ BÁN HÀNG', 'BÁN HÀNG', 'NHÂN VIÊN', 'CỘNG TÁC VIÊN', 'KHÁCH', 'CHƯA PHÂN QUYỀN'];
 
     const togglePermission = (permId) => {
-        if (!isBoss && !isSelf) return;
+        if (!isBoss) {
+            triggerToast('Chỉ Boss mới có thể thay đổi phân quyền!', 'fa-lock', 'warning');
+            return;
+        }
         setForm(prev => {
             const perms = prev.permissions.includes(permId) 
                 ? prev.permissions.filter(p => p !== permId)
@@ -71,6 +74,14 @@ function UserFormModal({ user, onClose, pushData, data, userConfigs, isBoss, cur
         if (!form.name.trim()) return triggerToast('Vui lòng nhập tên!', 'fa-exclamation', 'warning');
         if (isBoss && !form.pin.trim()) return triggerToast('Mã PIN không được để trống!', 'fa-exclamation', 'warning');
         if (isBoss && form.pin.length < 4) return triggerToast('Mã PIN tối thiểu 4 số!', 'fa-exclamation', 'warning');
+        
+        // CRITICAL BUG FIX: Check if PIN already exists for ANOTHER user
+        if (isBoss) {
+            const existingUserWithPin = userConfigs?.pins?.[form.pin];
+            if (existingUserWithPin && existingUserWithPin.name !== oldName) {
+                return triggerToast(`Mã PIN này đã bị trùng với nhân sự: ${existingUserWithPin.name}!`, 'fa-ban', 'danger');
+            }
+        }
         
         setIsSaving(true);
         try {
@@ -143,6 +154,7 @@ function UserFormModal({ user, onClose, pushData, data, userConfigs, isBoss, cur
             
             delete updatedPins[user.pin];
             delete updatedTitles[oldName];
+            delete updatedSalaries[oldName]; // CRITICAL FIX: Dọn rác quỹ lương khi xóa tài khoản
 
             const newUserConfigs = {
                 ...userConfigs,
@@ -186,14 +198,9 @@ function UserFormModal({ user, onClose, pushData, data, userConfigs, isBoss, cur
                     {/* 1. THÔNG TIN CƠ BẢN */}
                     {formTab === 'BASIC' && (
                         <div className="space-y-4 animate-fade-in">
-                            <div className="flex justify-center mb-2">
-                                <div className="w-16 h-16 rounded-2xl bg-[#0a0a0a] border border-[#333] flex items-center justify-center overflow-hidden shadow-inner relative">
-                                    {form.avatar ? <img src={form.avatar} alt="avatar" className="w-full h-full object-cover" /> : <i className="fas fa-user-tie text-2xl text-gray-600"></i>}
-                                </div>
-                            </div>
                             <div>
                                 <label className="text-[9px] font-black text-gray-500 block mb-1.5 uppercase tracking-widest">HỌ TÊN NHÂN SỰ (*)</label>
-                                <input type="text" value={form.name} onChange={e => setForm({...form, name: e.target.value})} disabled={isSaving || isDeleting || (!isNew && !isBoss && !isSelf)} className="w-full p-2.5 bg-[#0a0a0a] border border-[#333] text-white font-bold rounded-xl outline-none focus:border-[#3b82f6]" placeholder="Nhập tên nhân sự..." />
+                                <input type="text" value={form.name} onChange={e => setForm({...form, name: e.target.value})} disabled={!isNew || isSaving || isDeleting} title={!isNew ? "Không thể đổi định danh nhân sự sau khi tạo để bảo toàn toàn vẹn dữ liệu hệ thống" : ""} className="w-full p-2.5 bg-[#0a0a0a] border border-[#333] text-white font-bold rounded-xl outline-none focus:border-[#3b82f6] disabled:opacity-50 disabled:cursor-not-allowed" placeholder="Nhập tên nhân sự..." />
                             </div>
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
@@ -204,10 +211,6 @@ function UserFormModal({ user, onClose, pushData, data, userConfigs, isBoss, cur
                                     <label className="text-[9px] font-black text-gray-500 block mb-1.5 uppercase tracking-widest flex items-center gap-1">MÃ PIN ĐĂNG NHẬP</label>
                                     <input type="text" value={isBoss ? form.pin : '****'} onChange={e => setForm({...form, pin: e.target.value.replace(/[^0-9]/g, '')})} disabled={!isBoss || isSaving || isDeleting} maxLength="6" className={`w-full p-2.5 bg-[#0a0a0a] border border-[#333] font-black rounded-xl outline-none focus:border-[#3b82f6] text-center tracking-widest ${!isBoss ? 'text-gray-600 cursor-not-allowed opacity-75' : 'text-[#10b981]'}`} placeholder="Nhập mã PIN" />
                                 </div>
-                            </div>
-                            <div>
-                                <label className="text-[9px] font-black text-gray-500 block mb-1.5 uppercase tracking-widest">ĐƯỜNG DẪN ẢNH ĐẠI DIỆN</label>
-                                <input type="text" value={form.avatar} onChange={e => setForm({...form, avatar: e.target.value})} disabled={isSaving || isDeleting || (!isNew && !isBoss && !isSelf)} className="w-full p-2.5 bg-[#0a0a0a] border border-[#333] text-gray-400 text-xs rounded-xl outline-none focus:border-[#3b82f6]" placeholder="Nhập url hình đại diện..." />
                             </div>
                         </div>
                     )}
@@ -253,28 +256,20 @@ function UserFormModal({ user, onClose, pushData, data, userConfigs, isBoss, cur
                                     {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                                 </select>
                             </div>
-
-                            <div className="bg-[#0a0a0a] rounded-xl border border-[#222] overflow-hidden">
-                                <div className="bg-[#141414] p-3 border-b border-[#222] flex justify-between items-center">
-                                    <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">Quyền hạn thao tác</span>
-                                    {isBoss && <button onClick={clearPermissions} className="text-[8px] font-black bg-rose-500/10 text-rose-400 px-2 py-1 rounded border border-rose-500/25 hover:bg-rose-500 hover:text-white transition-all uppercase">Thu hồi tất cả</button>}
-                                </div>
-                                <div className="p-2 divide-y divide-zinc-900">
-                                    {PERMISSION_LIST.map(perm => {
-                                        const isChecked = form.permissions.includes(perm.id);
-                                        return (
-                                            <div key={perm.id} onClick={() => togglePermission(perm.id)} className={`flex items-center justify-between py-2 cursor-pointer transition-colors hover:bg-zinc-950 ${!isBoss ? 'cursor-not-allowed opacity-75' : ''}`}>
-                                                <div className="flex items-center gap-2.5">
-                                                    <div className={`w-6 h-6 rounded-lg flex items-center justify-center border transition-all ${isChecked ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 shadow-sm' : 'bg-[#141414] border-[#333] text-gray-600'}`}><i className={`fas ${perm.icon} text-[10px]`}></i></div>
-                                                    <span className={`text-[11px] font-bold ${isChecked ? 'text-gray-200' : 'text-gray-650'}`}>{perm.label}</span>
-                                                </div>
-                                                <div className={`w-7 h-4 rounded-full flex items-center px-0.5 transition-colors duration-250 ${isChecked ? 'bg-emerald-500' : 'bg-[#333]'}`}>
-                                                    <div className={`w-3 h-3 bg-white rounded-full shadow transform transition-transform duration-250 ${isChecked ? 'translate-x-3.5' : 'translate-x-0'}`}></div>
-                                                </div>
+                            <div className="mt-2">
+                                <label className="text-[9px] font-black text-gray-500 block mb-2 uppercase tracking-widest">QUYỀN HẠN CHI TIẾT</label>
+                                <div className="space-y-1.5">
+                                    {PERMISSION_LIST.map(perm => (
+                                        <label key={perm.id} onClick={() => togglePermission(perm.id)} className={`flex items-center gap-3 p-2 rounded-lg border cursor-pointer transition-all select-none ${form.permissions.includes(perm.id) ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-[#0a0a0a] border-[#222] text-gray-500'} ${!isBoss ? 'opacity-60 cursor-not-allowed' : 'hover:bg-emerald-500/5'}`}>
+                                            <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-all ${form.permissions.includes(perm.id) ? 'bg-emerald-500 border-emerald-500' : 'border-[#444]'}`}>
+                                                {form.permissions.includes(perm.id) && <i className="fas fa-check text-[8px] text-black"></i>}
                                             </div>
-                                        );
-                                    })}
+                                            <i className={`fas ${perm.icon} text-[11px] shrink-0`}></i>
+                                            <span className="text-[11px] font-bold">{perm.label}</span>
+                                        </label>
+                                    ))}
                                 </div>
+                                {!isBoss && <p className="text-[9px] text-gray-600 mt-2 italic">* Chỉ Boss mới có thể thay đổi quyền hạn.</p>}
                             </div>
                         </div>
                     )}
@@ -294,7 +289,7 @@ function UserFormModal({ user, onClose, pushData, data, userConfigs, isBoss, cur
                     )}
                     <button onClick={onClose} disabled={isSaving || isDeleting} className="flex-1 py-3 bg-[#222] hover:bg-[#333] text-gray-400 hover:text-white font-black rounded-xl transition-all text-[11px] uppercase tracking-wider">Đóng</button>
                     
-                    {(isBoss || isSelf) && (
+                    {(isBoss || isAdmin || isSelf) && (
                         <button onClick={handleSave} disabled={isSaving || isDeleting} className="flex-[2] py-3 bg-[#3b82f6] hover:bg-blue-600 text-white font-black rounded-xl transition-all flex items-center justify-center gap-1.5 text-[11px] uppercase tracking-wider shadow-md">
                             {isSaving ? <><i className="fas fa-spinner fa-spin"></i> Đang lưu...</> : <><i className="fas fa-save"></i> Lưu hồ sơ</>}
                         </button>
@@ -308,21 +303,32 @@ function UserFormModal({ user, onClose, pushData, data, userConfigs, isBoss, cur
 // -------------------------------------------------------------------------
 // 2. GIAO DIỆN CHÍNH TAB QUẢN TRỊ TÀI KHOẢN (UserManagementTab)
 // -------------------------------------------------------------------------
-function UserManagementTab({ data, pushData, isAdmin, userConfigs, currentUser, triggerToast }) {
+const UserManagementTab = React.memo(function UserManagementTab({ data, pushData, isAdmin, userConfigs, currentUser, triggerToast }) {
     const [showUserModal, setShowUserModal] = React.useState(false);
     const [editingUser, setEditingUser] = React.useState(null);
     const [searchTerm, setSearchTerm] = React.useState('');
     const [roleFilter, setRoleFilter] = React.useState('TẤT CẢ');
 
-    const isBoss = localStorage.getItem('rf_boss') === 'true';
+    // Dùng useMemo để đồng bộ với state App (tránh đọc stale value từ localStorage)
+    const isBoss = React.useMemo(() => localStorage.getItem('rf_boss') === 'true', [currentUser, isAdmin]);
 
     const pinsDict = userConfigs?.pins || {};
     const users = React.useMemo(() => {
-        return Object.keys(pinsDict).map(pin => {
+        const uniqueMap = {};
+        Object.keys(pinsDict).forEach(pin => {
             const u = pinsDict[pin];
             const name = u.name || u['Tên Nhân Sự'] || '';
+            if (!name || name === 'Khách') return;
+
+            if (uniqueMap[name]) {
+                if (String(pin).length > String(uniqueMap[name].pin).length) {
+                    uniqueMap[name].pin = pin;
+                }
+                return;
+            }
+
             const currentSalary = userConfigs?.salaries?.[name]?.baseSalary || userConfigs?.salaries?.[name]?.['Lương Cơ Bản'] || 0;
-            return {
+            uniqueMap[name] = {
                 id: name,
                 name: name,
                 role: u.role || u['Phân Quyền'] || 'CHƯA PHÂN QUYỀN',
@@ -336,6 +342,7 @@ function UserManagementTab({ data, pushData, isAdmin, userConfigs, currentUser, 
                 permissions: u.permissions || []
             };
         });
+        return Object.values(uniqueMap);
     }, [pinsDict, userConfigs?.salaries]);
 
     // TÍNH TOÁN CÁC CHỈ SỐ NHÂN SỰ CAO CẤP
@@ -379,21 +386,21 @@ function UserManagementTab({ data, pushData, isAdmin, userConfigs, currentUser, 
         });
     }, [users, searchTerm, roleFilter]);
 
-    const renderSafeAvatar = (user, className) => {
-        if (user.avatar) return <img src={user.avatar} className={`${className} object-cover`} alt="avatar" />;
-        return <div className={`${className} flex items-center justify-center bg-[#3b82f6] text-white font-black overflow-hidden uppercase select-none`}>{user.name.charAt(0)}</div>;
-    };
-
     const getRoleStyle = (role) => {
-        switch(role) {
-            case 'TỐI CAO': return 'bg-rose-500/10 text-rose-500 border-rose-500/20';
-            case 'KẾ TOÁN': return 'bg-amber-500/10 text-amber-500 border-amber-500/20';
-            case 'KHO VẬN': return 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20';
-            case 'QUẢN LÝ': return 'bg-purple-500/10 text-purple-400 border-purple-500/20';
-            case 'BÁN HÀNG': return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
-            case 'CHƯA PHÂN QUYỀN': return 'bg-[#111] text-gray-500 border-[#222] opacity-60';
-            default: return 'bg-[#1a1a1a] text-gray-400 border-[#333]';
-        }
+        const r = String(role || '').toUpperCase().trim();
+        if (r === 'TỐI CAO') return 'bg-rose-500/10 text-rose-500 border-rose-500/20';
+        if (r === 'KẾ TOÁN' || r === 'KIỂM TOÁN') return 'bg-amber-500/10 text-amber-500 border-amber-500/20';
+        if (r.includes('KHO VẬN')) return 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20';
+        if (r.includes('SẢN XUẤT')) return 'bg-orange-500/10 text-orange-400 border-orange-500/20';
+        if (r.includes('NHÂN SỰ')) return 'bg-[#ec4899]/10 text-[#f472b6] border-[#ec4899]/20';
+        if (r.includes('KIỂM TOÁN')) return 'bg-teal-500/10 text-teal-400 border-teal-500/20';
+        if (r.includes('CẤP TRUNG') || r === 'QUẢN LÝ') return 'bg-purple-500/10 text-purple-400 border-purple-500/20';
+        if (r.includes('BÁN HÀNG')) return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
+        if (r === 'CỘNG TÁC VIÊN') return 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20';
+        if (r === 'NHÂN VIÊN') return 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20';
+        if (r === 'KHÁCH') return 'bg-slate-500/10 text-slate-400 border-slate-500/20';
+        if (r === 'CHƯA PHÂN QUYỀN') return 'bg-[#111] text-gray-500 border-[#222] opacity-60';
+        return 'bg-[#1a1a1a] text-gray-400 border-[#333]';
     };
 
     return (
@@ -455,7 +462,7 @@ function UserManagementTab({ data, pushData, isAdmin, userConfigs, currentUser, 
                     <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-500"></i>
                     <input type="text" placeholder="Tìm kiếm tên nhân sự..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-11 pr-4 py-3 bg-[#0a0a0a] rounded-xl border border-[#222] font-bold text-[12px] outline-none focus:border-[#3b82f6] text-white shadow-inner transition-colors" />
                 </div>
-                {isBoss && (
+                {(isBoss || isAdmin) && (
                     <button onClick={() => { setEditingUser(null); setShowUserModal(true); }} className="bg-[#3b82f6] hover:bg-blue-600 text-white px-5 py-3 rounded-xl font-black text-[11px] uppercase tracking-wider flex items-center justify-center gap-1.5 active:scale-95 transition-all shadow-[0_0_15px_rgba(59,130,246,0.2)] whitespace-nowrap">
                         <i className="fas fa-plus"></i> Thêm Nhân Sự
                     </button>
@@ -481,7 +488,7 @@ function UserManagementTab({ data, pushData, isAdmin, userConfigs, currentUser, 
                         <div key={user.pin} className={`bg-[#141414] p-4 rounded-2xl border transition-all shadow-sm flex flex-col justify-between ${isSelf ? 'border-[#3b82f6] shadow-[0_0_15px_rgba(59,130,246,0.1)]' : 'border-[#2a2a2a] hover:border-zinc-700'}`}>
                             <div className="flex items-start justify-between gap-2">
                                 <div className="flex items-center gap-3.5 min-w-0">
-                                    {renderSafeAvatar(user, "w-12 h-12 rounded-xl shadow-inner border border-[#2a2a2a] shrink-0")}
+                                    <Avatar name={user.name} userConfigs={userConfigs} className="w-12 h-12 border border-[#2a2a2a] shrink-0" />
                                     <div className="min-w-0">
                                         <div className="font-black text-[14px] text-white leading-tight mb-1 flex items-center gap-1.5">
                                             <span className="truncate">{user.name}</span>
@@ -505,17 +512,7 @@ function UserManagementTab({ data, pushData, isAdmin, userConfigs, currentUser, 
                                 )}
                             </div>
 
-                            {/* HIỂN THỊ CÁC QUYỀN HẠN PHỤ TRỢ (CHỈ DÀNH CHO ACCOUNT CÓ PERMISSIONS) */}
-                            {user.permissions && user.permissions.length > 0 && (
-                                 <div className="mt-3 pt-3 border-t border-[#222] flex gap-1 flex-wrap">
-                                     {user.permissions.map(p => {
-                                         const permData = PERMISSION_LIST.find(pl => pl.id === p);
-                                         return permData ? (
-                                            <span key={p} className="text-[8px] font-bold bg-[#0a0a0a] text-gray-400 border border-zinc-800 px-1.5 py-0.5 rounded-md flex items-center gap-1"><i className={`fas ${permData.icon} text-emerald-500/70 text-[7px]`}></i> {permData.label}</span>
-                                         ) : null;
-                                     })}
-                                 </div>
-                            )}
+
 
                             {/* THÔNG TIN LIÊN HỆ GỌI NHANH */}
                             {user.phone && (
@@ -549,5 +546,5 @@ function UserManagementTab({ data, pushData, isAdmin, userConfigs, currentUser, 
             )}
         </div>
     );
-}
+});
 </script>

@@ -7,9 +7,15 @@
 // -------------------------------------------------------------------------
 // MỤC 1: COMPONENT CÁC KHÂU NHỎ BÊN TRONG (WorkerPhaseV2)
 // -------------------------------------------------------------------------
-function WorkerPhaseV2({ item, c, configs, order, prodItems, erpProducts, currentUser, pushDeltas, userConfigs, triggerToast, kpiConfig, isAdmin }) {
+function WorkerPhaseV2({ attendance, item, c, configs, order, prodItems, erpProducts, currentUser, pushDeltas, userConfigs, triggerToast, kpiConfig, isAdmin }) {
+  const isCTV = localStorage.getItem('rf_role') === 'CTV';
+  const roleStr = String(userConfigs?.[currentUser]?.role || '').toUpperCase();
+  const isSenior = isAdmin && (roleStr === 'TỐI CAO' || currentUser === 'TỐI CAO');
   const data = (item.phases || {})[c.k] || { status: 'Pending' };
   const [processing, setProcessing] = React.useState(false);
+  const [isEditingUser, setIsEditingUser] = React.useState(false);
+  const [qcFront, setQcFront] = React.useState(null);
+  const [qcSide, setQcSide] = React.useState(null);
 
   const parseDateSafe = (val) => {
     if (!val) return NaN;
@@ -27,8 +33,14 @@ function WorkerPhaseV2({ item, c, configs, order, prodItems, erpProducts, curren
     return new Date(val).getTime();
   };
 
-  const isLocked = c.req.some(rk => (item.phases[rk] || {}).status !== 'Done');
-  if (isLocked) return null; 
+  let isLocked = c.req.some(rk => (item.phases[rk] || {}).status !== 'Done');
+  
+  if (c.k === 'phase2' && item.phases?.phase1) {
+      const isLegacyDone = item.phases.phase1.status === 'Done' && !item.qc_status && !item.qc_front_photo;
+      if (!isLegacyDone && !String(item.qc_status || '').includes('Đã duyệt')) {
+          isLocked = true;
+      }
+  }
 
   const isOwner = !data.user || String(data.user).trim() === '' || data.user === currentUser;
   const isPending = data.status !== 'In Progress' && data.status !== 'Done';
@@ -53,7 +65,10 @@ function WorkerPhaseV2({ item, c, configs, order, prodItems, erpProducts, curren
 
     const updateTimer = () => {
       const startMs = parseDateSafe(data.start);
-      const nowMs = Date.now();
+      let nowMs = Date.now();
+      if (item.qc_status === 'Chờ duyệt khung' && data.endTime) {
+          nowMs = parseDateSafe(data.endTime);
+      }
       if (isNaN(startMs)) return;
 
       const elapsedMs = nowMs - startMs;
@@ -105,7 +120,25 @@ function WorkerPhaseV2({ item, c, configs, order, prodItems, erpProducts, curren
     return `Làm mất ${diffMins} phút`;
   }, [isDone, data.start, data.endTime]);
 
+  if (isLocked) return null;
+
   const act = async (s) => {
+    if (item.assignee && String(item.assignee).trim() !== '' && String(item.assignee).trim() !== String(currentUser).trim() && !isAdmin) {
+        triggerToast(`Lệnh này đã được chỉ định cho ${item.assignee}. Bạn không thể nhận!`, 'fa-lock', 'danger');
+        return;
+    }
+
+    if (s === 'In Progress') {
+        const hasActiveCheckin = (attendance || []).some(a => 
+            String(a.user).trim() === currentUser.trim() && 
+            a.timeIn && !a.timeOut
+        );
+        if (!hasActiveCheckin) {
+            triggerToast('Bạn phải Chấm Công vào ca trước khi bắt đầu làm việc!', 'fa-exclamation-triangle', 'danger');
+            return;
+        }
+    }
+
     setProcessing(true);
     const safeDateFull = typeof getLocalISODate === 'function' ? getLocalISODate() : new Date().toISOString();
     const currentDateTime = safeDateFull.slice(0, 16).replace('T', ' ');
@@ -120,17 +153,72 @@ function WorkerPhaseV2({ item, c, configs, order, prodItems, erpProducts, curren
       endTime: s === 'Done' ? currentDateTime : ''
     };
 
+    let penaltyPayload = null;
+    let payloadDeltas = { prodItems: [upd] };
+
     if (s === 'Done') {
-      upd.phases[c.k].reward_vnd = (item.note === 'Chất Lượng Kém') ? 0 : (kpiData.reward || 0);
+        const startMs = parseDateSafe(data.start);
+        const endMs = parseDateSafe(currentDateTime);
+        let durationMins = 0;
+        let isLate = false;
+        let slaPenaltyRatio = 0;
+
+        if (!isNaN(startMs) && !isNaN(endMs)) {
+            durationMins = Math.round((endMs - startMs) / 60000);
+            
+            // 1. Anti-cheat (< 2 phút)
+            if (durationMins < 2) {
+                if (!window.confirm(`CẢNH BÁO ANTI-CHEAT: Bạn bấm Hoàn thành khi chưa đủ 2 phút làm việc. Hệ thống sẽ ghi nhận lỗi vi phạm thao tác (phạt 10.000đ). Vẫn tiếp tục?`)) {
+                    setProcessing(false);
+                    return;
+                }
+                penaltyPayload = {
+                    id: 'BP_ANTICHEAT_' + Date.now(),
+                    user: currentUser,
+                    amount: -10000,
+                    type: 'Phạt Vi Phạm',
+                    note: `Bấm hoàn thành quá nhanh (< 2 phút) cho khâu ${c.n}`,
+                    date: currentDateTime.split(' ')[0],
+                    orderCode: item.orderId || ''
+                };
+                payloadDeltas.BonusPenalty = [penaltyPayload];
+            }
+
+            // 2. SLA Phạt trễ
+            if (durationMins > limitMins) {
+                isLate = true;
+                const overdueMins = durationMins - limitMins;
+                if (overdueMins <= 2) {
+                    slaPenaltyRatio = 0.5; // Trễ <= 2 phút (ân hạn): Trừ 50%
+                } else {
+                    slaPenaltyRatio = 1.0; // Trễ > 2 phút: Trừ 100%
+                }
+            }
+        }
+
+        let baseReward = (item.note === 'Chất Lượng Kém') ? 0 : (kpiData.reward || 0);
+        if (slaPenaltyRatio > 0) {
+            baseReward = baseReward * (1 - slaPenaltyRatio);
+            upd.phases[c.k].note = `Trễ hạn ${Math.round((endMs - startMs)/60000) - limitMins}p - Phạt ${slaPenaltyRatio * 100}% KPI`;
+        }
+        upd.phases[c.k].reward_vnd = baseReward;
     }
+
+    if (s === 'Done' && isAdmin) upd.phases[c.k].adminCompleted = true;
 
     const p1 = upd.phases['phase1']?.status || 'Pending';
     const p2 = upd.phases['phase2']?.status || 'Pending';
     const isAllDone = (p1 === 'Done' && p2 === 'Done');
     if (!isAllDone && upd.status === 'Pending') upd.status = 'In Progress';
-    if (isAllDone) upd.status = 'Kiểm Định';
+    if (isAllDone) {
+        if (upd.phases['phase1']?.adminCompleted || upd.phases['phase2']?.adminCompleted || isAdmin) {
+            upd.status = 'Done';
+        } else {
+            upd.status = 'Kiểm Định';
+        }
+    }
 
-    await pushDeltas({ prodItems: [upd] }, s === 'In Progress' ? `Đã nhận ${c.n}` : `Xong ${c.n}`, s === 'In Progress' ? 'fa-play' : 'fa-check');
+    await pushDeltas(payloadDeltas, s === 'In Progress' ? `Đã nhận ${c.n}` : `Xong ${c.n}`, s === 'In Progress' ? 'fa-play' : 'fa-check');
     setProcessing(false);
   };
 
@@ -159,37 +247,94 @@ function WorkerPhaseV2({ item, c, configs, order, prodItems, erpProducts, curren
         photo: url
       };
 
+      let penaltyPayload = null;
+      let payloadDeltas = { prodItems: [upd] };
+      
       let durationMins = 0;
       let isLate = false;
+      let slaPenaltyRatio = 0;
+
       if (upd.phases[c.k].start) {
         const startMs = parseDateSafe(upd.phases[c.k].start);
         const endMs = parseDateSafe(currentDateTime);
         if (!isNaN(startMs) && !isNaN(endMs)) {
           durationMins = Math.round((endMs - startMs) / 60000);
+          
+          // Anti-cheat (< 2 phút)
+          if (durationMins < 2) {
+              if (!window.confirm(`CẢNH BÁO ANTI-CHEAT: Bạn bấm Hoàn thành khi chưa đủ 2 phút làm việc. Hệ thống sẽ ghi nhận lỗi vi phạm thao tác (phạt 10.000đ). Vẫn tiếp tục?`)) {
+                  setProcessing(false);
+                  return;
+              }
+              penaltyPayload = {
+                  id: 'BP_ANTICHEAT_' + Date.now(),
+                  user: currentUser,
+                  amount: -10000,
+                  type: 'Phạt Vi Phạm',
+                  note: `Bấm hoàn thành quá nhanh (< 2 phút) cho khâu ${c.n}`,
+                  date: currentDateTime.split(' ')[0],
+                  orderCode: item.orderId || ''
+              };
+              payloadDeltas.BonusPenalty = [penaltyPayload];
+          }
+
           if (durationMins > limitMins) {
             isLate = true;
+            const overdueMins = durationMins - limitMins;
+            if (overdueMins <= 2) {
+                slaPenaltyRatio = 0.5;
+            } else {
+                slaPenaltyRatio = 1.0;
+            }
           }
         }
       }
 
-      if (isLate) {
-        upd.phases[c.k].reward_vnd = 0;
-        upd.phases[c.k].note = `Trễ hạn (${durationMins}/${limitMins}p) - Cắt thưởng KPI`;
-      } else {
-        upd.phases[c.k].reward_vnd = (item.note === 'Chất Lượng Kém') ? 0 : (kpiData.reward || 0);
+      let baseReward = (item.note === 'Chất Lượng Kém') ? 0 : (kpiData.reward || 0);
+      if (slaPenaltyRatio > 0) {
+          baseReward = baseReward * (1 - slaPenaltyRatio);
+          upd.phases[c.k].note = `Trễ hạn ${durationMins - limitMins}p - Phạt ${slaPenaltyRatio * 100}% KPI`;
       }
+      upd.phases[c.k].reward_vnd = baseReward;
+
+      if (isSenior) upd.phases[c.k].adminCompleted = true;
 
       const p1 = upd.phases['phase1']?.status || 'Pending';
       const p2 = upd.phases['phase2']?.status || 'Pending';
       const isAllDone = (p1 === 'Done' && p2 === 'Done');
       if (!isAllDone && upd.status === 'Pending') upd.status = 'In Progress';
-      if (isAllDone) upd.status = 'Kiểm Định';
+      if (isAllDone) {
+          if (upd.phases['phase1']?.adminCompleted || upd.phases['phase2']?.adminCompleted || isSenior) {
+              upd.status = 'Done';
+          } else {
+              upd.status = 'Kiểm Định';
+          }
+      }
 
-      await pushDeltas({ prodItems: [upd] }, `Tải ảnh & hoàn thành ${c.n}`, 'fa-check-double');
-      if (isLate) {
-        triggerToast(`Hoàn thành muộn (${durationMins}/${limitMins} phút). Bị cắt tiền thưởng KPI khâu này!`, 'fa-times-circle', 'danger');
+      await pushDeltas(payloadDeltas, `Tải ảnh & hoàn thành ${c.n}`, 'fa-check-double');
+      if (isLate || durationMins < 2) {
+        triggerToast(`Có lỗi vi phạm thao tác/trễ hạn. Đã ghi nhận phạt!`, 'fa-times-circle', 'danger');
       } else {
         triggerToast(`Tải ảnh & hoàn thành ${c.n} thành công!`, 'fa-check', 'success');
+      }
+
+      // CẢNH BÁO TỒN KHO THÔNG MINH
+      if (erpProducts && Array.isArray(erpProducts)) {
+          const sku = String(item.sku || '').trim().toLowerCase();
+          const pName = String(item.name || '').trim().toLowerCase();
+          const matchedProd = erpProducts.find(p => 
+              (sku && String(p.sku).trim().toLowerCase() === sku) || 
+              (pName && String(p.name).trim().toLowerCase() === pName)
+          );
+          if (matchedProd) {
+              const qty = Number(matchedProd.quantity) || 0;
+              const minStk = Number(matchedProd.minStock) || 0;
+              if (qty <= minStk) {
+                  setTimeout(() => {
+                      triggerToast(`🚨 KHO SẮP CẠN: ${matchedProd.name} (Còn ${qty} - Định mức ${minStk}). Cần bổ sung!`, 'fa-exclamation-triangle', 'danger');
+                  }, 1500);
+              }
+          }
       }
     } catch (err) { 
       console.error(err);
@@ -198,6 +343,200 @@ function WorkerPhaseV2({ item, c, configs, order, prodItems, erpProducts, curren
       e.target.value = '';
       setProcessing(false);
     }
+  };
+
+  const submitQC = async () => {
+    if (!qcFront) return;
+    setProcessing(true);
+    try {
+      const urlFront = await runGAS('uploadQCImage', qcFront, `QC_FRONT_${item.id}.jpg`);
+      const urlSide = '';
+      if (!urlFront) throw new Error("Không thể tải ảnh QC");
+      
+      const safeDateFull = typeof getLocalISODate === 'function' ? getLocalISODate() : new Date().toISOString();
+      const currentDateTime = safeDateFull.slice(0, 16).replace('T', ' ');
+
+      const upd = JSON.parse(JSON.stringify(item));
+      upd.qc_front_photo = urlFront;
+      upd.qc_side_photo = urlSide;
+      upd.phases[c.k].photo = urlFront;
+      upd.phases[c.k].endTime = currentDateTime; 
+
+      let payload = { prodItems: [upd] };
+      let msg = `Đã gửi duyệt QC ${c.n}`;
+      let icon = 'fa-upload';
+
+      if (isSenior) {
+          upd.qc_status = 'Đã duyệt (Auto-Pass)';
+          
+          fetch(window.SCRIPT_URL || '', {
+              method: 'POST',
+              body: JSON.stringify({ action: 'deductInventoryBOM', pin: localStorage.getItem('rf_pin'), prodId: upd.id })
+          }).then(r => r.json()).then(res => {
+              if (!res.success) console.warn("Lỗi trừ tồn kho BOM:", res.message);
+          }).catch(console.error);
+          
+          const p1 = upd.phases['phase1']?.status || 'Pending';
+          const p2 = upd.phases['phase2']?.status || 'Pending';
+          const isAllDone = (p1 === 'Done' && p2 === 'Done');
+          if (!isAllDone && upd.status === 'Pending') upd.status = 'In Progress';
+          
+          if (isAllDone) {
+              upd.status = 'Done';
+              if (order && order.id) {
+                  const allOrderProds = (prodItems || []).filter(p => p.orderId === item.orderId);
+                  const isAllProdDone = allOrderProds.every(p => {
+                      if (p.id === item.id) return true;
+                      const pStatusUpper = String(p.status || '').toUpperCase().trim();
+                      return pStatusUpper === 'DONE' || pStatusUpper === 'ĐÃ XONG' || pStatusUpper === 'HỦY/VỠ' || pStatusUpper === 'HOÀN KHO ĐẠT' || p.fulfilledFromStock;
+                  });
+
+                  if (isAllProdDone && (order.status === 'Chờ Sản Xuất' || order.status === 'Quét Tự Động' || order.status === 'Đang Sản Xuất')) {
+                      payload.orders = [{ ...order, status: 'Sẵn sàng đóng gói' }];
+                  }
+              }
+          }
+          msg = `Đã Auto-Pass QC ${c.n}`;
+          icon = 'fa-check-double';
+      } else {
+          upd.qc_status = 'Chờ duyệt khung';
+      }
+
+      await pushDeltas(payload, msg, icon);
+      triggerToast(isSenior ? `Tự động duyệt QC thành công!` : `Gửi duyệt QC thành công!`, 'fa-check', 'success');
+      
+      // CẢNH BÁO TỒN KHO THÔNG MINH
+      if (erpProducts && Array.isArray(erpProducts)) {
+          const sku = String(item.sku || '').trim().toLowerCase();
+          const pName = String(item.name || '').trim().toLowerCase();
+          const matchedProd = erpProducts.find(p => 
+              (sku && String(p.sku).trim().toLowerCase() === sku) || 
+              (pName && String(p.name).trim().toLowerCase() === pName)
+          );
+          if (matchedProd) {
+              const qty = Number(matchedProd.quantity) || 0;
+              const minStk = Number(matchedProd.minStock) || 0;
+              if (qty <= minStk) {
+                  setTimeout(() => {
+                      triggerToast(`🚨 KHO SẮP CẠN: ${matchedProd.name} (Còn ${qty} - Định mức ${minStk}). Cần bổ sung!`, 'fa-exclamation-triangle', 'danger');
+                  }, 1500);
+              }
+          }
+      }
+      setQcFront(null); setQcSide(null);
+    } catch (err) {
+      console.error(err);
+      triggerToast(`Lỗi tải ảnh QC!`, 'fa-times', 'danger');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const adminAutoPass = async () => {
+      setProcessing(true);
+      try {
+          const safeDateFull = typeof getLocalISODate === 'function' ? getLocalISODate() : new Date().toISOString();
+          const currentDateTime = safeDateFull.slice(0, 16).replace('T', ' ');
+
+          const upd = JSON.parse(JSON.stringify(item));
+          upd.phases[c.k] = {
+            ...upd.phases[c.k], 
+            status: 'Done', 
+            user: currentUser, 
+            date: currentDateTime.split(' ')[0], 
+            start: data.start || currentDateTime, 
+            endTime: currentDateTime,
+            photo: 'AUTO-PASS',
+            adminCompleted: true
+          };
+
+          let durationMins = 0;
+          if (upd.phases[c.k].start) {
+              const startMs = parseDateSafe(upd.phases[c.k].start);
+              const endMs = parseDateSafe(currentDateTime);
+              if (!isNaN(startMs) && !isNaN(endMs)) {
+                  durationMins = Math.round((endMs - startMs) / 60000);
+              }
+          }
+
+          upd.phases[c.k].reward_vnd = (item.note === 'Chất Lượng Kém') ? 0 : (kpiData.reward || 0);
+          
+          let payloadDeltas = { prodItems: [upd] };
+          
+          if (c.k === 'phase1') {
+              upd.qc_status = 'Đã duyệt (Auto-Pass)';
+              
+              fetch(window.SCRIPT_URL || '', {
+                  method: 'POST',
+                  body: JSON.stringify({ action: 'deductInventoryBOM', pin: localStorage.getItem('rf_pin'), prodId: upd.id })
+              }).then(r => r.json()).catch(console.error);
+          }
+          
+          const p1 = upd.phases['phase1']?.status || 'Pending';
+          const p2 = upd.phases['phase2']?.status || 'Pending';
+          const isAllDone = (p1 === 'Done' && p2 === 'Done');
+          if (!isAllDone && upd.status === 'Pending') upd.status = 'In Progress';
+          
+          if (isAllDone) {
+              upd.status = 'Done';
+              if (c.k === 'phase1' && order && order.id) {
+                  const allOrderProds = (prodItems || []).filter(p => p.orderId === item.orderId);
+                  const isAllProdDone = allOrderProds.every(p => {
+                      if (p.id === item.id) return true;
+                      const pStatusUpper = String(p.status || '').toUpperCase().trim();
+                      return pStatusUpper === 'DONE' || pStatusUpper === 'ĐÃ XONG' || pStatusUpper === 'HỦY/VỠ' || pStatusUpper === 'HOÀN KHO ĐẠT' || p.fulfilledFromStock;
+                  });
+
+                  if (isAllProdDone && (order.status === 'Chờ Sản Xuất' || order.status === 'Quét Tự Động' || order.status === 'Đang Sản Xuất')) {
+                      payloadDeltas.orders = [{ ...order, status: 'Sẵn sàng đóng gói' }];
+                  }
+              }
+          }
+
+          await pushDeltas(payloadDeltas, `Auto-Pass khâu ${c.n}`, 'fa-check-double');
+          triggerToast(`Đã Auto-Pass thành công!`, 'fa-check', 'success');
+
+          // CẢNH BÁO TỒN KHO THÔNG MINH
+          if (erpProducts && Array.isArray(erpProducts)) {
+              const sku = String(item.sku || '').trim().toLowerCase();
+              const pName = String(item.name || '').trim().toLowerCase();
+              const matchedProd = erpProducts.find(p => 
+                  (sku && String(p.sku).trim().toLowerCase() === sku) || 
+                  (pName && String(p.name).trim().toLowerCase() === pName)
+              );
+              if (matchedProd) {
+                  const qty = Number(matchedProd.quantity) || 0;
+                  const minStk = Number(matchedProd.minStock) || 0;
+                  if (qty <= minStk) {
+                      setTimeout(() => {
+                          triggerToast(`🚨 KHO SẮP CẠN: ${matchedProd.name} (Còn ${qty} - Định mức ${minStk}). Cần bổ sung!`, 'fa-exclamation-triangle', 'danger');
+                      }, 1500);
+                  }
+              }
+          }
+      } catch (err) {
+          console.error(err);
+          triggerToast(`Lỗi Auto-Pass!`, 'fa-times', 'danger');
+      } finally {
+          setProcessing(false);
+      }
+  };
+
+  const handleQC = async (e, type) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      setProcessing(true);
+      try {
+          const resImg = typeof resizeImage === 'function' ? await resizeImage(file) : await new Promise((res) => { const rd = new FileReader(); rd.onload=()=>res(rd.result); rd.readAsDataURL(file); });
+          const b64 = resImg.includes(',') ? resImg.split(',')[1] : resImg;
+          if (type === 'front') setQcFront(b64);
+          if (type === 'side') setQcSide(b64);
+      } catch (err) {
+          triggerToast('Lỗi xử lý ảnh!', 'fa-times', 'danger');
+      } finally {
+          e.target.value = '';
+          setProcessing(false);
+      }
   };
 
   const userName = data.user ? data.user.split(' ').pop() : 'Chờ nhận việc';
@@ -214,38 +553,148 @@ function WorkerPhaseV2({ item, c, configs, order, prodItems, erpProducts, curren
             <div className="flex flex-col">
                 <span className={`font-black text-[10px] uppercase ${isDone ? 'text-[#10b981]' : (isInProgress ? 'text-amber-500' : 'text-gray-500')}`}>{c.n}</span>
                 <div className="flex flex-col">
-                    <span className={`font-bold text-[13px] truncate ${isOwner && !isDone && isInProgress ? 'text-amber-400' : 'text-[#f5f5f5]'}`}>{userName}</span>
+                    <div className="flex items-center gap-1.5 relative">
+                        {isEditingUser ? (
+                            <select 
+                                autoFocus
+                                className="bg-[#141414] text-amber-400 font-bold text-[12px] border border-[#d4af37] rounded outline-none py-0.5 px-1 max-w-[120px]"
+                                defaultValue={data.user}
+                                onChange={(e) => {
+                                    const newName = e.target.value;
+                                    const upd = JSON.parse(JSON.stringify(item));
+                                    if (newName === "") {
+                                        upd.phases[c.k].user = "";
+                                        upd.phases[c.k].status = "Pending";
+                                        if (upd.status === "In Progress" && upd.phases[c.k === 'phase1' ? 'phase2' : 'phase1']?.status !== "In Progress") {
+                                            upd.status = "Pending";
+                                        }
+                                    } else {
+                                        upd.phases[c.k].user = newName;
+                                    }
+                                    pushDeltas({ prodItems: [upd] }, 'Đã đổi người nhận việc', 'fa-user-edit');
+                                    setIsEditingUser(false);
+                                }}
+                                onBlur={() => setIsEditingUser(false)}
+                                onClick={e => e.stopPropagation()}
+                            >
+                                <option value="">-- Bỏ nhận việc --</option>
+                                {(Object.values(userConfigs?.pins || {})).map(u => (
+                                    <option key={u.name} value={u.name}>{u.name}</option>
+                                ))}
+                            </select>
+                        ) : (
+                            <React.Fragment>
+                                <span className={`font-bold text-[13px] truncate ${isOwner && !isDone && isInProgress ? 'text-amber-400' : 'text-[#f5f5f5]'}`}>{userName}</span>
+                                {isAdmin && data.user && !isDone && (
+                                    <button onClick={(e) => { e.stopPropagation(); setIsEditingUser(true); }} className="w-5 h-5 bg-gray-500/20 text-gray-400 hover:text-[#d4af37] rounded flex items-center justify-center transition-colors">
+                                        <i className="fas fa-pencil-alt text-[9px]"></i>
+                                    </button>
+                                )}
+                            </React.Fragment>
+                        )}
+                    </div>
                     {isDone && completedDurationText && (
-                        <span className="text-[9px] text-zinc-500 font-bold leading-tight">
-                            🕒 {completedDurationText} {data.reward_vnd === 0 && <span className="text-rose-500 font-black ml-1">(Trễ - Cắt Thưởng)</span>}
+                        <span className="text-[9px] text-zinc-500 font-bold leading-tight flex items-center flex-wrap">
+                            🕒 {completedDurationText} 
+                            {data.reward_vnd === 0 ? (
+                                <span className="text-rose-500 font-black ml-1">(Trễ - Cắt Thưởng)</span>
+                            ) : (data.reward_vnd > 0 && (
+                                <span className={`${item.status === 'Done' || String(item.status).toUpperCase() === 'ĐÃ XONG' ? 'text-emerald-500' : 'text-amber-500'} font-black ml-1`}>
+                                    (+{(localStorage.getItem('rf_role') === 'CTV') ? '***' : data.reward_vnd.toLocaleString()}đ {item.status === 'Done' || String(item.status).toUpperCase() === 'ĐÃ XONG' ? 'Đã duyệt' : 'Tạm thời'})
+                                </span>
+                            ))}
                         </span>
                     )}
                 </div>
             </div>
         </div>
 
-        <div className="shrink-0 w-[115px]">
-            {isPending && (
-                <button onClick={(e) => { e.stopPropagation(); act('In Progress'); }} disabled={processing} className="w-full py-2 bg-[#2563eb] text-white rounded-lg font-black text-[11px] uppercase tracking-wider hover:bg-blue-600 active:scale-95 shadow-md flex justify-center items-center gap-1.5">
-                    {processing ? <i className="fas fa-spinner fa-spin text-[14px]"></i> : <><i className="fas fa-play text-[10px]"></i> NHẬN LÀM</>}
+        <div className="shrink-0 w-[130px]">
+            {item.qc_note && (isPending || isInProgress) && (
+                <button onClick={(e) => { e.stopPropagation(); window.dispatchEvent(new CustomEvent('openAnnotationModal', { detail: { item, readOnly: true } })); }} className="w-full py-1.5 mb-1.5 bg-rose-500/10 text-rose-500 border border-rose-500/30 hover:bg-rose-500 hover:text-white rounded-lg font-black text-[10px] uppercase tracking-wider flex justify-center items-center gap-1.5 shadow-sm active:scale-95 transition-all animate-pulse">
+                    <i className="fas fa-exclamation-circle text-[12px]"></i> XEM LỖI KCS
                 </button>
             )}
-
-            {isInProgress && isOwner && (
-                <label onClick={(e) => e.stopPropagation()} className="w-full m-0 py-2 bg-amber-500 text-black rounded-lg cursor-pointer hover:bg-amber-400 flex items-center justify-center active:scale-95 shadow-md font-black text-[11px] uppercase tracking-wider gap-1.5">
-                    {processing ? <i className="fas fa-spinner fa-spin text-[14px]"></i> : <><i className="fas fa-camera text-[14px]"></i> CHỤP ẢNH</>}
-                    <input type="file" accept="image/png, image/jpeg, image/jpg" capture="environment" className="hidden" onChange={handlePhotoUpload} disabled={processing}/>
-                </label>
+            {isPending && !isCTV && (
+                (!data.user || String(data.user).trim() === String(currentUser).trim() || isAdmin) ? (
+                    <button onClick={(e) => { e.stopPropagation(); act('In Progress'); }} disabled={processing} className="w-full py-2 bg-[#2563eb] text-white rounded-lg font-black text-[11px] uppercase tracking-wider hover:bg-blue-600 active:scale-95 shadow-md flex justify-center items-center gap-1.5">
+                        {processing ? <i className="fas fa-spinner fa-spin text-[14px]"></i> : <><i className="fas fa-play text-[10px]"></i> NHẬN LÀM</>}
+                    </button>
+                ) : (
+                    <div className="w-full py-2 bg-[#1a1a1a] text-rose-500 rounded-lg font-black text-[10px] uppercase tracking-wider text-center border border-rose-500/30 flex justify-center items-center gap-1">
+                        <i className="fas fa-lock text-[10px]"></i> KHOÁ: {String(data.user).split(' ').pop().toUpperCase()}
+                    </div>
+                )
+            )}
+            {isPending && isCTV && (
+                <div className="w-full py-2 bg-[#1a1a1a] text-gray-500 rounded-lg font-bold text-[10px] uppercase tracking-wider text-center border border-[#333]">CHỜ LÀM</div>
             )}
 
-            {isInProgress && !isOwner && (
+            {isInProgress && isOwner && !isCTV && (
+                c.k === 'phase1' ? (
+                    item.qc_status === 'Chờ duyệt khung' ? (
+                        <div className="w-full py-2 bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 rounded-lg text-center font-black text-[10px] uppercase tracking-wider">
+                            <i className="fas fa-spinner fa-spin mr-1"></i> CHỜ DUYỆT KHUNG
+                        </div>
+                    ) : (
+                        <div className="flex flex-col gap-1.5 w-full">
+                            <label onClick={(e) => e.stopPropagation()} className={`w-full m-0 py-1.5 border rounded cursor-pointer flex items-center justify-center text-[9px] uppercase tracking-wider font-bold gap-1.5 ${qcFront ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400' : 'bg-[#1a1a1a] border-[#333] text-gray-300 hover:bg-[#222]'}`}>
+                               {qcFront ? <i className="fas fa-check"></i> : <i className="fas fa-camera"></i>} {qcFront ? "Đã chụp ảnh mặt trước" : "Chụp ảnh chính diện"}
+                               <input type="file" accept="image/png, image/jpeg, image/jpg" capture="environment" className="hidden" onChange={(e) => handleQC(e, 'front')} disabled={processing}/>
+                            </label>
+                            <div className="flex gap-1.5 w-full">
+                                <button onClick={(e) => { e.stopPropagation(); submitQC(); }} disabled={processing || !qcFront} className={`flex-1 py-1.5 rounded font-black text-[10px] uppercase tracking-wider shadow-md flex justify-center items-center gap-1.5 ${(processing || !qcFront) ? 'bg-gray-600 text-gray-400 cursor-not-allowed' : 'bg-amber-500 text-black hover:bg-amber-400 active:scale-95'}`}>
+                                    {processing ? <i className="fas fa-spinner fa-spin text-[14px]"></i> : <><i className="fas fa-paper-plane text-[11px]"></i> GỬI DUYỆT</>}
+                                </button>
+                                {isSenior && (
+                                    <button onClick={(e) => { e.stopPropagation(); adminAutoPass(); }} disabled={processing} className="px-3 py-1.5 bg-[#d4af37] text-black hover:bg-yellow-500 rounded font-black text-[10px] uppercase tracking-wider shadow-md flex justify-center items-center gap-1 active:scale-95" title="Bỏ qua tải ảnh & Xong ngay">
+                                        <i className="fas fa-forward"></i> PASS
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    )
+                ) : (
+                    <div className="flex gap-1.5 w-full">
+                        <label onClick={(e) => e.stopPropagation()} className="flex-1 m-0 py-2 bg-amber-500 text-black rounded-lg cursor-pointer hover:bg-amber-400 flex items-center justify-center active:scale-95 shadow-md font-black text-[11px] uppercase tracking-wider gap-1.5">
+                            {processing ? <i className="fas fa-spinner fa-spin text-[14px]"></i> : <><i className="fas fa-camera text-[14px]"></i> CHỤP ẢNH</>}
+                            <input type="file" accept="image/png, image/jpeg, image/jpg" capture="environment" className="hidden" onChange={handlePhotoUpload} disabled={processing}/>
+                        </label>
+                        {isSenior && (
+                            <button onClick={(e) => { e.stopPropagation(); adminAutoPass(); }} disabled={processing} className="px-4 py-2 bg-[#d4af37] text-black hover:bg-yellow-500 rounded-lg font-black text-[11px] uppercase tracking-wider shadow-md flex justify-center items-center gap-1.5 active:scale-95" title="Bỏ qua tải ảnh & Xong ngay">
+                                <i className="fas fa-forward"></i> PASS
+                            </button>
+                        )}
+                    </div>
+                )
+            )}
+
+            {isInProgress && (!isOwner || isCTV) && (
                 <div className="w-full py-2 bg-[#1a1a1a] text-amber-500 rounded-lg font-bold text-[10px] uppercase tracking-wider text-center border border-[#333]">ĐANG LÀM</div>
             )}
 
             {isDone && data.photo && (
-                <button onClick={(e) => { e.stopPropagation(); window.dispatchEvent(new CustomEvent('triggerInternalPreview', { detail: data.photo })); }} className="w-full py-1.5 bg-[#10b981]/10 text-[#10b981] border border-[#10b981]/30 hover:bg-[#10b981] hover:text-white rounded-lg font-black text-[11px] flex items-center justify-center shadow-sm gap-1.5 uppercase active:scale-95 transition-all">
-                    <i className="fas fa-image text-[13px]"></i> XEM ẢNH
-                </button>
+                <div className="flex gap-1 w-full mt-1">
+                    <button onClick={(e) => { e.stopPropagation(); window.dispatchEvent(new CustomEvent('triggerInternalPreview', { detail: data.photo })); }} className="flex-1 py-1.5 bg-[#10b981]/10 text-[#10b981] border border-[#10b981]/30 hover:bg-[#10b981] hover:text-white rounded-lg font-black text-[11px] flex items-center justify-center shadow-sm gap-1.5 uppercase active:scale-95 transition-all">
+                        <i className="fas fa-image text-[13px]"></i> XEM ẢNH
+                    </button>
+                    {isAdmin && c.k === 'phase1' && (
+                        <button onClick={(e) => {
+                            e.stopPropagation();
+                            const reason = window.prompt('Vị trí/chi tiết cần sửa (để trống nếu không có):');
+                            if (reason !== null) {
+                                const upd = JSON.parse(JSON.stringify(item));
+                                upd.phases[c.k].status = 'Pending';
+                                upd.status = 'Pending';
+                                const prefix = reason.trim() ? `YÊU CẦU LÀM LẠI ${c.n} (Sửa: ${reason.trim()})` : `YÊU CẦU LÀM LẠI ${c.n}`;
+                                upd.note = prefix + (upd.note ? ' | ' + upd.note : '');
+                                pushDeltas({ prodItems: [upd] }, 'Yêu cầu làm lại khâu 1', 'fa-undo');
+                            }
+                        }} className="w-[32px] shrink-0 py-1.5 bg-rose-500/10 text-rose-500 border border-rose-500/30 hover:bg-rose-500 hover:text-white rounded-lg font-black text-[11px] flex items-center justify-center shadow-sm uppercase active:scale-95 transition-all" title="Yêu cầu làm lại">
+                            <i className="fas fa-undo text-[12px]"></i>
+                        </button>
+                    )}
+                </div>
             )}
         </div>
       </div>
@@ -274,10 +723,34 @@ function WorkerPhaseV2({ item, c, configs, order, prodItems, erpProducts, curren
 // -------------------------------------------------------------------------
 // MỤC 2: COMPONENT THẺ HIỂN THỊ BAO NGOÀI (WorkerCardV2)
 // -------------------------------------------------------------------------
-function WorkerCardV2({ item, order, prodItems, erpProducts, currentUser, pushDeltas, configs, userConfigs, triggerToast, kpiConfig, idx_num, isAdmin }) {
+function WorkerCardV2({ attendance, item, order, prodItems, erpProducts, currentUser, pushDeltas, configs, userConfigs, triggerToast, kpiConfig, idx_num, isAdmin, orders, models3D, onEditItem }) {
+  const isCTV = localStorage.getItem('rf_role') === 'CTV';
+  const userRole = String(localStorage.getItem('rf_role') || '').toUpperCase();
+  const canApproveQC = userRole === 'TỐI CAO' || userRole === 'QUẢN LÝ SẢN XUẤT' || userRole === 'QUẢN LÝ KHO';
   const [optimisticItem, setOptimisticItem] = React.useState(null);
   const [isExpanded, setIsExpanded] = React.useState(false);
   const [previewImg, setPreviewImg] = React.useState(null);
+  const [preview3DUrl, setPreview3DUrl] = React.useState(null);
+  const [showReworkForm, setShowReworkForm] = React.useState(false);
+  const [reworkPhase, setReworkPhase] = React.useState('');
+  const [reworkReason, setReworkReason] = React.useState('');
+  const [overrideSLA, setOverrideSLA] = React.useState(false);
+
+  const getModelForProduct = (productId) => {
+      if (!models3D || !erpProducts) return null;
+      const prod = erpProducts.find(p => p.id === productId);
+      if (!prod) return null;
+      let baseName = prod.name || '';
+      if (baseName.includes(' - ')) baseName = baseName.split(' - ')[0].trim();
+      
+      const sameBaseProds = erpProducts.filter(p => {
+          let bn = p.name || '';
+          if (bn.includes(' - ')) bn = bn.split(' - ')[0].trim();
+          return bn.toLowerCase() === baseName.toLowerCase();
+      });
+      
+      return models3D.find(m => sameBaseProds.some(p => p.id === m.productId));
+  };
 
   React.useEffect(() => { setOptimisticItem(null); }, [item]);
   
@@ -289,112 +762,294 @@ function WorkerCardV2({ item, order, prodItems, erpProducts, currentUser, pushDe
 
   const productInfo = (erpProducts || []).find(p => p.name === _item.name) || {};
   const productImage = productInfo.image;
-  const realImage = productInfo.realImage;
+  
+  let displayCoverImage = _item.realCoverImage;
+  let rawNote = String(_item.note || '');
+  if (!displayCoverImage) {
+      const match = rawNote.match(/\|\s*Cover:\s*(https?:\/\/[^\s|]+)/i);
+      if (match && match[1]) {
+          displayCoverImage = match[1];
+      }
+  }
+  const realImage = displayCoverImage || productInfo.realImage;
   const oCode = (order.orderCode || '').split(' | MVĐ: ')[0] || 'ĐƠN LẺ';
   const isBuKho = order.channel === 'Sản Xuất Bù Kho' || order.channel === 'Sản Xuất Tồn' || _item.fulfilledFromStock;
 
   const p1Status = _item.phases?.phase1?.status || 'Pending';
   const p2Status = _item.phases?.phase2?.status || 'Pending';
   const isAnyInProgress = p1Status === 'In Progress' || p2Status === 'In Progress';
+  const isLegacyDone = p1Status === 'Done' && !_item.qc_status && !_item.qc_front_photo;
+  const isPhase2Pending = (isLegacyDone || _item.qc_status === 'Đã duyệt') && p2Status === 'Pending' && _item.status !== 'Done' && _item.status !== 'Đã Huỷ';
   const isReadyForInspection = _item.status === 'Kiểm Định' || (p1Status === 'Done' && p2Status === 'Done' && _item.status !== 'Done' && _item.status !== 'Đã Huỷ');
   
   const isItemDone = _item.status === 'Done' || String(_item.status).toUpperCase() === 'ĐÃ XONG';
+  const noteStr = String(_item.note || '').toUpperCase();
+  const qcStatusStr = String(_item.qc_status || '').toUpperCase();
+  const isRejected = noteStr.includes('CHẤT LƯỢNG KÉM') || 
+                     noteStr.includes('TỪ CHỐI') || 
+                     noteStr.includes('LÀM LẠI') || 
+                     qcStatusStr.includes('TỪ CHỐI') ||
+                     qcStatusStr.includes('LÀM LẠI');
+
+  const assignedUser = (_item.phases?.phase1?.user || _item.phases?.phase2?.user || '').trim();
+
+  const cleanItemNote = (note) => {
+    if (!note) return '';
+    let n = String(note);
+    n = n.replace(/Sản xuất bù kho cho đơn \S+ \(Tự động bốc từ kho tồn\)/gi, '');
+    n = n.replace(/\|?\s*\[TỰ ĐỘNG BÙ KHO\] Trả hàng cho đơn \S+/gi, '');
+    n = n.replace(/\[TỰ ĐỘNG BÙ KHO\] Trả hàng cho đơn \S+/gi, '');
+    n = n.replace(/SẢN XUẤT MỚI CHO ĐƠN \S+/gi, '');
+    n = n.replace(/SẢN XUẤT BÙ KHO CHO ĐƠN \S+/gi, '');
+    n = n.replace(/\|\s*Cover:\s*https?:\/\/[^\s|]+/gi, '');
+    n = n.replace(/^\|\s*/, '');
+    n = n.replace(/\s*\|$/, '');
+    return n.trim();
+  };
+
+  const cleanOrderNote = (note) => {
+    if (!note) return '';
+    return String(note).replace(/\|?\s*Link Bill Cọc:.*$/, '').trim();
+  };
+
+  const isStock = _item.fulfilledFromStock === true || String(_item.fulfilledFromStock).toUpperCase() === 'TRUE';
+  if (isStock) {
+      return (
+          <div className="rf-card rounded-2xl p-4 border border-[#10b981]/30 bg-[#10b981]/5 mb-3 shadow-sm flex items-center justify-between">
+              <div className="flex gap-3 items-center min-w-0">
+                  <div className="w-12 h-12 shrink-0 bg-[#0a0a0a] rounded-lg border border-[#333] overflow-hidden flex items-center justify-center">
+                      {productImage ? <img src={productImage} className="w-full h-full object-cover opacity-90" alt="img" /> : <i className="fas fa-image text-[#444] text-xl"></i>}
+                  </div>
+                  <div className="flex flex-col">
+                      <span className="text-white font-black text-[13px] uppercase truncate">{_item.name}</span>
+                      <span className="text-[#10b981] text-[10px] font-bold mt-1"><i className="fas fa-check-circle mr-1"></i>HÀNG ĐÃ CÓ SẴN (XUẤT TỪ KHO)</span>
+                  </div>
+              </div>
+          </div>
+      );
+  }
 
   return (
     <React.Fragment>
-      <div className={`rounded-2xl shadow-sm relative border hover:border-[#444] transition-all p-3.5 mb-3 ${
+      <div className={`rf-card relative hover:border-[#444] transition-all p-3.5 mb-3 ${
             isItemDone 
-                ? 'bg-[#10b981]/15 border-[#10b981]/40' 
-                : _item.note === 'Chất Lượng Kém'
-                    ? isAnyInProgress
-                        ? 'bg-[#141414] rf-production-running-red-border'
-                        : 'bg-[#141414] border-red-500/60 shadow-[0_0_10px_rgba(239,68,68,0.15)]'
-                    : isAnyInProgress 
-                        ? 'bg-[#141414] rf-production-running-orange-border' 
-                        : 'bg-[#141414] border-[#2a2a2a]'
+                ? 'bg-[#10b981]/15 border border-[#10b981]/40' 
+                : isAnyInProgress 
+                    ? 'neon-running-dot neon-running-blue shadow-[0_0_15px_rgba(59,130,246,0.3)]' 
+                    : isPhase2Pending
+                        ? 'neon-running-dot neon-running-green shadow-[0_0_15px_rgba(16,185,129,0.3)]'
+                        : isReadyForInspection
+                            ? 'neon-running-dot neon-running-yellow shadow-[0_0_15px_rgba(234,179,8,0.3)]'
+                            : isRejected
+                                ? 'neon-running-dot neon-running-red shadow-[0_0_15px_rgba(239,68,68,0.3)]'
+                                : 'bg-[#141414] border border-[#2a2a2a]'
         }`}>
         
-        <div className="flex gap-3 w-full cursor-pointer relative" onClick={() => setIsExpanded(!isExpanded)}>
-           <div className="w-[60px] h-[60px] shrink-0 relative z-10">
-              <div className="w-full h-full bg-[#0a0a0a] rounded-lg border border-[#333] overflow-hidden flex items-center justify-center relative shadow-sm">
-                <div className="absolute top-0.5 left-0.5 w-3.5 h-3.5 bg-black/80 text-[#d4af37] font-black text-[8px] rounded-full flex items-center justify-center border border-[#333] z-10">{idx_num}</div>
-                {productImage ? <img src={productImage} className="w-full h-full object-cover opacity-90" alt="img" /> : <i className="fas fa-image text-[#444] text-xl"></i>}
-              </div>
-           </div>
+        <div className="flex flex-col w-full cursor-pointer relative" onClick={() => setIsExpanded(!isExpanded)}>
+           
+           {/* === HÀNG NHÃN Ở TRÊN CÙNG === */}
+           <div className="flex items-center gap-1.5 mb-2.5 w-full flex-wrap pr-20">
+              <span className={`text-[8px] font-black px-1.5 py-0.5 rounded border uppercase shadow-sm truncate ${typeof getChannelBadge === 'function' ? getChannelBadge(order.channel) : 'bg-blue-600 text-white border border-blue-500'}`}>
+                  {order.channel || 'OFFLINE'}
+              </span>
+              <span className="text-[10px] font-black text-gray-400 truncate uppercase">{oCode}</span>
 
-           <div className="flex-1 min-w-0 flex flex-col justify-center pr-8">
-              <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
-                <span className={`text-[8px] font-black px-1.5 py-0.5 rounded border uppercase shadow-sm truncate ${typeof getChannelBadge === 'function' ? getChannelBadge(order.channel) : 'bg-blue-600 text-white border border-blue-500'}`}>
-                    {order.channel || 'OFFLINE'}
+              {/* HẠN BÀN GIAO NẰM CẠNH MÃ ĐƠN HÀNG */}
+              {_item.deadline && (
+                <span className={`text-[8px] font-black px-1.5 py-0.5 rounded border uppercase shadow-sm flex items-center gap-1 ${
+                  new Date(_item.deadline) < new Date() 
+                    ? 'bg-rose-500/25 text-rose-400 border-rose-500/30 animate-pulse' 
+                    : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                }`}>
+                    <i className="fas fa-clock"></i> HẠN: {String(_item.deadline).replace('T', ' ').slice(0, 16)}
                 </span>
-                {isBuKho && <span className="text-[8px] font-black px-1.5 py-0.5 bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded shadow-sm uppercase tracking-wider">BÙ KHO</span>}
-                <span className="text-[10px] font-black text-gray-400 truncate uppercase">{oCode}</span>
-                
-                {/* HIỂN THỊ NHÃN TRẠNG THÁI */}
-                {isItemDone ? (
-                    <span className="text-[8px] font-black px-1.5 py-0.5 bg-[#10b981]/20 text-[#10b981] border border-[#10b981]/40 rounded shadow-sm uppercase tracking-wider flex items-center gap-1">
-                        <i className="fas fa-check-circle"></i> ĐẠT KCS
-                    </span>
-                ) : isAnyInProgress ? (
-                    <span className="text-[8px] font-black px-1.5 py-0.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded shadow-sm animate-pulse uppercase tracking-wider">ĐANG LÀM</span>
-                ) : null}
+              )}
 
-              </div>
-              <h4 className={`font-black text-[13px] break-words ${isItemDone ? 'text-[#34d399]' : 'text-[#d4af37]'}`} title={_item.name}>{_item.name}</h4>
-              
-              {/* === KHỐI GHI CHÚ (VISUAL ENFORCEMENT) CẢNH BÁO CHO THỢ === */}
-              {_item.note && _item.note !== 'Chất Lượng Kém' && (
-                <div className="mt-2 p-2 bg-rose-500/10 border-l-[3px] border-rose-500 rounded-r-lg flex items-start gap-1.5 shadow-sm w-full">
-                    <i className="fas fa-exclamation-triangle text-rose-500 animate-pulse mt-[2px] shrink-0 text-[11px]"></i>
-                    <div className="text-[11px] font-black text-rose-400 leading-snug whitespace-normal break-words">
-                        <span className="uppercase mr-1 underline decoration-rose-500/50">LƯU Ý:</span>{_item.note}
-                    </div>
-                </div>
+              {/* CÁC NHÃN TRẠNG THÁI */}
+              {isItemDone && (
+                  <span className="text-[8px] font-black px-1.5 py-0.5 bg-[#10b981]/20 text-[#10b981] border border-[#10b981]/40 rounded shadow-sm uppercase tracking-wider flex items-center gap-1">
+                      <i className="fas fa-check-circle"></i> {(_item.fulfilledFromStock === true || String(_item.fulfilledFromStock).toUpperCase() === 'TRUE') ? 'ĐÃ LẤY TỪ KHO' : 'ĐẠT KCS'}
+                  </span>
+              )}
+
+              {_item.qc_status === 'Chờ duyệt khung' && (
+                  <span className="text-[8px] font-black px-1.5 py-0.5 bg-indigo-500/20 text-indigo-400 border border-indigo-500/40 rounded shadow-sm uppercase tracking-wider flex items-center gap-1 animate-pulse">
+                      <i className="fas fa-search"></i> CHỜ DUYỆT KHÂU 1
+                  </span>
+              )}
+
+              {_item.assignee && (
+                <span className="text-[8px] font-black px-1.5 py-0.5 bg-[#d4af37]/20 text-[#d4af37] border border-[#d4af37]/40 rounded shadow-sm uppercase tracking-wider flex items-center gap-1">
+                    <i className="fas fa-lock"></i> CHỈ ĐỊNH: {_item.assignee}
+                </span>
+              )}
+
+              {assignedUser && (
+                <span className="text-[8px] font-black px-1.5 py-0.5 bg-[#3b82f6]/20 text-[#60a5fa] border border-[#3b82f6]/30 rounded shadow-sm uppercase tracking-wider flex items-center gap-1">
+                    <i className="fas fa-user-cog"></i> THỢ: {assignedUser}
+                </span>
               )}
            </div>
 
-           <div className="absolute top-2 right-2 flex gap-1 z-30">
+           {/* === HÌNH ẢNH & THÔNG TIN SẢN PHẨM === */}
+           <div className="flex gap-3 w-full relative">
+               <div className="w-[60px] h-[60px] shrink-0 relative z-10">
+                  <div className="w-full h-full bg-[#0a0a0a] rounded-lg border border-[#333] overflow-hidden flex items-center justify-center relative shadow-sm">
+                    <div className="absolute top-0.5 left-0.5 w-3.5 h-3.5 bg-black/80 text-[#d4af37] font-black text-[8px] rounded-full flex items-center justify-center border border-[#333] z-10">{idx_num}</div>
+                    {productImage ? <img src={productImage} className="w-full h-full object-cover opacity-90" alt="img" /> : <i className="fas fa-image text-[#444] text-xl"></i>}
+                  </div>
+               </div>
+
+               <div className="flex-1 min-w-0 flex flex-col justify-center pr-8">
+                  {(() => {
+                      const isFinished = _item.status === 'Done' || _item.status === 'Đã Huỷ' || _item.status === 'Cancel' || _item.status === 'Huỷ';
+                      const deadlineStr = _item.deadline || order.createdAt;
+                      const tzOffset = (new Date()).getTimezoneOffset() * 60000;
+                      const nowMonthStr = new Date(Date.now() - tzOffset).toISOString().slice(0, 7);
+                      const isBacklog = !isFinished && deadlineStr && String(deadlineStr) < nowMonthStr;
+                      return (
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                              {isBacklog && <span className="bg-rose-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded shadow-sm animate-pulse">TỒN ĐỌNG</span>}
+                              <h4 className={`font-black text-[13px] break-words ${isItemDone ? 'text-[#34d399]' : 'text-[#d4af37]'}`} title={_item.name}>{_item.name}</h4>
+                          </div>
+                      );
+                  })()}
+                  
+                  {/* === KHỐI GHI CHÚ (VISUAL ENFORCEMENT) CẢNH BÁO CHO THỢ === */}
+                  {(() => {
+                    const displayItemNote = cleanItemNote(_item.note);
+                    return displayItemNote && (
+                      <div className="mt-2 p-2 bg-rose-500/10 border-l-[3px] border-rose-500 rounded-r-lg flex items-start gap-1.5 shadow-sm w-full relative">
+                          <i className="fas fa-exclamation-triangle text-rose-500 animate-pulse mt-[2px] shrink-0 text-[11px]"></i>
+                          <div className="text-[11px] font-black text-rose-400 leading-snug whitespace-normal break-words pr-8">
+                              {displayItemNote}
+                          </div>
+                          {_item.qc_note && (
+                              <button 
+                                  onClick={(e) => {
+                                      e.stopPropagation();
+                                      window.dispatchEvent(new CustomEvent('openAnnotationModal', { detail: { item: _item, readOnly: true } }));
+                                  }}
+                                  className="absolute right-2 top-1/2 -translate-y-1/2 bg-rose-500 text-white w-7 h-7 rounded-full flex items-center justify-center hover:bg-rose-600 shadow-md active:scale-95 transition-all"
+                                  title="Xem ảnh ghim lỗi chi tiết"
+                              >
+                                  <i className="fas fa-search-plus text-[12px]"></i>
+                              </button>
+                          )}
+                      </div>
+                    );
+                  })()}
+
+                  {/* === KHỐI GHI CHÚ ĐƠN HÀNG === */}
+                  {(() => {
+                    const displayOrderNote = cleanOrderNote(order.note);
+                    const displayOrderNoteClean = cleanItemNote(displayOrderNote);
+                    return displayOrderNoteClean && (
+                      <div className="mt-2 p-2 bg-indigo-500/10 border-l-[3px] border-indigo-500 rounded-r-lg flex items-start gap-1.5 shadow-sm w-full">
+                          <i className="fas fa-comment-alt text-indigo-400 mt-[2.5px] shrink-0 text-[10px]"></i>
+                          <div className="text-[11px] font-black text-indigo-300 leading-snug whitespace-normal break-words">
+                              <span className="uppercase mr-1 underline decoration-indigo-500/50">LƯU Ý ĐƠN HÀNG:</span>{displayOrderNoteClean}
+                          </div>
+                      </div>
+                    );
+                  })()}
+               </div>
+           </div>
+
+           {/* NÚT THAO TÁC Ở GÓC TRÊN CÙNG BÊN PHẢI */}
+           <div className="absolute top-0 right-0 flex gap-1 z-30">
               {realImage && (
-                 <button onClick={(e) => { e.stopPropagation(); setPreviewImg(realImage); }} className="w-6 h-6 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500 hover:text-black rounded flex items-center justify-center transition-colors shadow-sm" title="Xem ảnh thật mẫu tại đây">
+                 <button onClick={(e) => { 
+                     e.stopPropagation(); 
+                     const m3d = getModelForProduct(_item.productId);
+                     if (m3d && m3d.url) {
+                         setPreview3DUrl(m3d.url);
+                     } else {
+                         setPreviewImg(realImage); 
+                     }
+                 }} className="w-6 h-6 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500 hover:text-black rounded flex items-center justify-center transition-colors shadow-sm" title="Xem ảnh thật/mẫu 3D">
                    <i className="fas fa-camera text-[10px]"></i>
                  </button>
               )}
-              {isAdmin && (
+              {(localStorage.getItem('rf_role') === 'QUẢN LÝ SẢN XUẤT' || localStorage.getItem('rf_role') === 'TỐI CAO') && (
                 <React.Fragment>
-                  <button onClick={(e) => { e.stopPropagation(); const n = window.prompt("Sửa ghi chú:", _item.note); if (n !== null) wrappedPushDeltas({ prodItems: [{ ..._item, note: n }] }); }} className="w-6 h-6 bg-[#1a1a1a] text-[#d4af37] border border-[#333] hover:border-[#d4af37]/50 rounded flex items-center justify-center transition-colors shadow-sm"><i className="fas fa-edit text-[10px]"></i></button>
+
+                  <button onClick={(e) => { e.stopPropagation(); onEditItem && onEditItem(_item); }} className="w-6 h-6 bg-[#1a1a1a] text-[#d4af37] border border-[#333] hover:border-[#d4af37]/50 rounded flex items-center justify-center transition-colors shadow-sm"><i className="fas fa-edit text-[10px]"></i></button>
                   <button onClick={(e) => { e.stopPropagation(); if (window.confirm("Xoá lệnh này?")) wrappedPushDeltas({ deletes: { prodItems: [_item.id] } }); }} className="w-6 h-6 bg-[#4c0519]/50 text-[#e11d48] border border-[#e11d48]/30 hover:bg-[#e11d48] hover:text-white rounded flex items-center justify-center transition-colors shadow-sm"><i className="fas fa-trash text-[10px]"></i></button>
                 </React.Fragment>
               )}
            </div>
 
-           <div className="absolute right-3 bottom-2 text-gray-500 text-[10px]">
+           <div className="absolute right-0 bottom-0 text-gray-500 text-[10px]">
                {isExpanded ? <i className="fas fa-chevron-up"></i> : <i className="fas fa-chevron-down"></i>}
            </div>
         </div>
 
         {isExpanded && (
             <div className={`px-2 pb-2 border-t border-[#222] pt-2 flex flex-col gap-1 w-full animate-fade-in rounded-b-xl ${isItemDone ? 'bg-[#0f2e24]' : 'bg-[#111]'}`}>
+              {canApproveQC && _item.qc_status === 'Chờ duyệt khung' && (
+                  <div className="mb-2 p-2.5 bg-[#141414] rounded-xl relative rf-production-running-border">
+                      <div className="text-[10px] font-black text-indigo-400 mb-2 text-center uppercase"><i className="fas fa-search"></i> QUẢN LÝ DUYỆT KHUNG</div>
+                      <div className="flex gap-2 mb-2">
+                          <img src={_item.qc_front_photo} onClick={(e)=>{e.stopPropagation(); setPreviewImg(_item.qc_front_photo)}} className="w-full h-32 object-contain rounded-lg border border-indigo-500/20 cursor-pointer bg-black/20" alt="Mặt trước"/>
+                      </div>
+                      <div className="flex gap-2">
+                          <button onClick={(e) => { 
+                              e.stopPropagation();
+                              window.dispatchEvent(new CustomEvent('openAnnotationModal', { detail: _item }));
+                          }} className="flex-1 py-2 bg-[#4c0519] text-[#fb7185] hover:bg-[#e11d48] hover:text-white font-black text-[10px] rounded-lg shadow-sm active:scale-95 transition-all">TỪ CHỐI LÀM LẠI</button>
+                          
+                          <button onClick={(e) => { 
+                              e.stopPropagation();
+                              if (window.confirm('Khung đạt yêu cầu, cho phép dán keo?')) {
+                                  const upd = JSON.parse(JSON.stringify(_item));
+                                  upd.qc_status = 'Đã duyệt';
+                                  upd.phases['phase1'].status = 'Done';
+                                  
+                                  if (typeof getSopAndReward === 'function') {
+                                      const kInfo = getSopAndReward(upd, configs[0].n, kpiConfig || [], order?.channel);
+                                      const limit = kInfo.time || 30;
+                                      
+                                      let durationMins = 0;
+                                      let isLate = false;
+                                      const p1 = upd.phases['phase1'];
+                                      if (p1.start && p1.endTime) {
+                                          const startMs = new Date(p1.start.replace(' ', 'T')).getTime();
+                                          const endMs = new Date(p1.endTime.replace(' ', 'T')).getTime();
+                                          if (!isNaN(startMs) && !isNaN(endMs)) {
+                                              durationMins = Math.round((endMs - startMs) / 60000);
+                                              if (durationMins > limit) isLate = true;
+                                          }
+                                      }
+                                      if (isLate) {
+                                          p1.reward_vnd = 0;
+                                          p1.note = `Trễ hạn (${durationMins}/${limit}p) - Cắt thưởng KPI`;
+                                      } else {
+                                          p1.reward_vnd = kInfo.reward;
+                                      }
+                                  }
+                                  
+                                  wrappedPushDeltas({ prodItems: [upd] }, 'Đã duyệt khung', 'fa-check');
+                              }
+                          }} className="flex-1 py-2 bg-indigo-600 text-white hover:bg-indigo-500 font-black text-[10px] rounded-lg shadow-sm active:scale-95 transition-all">
+                              DUYỆT ĐẠT
+                          </button>
+                      </div>
+                  </div>
+              )}
+
               {/* Vẫn render các công đoạn như bình thường */}
               {configs.map(c => (
-                  <WorkerPhaseV2 key={c.k} item={_item} c={c} configs={configs} order={order} prodItems={prodItems} erpProducts={erpProducts} currentUser={currentUser} pushDeltas={wrappedPushDeltas} userConfigs={userConfigs} triggerToast={triggerToast} kpiConfig={kpiConfig} isAdmin={isAdmin} />
+                  <WorkerPhaseV2 key={c.k} attendance={attendance} item={_item} c={c} configs={configs} order={order} prodItems={prodItems} erpProducts={erpProducts} currentUser={currentUser} pushDeltas={wrappedPushDeltas} userConfigs={userConfigs} triggerToast={triggerToast} kpiConfig={kpiConfig} isAdmin={isAdmin} />
               ))}
 
-              {isReadyForInspection && !isItemDone && (
+              {isReadyForInspection && !isItemDone && canApproveQC && (
                 <div className="mt-1 p-2.5 bg-[#1e1b4b]/50 border border-[#4338ca]/30 rounded-xl relative">
                   <div className="text-[10px] font-black text-[#818cf8] mb-2 text-center uppercase"><i className="fas fa-search-dollar mr-1"></i> KIỂM ĐỊNH CHẤT LƯỢNG</div>
                   <div className="flex gap-2">
                     <button onClick={(e) => { 
                         e.stopPropagation();
-                        if(window.confirm('Bạn muốn trả lại sản phẩm này cho thợ sửa lỗi?')) {
-                            const upd = JSON.parse(JSON.stringify(_item));
-                            upd.status = 'In Progress';
-                            if (upd.phases && upd.phases.phase2 && upd.phases.phase2.status === 'Done') {
-                                upd.phases.phase2.status = 'In Progress';
-                            } else if (upd.phases && upd.phases.phase1) {
-                                upd.phases.phase1.status = 'In Progress';
-                            }
-                            wrappedPushDeltas({ updItems: [upd], prodItems: [upd] }, 'Yêu cầu làm lại', 'fa-undo');
-                        }
+                        setShowReworkForm(true);
                     }} className="flex-1 py-2 bg-[#4c0519] text-[#fb7185] hover:bg-[#e11d48] hover:text-white font-black text-[10px] rounded-lg shadow-sm active:scale-95 transition-all">LÀM LẠI</button>
                     
                     <button onClick={(e) => { 
@@ -403,6 +1058,27 @@ function WorkerCardV2({ item, order, prodItems, erpProducts, currentUser, pushDe
                             const upd = JSON.parse(JSON.stringify(_item));
                             upd.status = 'Done';
                             
+                            if (overrideSLA) {
+                                if (upd.phases?.phase1 && upd.phases.phase1.reward_vnd === 0 && upd.phases.phase1.note?.includes('Trễ hạn')) {
+                                    const kpi = typeof getSopAndReward === 'function' ? getSopAndReward(upd, 'DỰNG KHUNG', kpiConfig || [], order?.channel) : null;
+                                    if (kpi) upd.phases.phase1.reward_vnd = kpi.reward || 0;
+                                    upd.phases.phase1.note = upd.phases.phase1.note.replace(/Trễ hạn.*?Cắt thưởng KPI/gi, 'Trễ hạn (Đã được Admin miễn phạt)');
+                                }
+                                if (upd.phases?.phase2 && upd.phases.phase2.reward_vnd === 0 && upd.phases.phase2.note?.includes('Trễ hạn')) {
+                                    const kpi = typeof getSopAndReward === 'function' ? getSopAndReward(upd, 'GIA CỐ', kpiConfig || [], order?.channel) : null;
+                                    if (kpi) upd.phases.phase2.reward_vnd = kpi.reward || 0;
+                                    upd.phases.phase2.note = upd.phases.phase2.note.replace(/Trễ hạn.*?Cắt thưởng KPI/gi, 'Trễ hạn (Đã được Admin miễn phạt)');
+                                }
+                            }
+                            
+                            // Gọi API trừ tồn kho BOM
+                            fetch(window.SCRIPT_URL || '', {
+                                method: 'POST',
+                                body: JSON.stringify({ action: 'deductInventoryBOM', pin: localStorage.getItem('rf_pin'), prodId: upd.id })
+                            }).then(r => r.json()).then(res => {
+                                if (!res.success) console.warn("Lỗi trừ tồn kho BOM:", res.message);
+                            }).catch(console.error);
+
                             let payload = { prodItems: [upd] };
                             
                             if (order && order.id) {
@@ -412,6 +1088,7 @@ function WorkerCardV2({ item, order, prodItems, erpProducts, currentUser, pushDe
                                     const pStatusUpper = String(p.status || '').toUpperCase().trim();
                                     return pStatusUpper === 'DONE' || pStatusUpper === 'ĐÃ XONG' || pStatusUpper === 'HỦY/VỠ' || pStatusUpper === 'HOÀN KHO ĐẠT' || p.fulfilledFromStock;
                                 });
+
                                 if (isAllDone && (order.status === 'Chờ Sản Xuất' || order.status === 'Quét Tự Động' || order.status === 'Đang Sản Xuất')) {
                                     payload.orders = [{ ...order, status: 'Sẵn sàng đóng gói' }];
                                 }
@@ -422,6 +1099,50 @@ function WorkerCardV2({ item, order, prodItems, erpProducts, currentUser, pushDe
                         DUYỆT ĐẠT KCS
                     </button>
                   </div>
+                  
+                  {isAdmin && (
+                      <label className="flex items-center gap-2 mt-2 px-2 py-1 bg-[#0a0a0a] border border-[#333] rounded-lg cursor-pointer hover:border-[#10b981]/50 transition-colors" onClick={e => e.stopPropagation()}>
+                          <input type="checkbox" checked={overrideSLA} onChange={e => setOverrideSLA(e.target.checked)} className="w-3 h-3 accent-[#10b981]" />
+                          <span className="text-[10px] text-gray-400 font-bold uppercase">Miễn phạt SLA (Khôi phục thưởng KPI cho thợ)</span>
+                      </label>
+                  )}
+                  {showReworkForm && (
+                      <div className="mt-3 p-3 bg-[#111] border border-rose-500/50 rounded-xl relative animate-fade-in" onClick={e => e.stopPropagation()}>
+                          <div className="text-[11px] font-black text-rose-500 mb-2 uppercase">Yêu cầu thợ làm lại</div>
+                          <select value={reworkPhase} onChange={e => setReworkPhase(e.target.value)} className="w-full bg-[#0a0a0a] border border-[#333] text-gray-200 text-[11px] font-bold rounded p-2.5 mb-2.5 outline-none focus:border-rose-500 transition-colors">
+                              <option value="">-- Chọn khâu cần làm lại --</option>
+                              {configs.map(c => (
+                                  <option key={c.k} value={c.k}>{c.n} (Thợ: {_item.phases?.[c.k]?.user || 'Chưa có'})</option>
+                              ))}
+                          </select>
+                          <textarea 
+                              value={reworkReason} 
+                              onChange={e => setReworkReason(e.target.value)} 
+                              placeholder="Nhập lý do chính xác thợ cần làm lại ở đâu (bắt buộc)..."
+                              className="w-full bg-[#0a0a0a] border border-[#333] text-gray-200 text-[11px] font-bold rounded p-2.5 mb-2.5 min-h-[60px] outline-none focus:border-rose-500 transition-colors placeholder:text-gray-600"
+                          ></textarea>
+                          <div className="flex gap-2">
+                              <button onClick={() => setShowReworkForm(false)} className="flex-1 py-2 bg-zinc-800 text-zinc-400 hover:bg-zinc-700 font-black text-[10px] rounded-lg uppercase tracking-wider transition-all">HỦY BỎ</button>
+                              <button onClick={() => {
+                                  if (!reworkPhase || !reworkReason.trim()) {
+                                      triggerToast('Vui lòng chọn khâu và nhập lý do!', 'fa-exclamation-triangle', 'warning');
+                                      return;
+                                  }
+                                  const upd = JSON.parse(JSON.stringify(_item));
+                                  upd.status = 'Pending';
+                                  if (upd.phases && upd.phases[reworkPhase]) {
+                                      upd.phases[reworkPhase].status = 'Pending';
+                                      const phaseName = configs.find(c => c.k === reworkPhase)?.n || (reworkPhase === 'phase1' ? 'DỰNG KHUNG' : 'GIA CỐ');
+                                      upd.note = `YÊU CẦU LÀM LẠI ${phaseName}: ${reworkReason.trim()}` + (upd.note ? ' | ' + upd.note : '');
+                                  }
+                                  wrappedPushDeltas({ updItems: [upd], prodItems: [upd] }, 'Yêu cầu làm lại', 'fa-undo');
+                                  setShowReworkForm(false);
+                                  setReworkPhase('');
+                                  setReworkReason('');
+                              }} className="flex-1 py-2 bg-rose-600 text-white hover:bg-rose-500 font-black text-[10px] rounded-lg shadow-[0_0_10px_rgba(225,29,72,0.3)] uppercase tracking-wider transition-all">XÁC NHẬN LÀM LẠI</button>
+                          </div>
+                      </div>
+                  )}
                 </div>
               )}
             </div>
@@ -441,31 +1162,178 @@ function WorkerCardV2({ item, order, prodItems, erpProducts, currentUser, pushDe
               </div>
           </div>
       )}
+
+      {preview3DUrl && (
+          <div className="fixed inset-0 z-[99999] bg-black flex flex-col animate-fade-in" onClick={(e) => e.stopPropagation()}>
+              <div className="h-16 bg-[#0a0a0a] border-b border-white/10 flex items-center justify-between px-4 sm:px-6 shrink-0 relative z-20">
+                  <div className="flex items-center gap-3">
+                      <div className="w-2 h-2 rounded-full bg-[#10b981] animate-pulse"></div>
+                      <span className="text-[14px] font-black text-white">MẪU 3D ĐƯỢC CHỈ ĐỊNH</span>
+                  </div>
+                  <button onClick={() => setPreview3DUrl(null)} className="px-4 h-10 rounded-xl bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white flex items-center justify-center transition-colors shadow-[0_0_15px_rgba(244,63,94,0.2)] gap-2 font-black text-[11px] uppercase tracking-wider">
+                      <i className="fas fa-times text-sm"></i> ĐÓNG LẠI
+                  </button>
+              </div>
+              <div className="flex-1 relative bg-[#09090b]">
+                  <model-viewer src={preview3DUrl} auto-rotate camera-controls shadow-intensity="1.5" environment-image="neutral" exposure="1" style={{width: '100%', height: '100%', backgroundColor: '#09090b', outline: 'none', display: 'block'}}></model-viewer>
+              </div>
+          </div>
+      )}
     </React.Fragment>
   );
+}
+
+function GroupedWorkerCardAccordion({ groupItems, order, prodItems, erpProducts, currentUser, pushDeltas, userConfigs, triggerToast, kpiConfig, isAdmin, orders, models3D, attendance, typeTab }) {
+    const [expanded, setExpanded] = React.useState(false);
+    const firstItem = groupItems[0];
+    const qty = groupItems.length;
+    const channelName = order.channel || 'SẢN XUẤT TỒN';
+    const isP1Started = firstItem.phases?.phase1?.status === 'Done' || firstItem.phases?.phase1?.status === 'In Progress' || firstItem.phases?.phase1?.status === 'Đang làm';
+    
+    const productInfo = (erpProducts || []).find(p => p.name === firstItem.name || p.id === firstItem.productId) || {};
+    const productImage = productInfo.image || productInfo.img || firstItem.image || firstItem.img;
+
+    if (qty === 1) {
+        return (
+            <WorkerCardV2 
+                item={firstItem} 
+                order={order} 
+                prodItems={prodItems} 
+                erpProducts={erpProducts} 
+                currentUser={currentUser} 
+                pushDeltas={pushDeltas} 
+                userConfigs={userConfigs} 
+                triggerToast={triggerToast} 
+                kpiConfig={kpiConfig} 
+                idx_num={1} 
+                isAdmin={isAdmin}
+                orders={orders}
+                models3D={models3D}
+                attendance={attendance}
+                configs={typeTab === 'Bể Kính' 
+                  ? [{k:'phase1', n:'Cắt Dán', req:[]}, {k:'phase2', n:'Gọt Keo', req:['phase1']}] 
+                  : [{k:'phase1', n:'Dựng Khung', req:[]}, {k:'phase2', n:'Gia Cố', req:['phase1']}]
+                } 
+            />
+        );
+    }
+
+    return (
+        <div className="mb-4">
+            <div onClick={() => setExpanded(!expanded)} className="rf-card rounded-2xl relative hover:border-[#444] transition-all p-3.5 cursor-pointer flex items-center justify-between shadow-sm">
+                <div className="flex gap-3 items-center min-w-0">
+                    <div className="w-[50px] h-[50px] shrink-0 bg-[#0a0a0a] rounded-xl border border-[#333] overflow-hidden flex items-center justify-center relative shadow-sm">
+                        <div className="absolute top-0.5 left-0.5 w-3.5 h-3.5 bg-[#d4af37] text-black font-black text-[8px] rounded-full flex items-center justify-center border border-[#333] z-10">
+                            LÔ
+                        </div>
+                        {productImage ? (
+                            <img src={productImage} className="w-full h-full object-cover opacity-90" alt="product" />
+                        ) : (
+                            <i className="fas fa-boxes text-[#444] text-lg"></i>
+                        )}
+                    </div>
+                    <div className="min-w-0 pr-2">
+                        <h4 className="font-black text-[13px] text-[#d4af37] uppercase truncate">{firstItem.name}</h4>
+                        <div className="text-[9px] text-gray-400 mt-1 uppercase tracking-wider flex items-center gap-2 flex-wrap">
+                            <span className="bg-[#141414] px-1.5 py-0.5 rounded border border-[#2a2a2a]"><i className="fas fa-layer-group"></i> {channelName}</span>
+                            <span className={isP1Started ? 'text-indigo-400' : 'text-gray-500'}>
+                                {isP1Started ? 'ĐÃ BẮT ĐẦU' : 'CHỜ LÀM'}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                    <div className="bg-[#ffc107] text-black text-[12px] font-black px-2.5 py-1 rounded-full shadow-[0_0_10px_rgba(255,193,7,0.3)] border border-[#ffc107]">
+                        SL: x{qty}
+                    </div>
+                    <i className={`fas fa-chevron-${expanded ? 'up' : 'down'} text-gray-500 text-lg`}></i>
+                </div>
+            </div>
+            
+            {expanded && (
+                <div className="pl-3 border-l-2 border-[#333] mt-3 space-y-3">
+                    {groupItems.map((item, idx) => {
+                        const o = (orders || []).find(x => x.id === item.orderId) || {};
+                        return (
+                            <WorkerCardV2 
+                                key={item.id}
+                                item={item} 
+                                order={o} 
+                                prodItems={prodItems} 
+                                erpProducts={erpProducts} 
+                                currentUser={currentUser} 
+                                pushDeltas={pushDeltas} 
+                                userConfigs={userConfigs} 
+                                triggerToast={triggerToast} 
+                                kpiConfig={kpiConfig} 
+                                idx_num={idx + 1} 
+                                isAdmin={isAdmin}
+                                orders={orders}
+                                models3D={models3D}
+                                attendance={attendance}
+                                configs={typeTab === 'Bể Kính' 
+                                  ? [{k:'phase1', n:'Cắt Dán', req:[]}, {k:'phase2', n:'Gọt Keo', req:['phase1']}] 
+                                  : [{k:'phase1', n:'Dựng Khung', req:[]}, {k:'phase2', n:'Gia Cố', req:['phase1']}]
+                                } 
+                            />
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
 }
 
 // -------------------------------------------------------------------------
 // MỤC 3: GIAO DIỆN CHÍNH TAB SẢN XUẤT (ProductionTab)
 // -------------------------------------------------------------------------
-function ProductionTab({ orders, prodItems, erpProducts, currentUser, pushDeltas, userConfigs, triggerToast, kpiConfig }) {
+const ProductionTab = React.memo(function ProductionTab({ attendance, orders, prodItems, erpProducts, currentUser, pushDeltas, userConfigs, triggerToast, kpiConfig, erpData, models3D }) {
   const [typeTab, setTypeTab] = React.useState('Layout'); 
   const [statusTab, setStatusTab] = React.useState('CHỜ SẢN XUẤT'); 
   const [filterTime, setFilterTime] = React.useState('Tháng Này'); 
   const [searchQuery, setSearchQuery] = React.useState('');
   const [globalPreview, setGlobalPreview] = React.useState(null);
   const [showRules, setShowRules] = React.useState(false);
+  const [showAddSXTModal, setShowAddSXTModal] = React.useState(false);
+  const [editingProdItem, setEditingProdItem] = React.useState(null);
+  const [annotationData, setAnnotationData] = React.useState(null);
+  const [collapsedGroups, setCollapsedGroups] = React.useState({});
 
   React.useEffect(() => {
     const handleGlobalPreview = (e) => { if(e.detail) setGlobalPreview(e.detail); };
+    const handleAnnotation = (e) => { if(e.detail) setAnnotationData(e.detail); };
     window.addEventListener('triggerInternalPreview', handleGlobalPreview);
-    return () => window.removeEventListener('triggerInternalPreview', handleGlobalPreview);
+    window.addEventListener('openAnnotationModal', handleAnnotation);
+    return () => {
+        window.removeEventListener('triggerInternalPreview', handleGlobalPreview);
+        window.removeEventListener('openAnnotationModal', handleAnnotation);
+    };
   }, []);
+
+  const isCTV = localStorage.getItem('rf_role') === 'CTV';
+
+  const checkTimeFilter = (dateStr, filterStr) => {
+      if (!dateStr) return false;
+      if (filterStr === 'Tất Cả') return true;
+      const d = new Date(dateStr); 
+      const today = new Date();
+      if (filterStr === 'Hôm Nay') return d.toDateString() === today.toDateString();
+      if (filterStr === 'Hôm Qua') { const y = new Date(today); y.setDate(y.getDate() - 1); return d.toDateString() === y.toDateString(); }
+      if (filterStr === 'Tháng Này') return d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
+      if (filterStr === 'Tháng Trước') {
+          const lastMonth = new Date(today);
+          lastMonth.setMonth(lastMonth.getMonth() - 1);
+          return d.getMonth() === lastMonth.getMonth() && d.getFullYear() === lastMonth.getFullYear();
+      }
+      return true;
+  };
 
   const baseFiltered = React.useMemo(() => { 
       return (prodItems || []).filter(i => { 
-          if (i.orderId === 'SHARED_TASK') return false; 
+          if (i.orderId === 'SHARED_TASK' || i.orderId === 'REMINDER') return false; 
           const o = (orders || []).find(x => x.id === i.orderId) || {}; 
+          const isCtvOrder = String(o.channel || '').toUpperCase().includes('CỘNG TÁC VIÊN') || String(o.channel || '').toUpperCase() === 'CTV';
+          if (isCTV && o.createdBy !== currentUser && o.sale !== currentUser && o.responsibleUser !== currentUser && !isCtvOrder) return false;
           
           if (searchQuery) {
               const q = searchQuery.toLowerCase();
@@ -474,7 +1342,20 @@ function ProductionTab({ orders, prodItems, erpProducts, currentUser, pushDeltas
               if (!matchName && !matchOrder) return false;
           }
 
-          if (typeof checkTimeFilter === 'function' && !checkTimeFilter(i.deadline || o.createdAt, filterTime)) return false; 
+          const deadlineStr = i.deadline || o.createdAt;
+          const isTimeMatch = checkTimeFilter(deadlineStr, filterTime);
+          
+          if (filterTime === 'Tháng Này' && !isTimeMatch) {
+              const isFinished = i.status === 'Done' || i.status === 'Đã Huỷ' || i.status === 'Cancel' || i.status === 'Huỷ';
+              if (!isFinished && deadlineStr) {
+                  const tzOffset = (new Date()).getTimezoneOffset() * 60000; 
+                  const nowMonthStr = new Date(Date.now() - tzOffset).toISOString().slice(0, 7);
+                  if (String(deadlineStr) < nowMonthStr) {
+                      return true;
+                  }
+              }
+          }
+          if (!isTimeMatch) return false;
           return true; 
       }); 
   }, [prodItems, orders, filterTime, searchQuery]);
@@ -504,14 +1385,40 @@ function ProductionTab({ orders, prodItems, erpProducts, currentUser, pushDeltas
     let curSt = 'CHỜ SẢN XUẤT';
     const p1 = i.phases?.phase1?.status || 'Pending';
     const p2 = i.phases?.phase2?.status || 'Pending';
+    const statusUpper = String(i.status || '').toUpperCase();
+    const isStock = i.fulfilledFromStock === true || String(i.fulfilledFromStock).toUpperCase() === 'TRUE';
 
-    if (i.status === 'Đã Huỷ' || i.status === 'HUỶ') curSt = 'ĐÃ HUỶ';
-    else if (i.status === 'Done' || i.status === 'Đã Xong') curSt = 'ĐÃ XONG';
-    else if (i.status === 'Kiểm Định' || (p1 === 'Done' && p2 === 'Done')) curSt = 'KIỂM ĐỊNH';
-    else curSt = 'CHỜ SẢN XUẤT';
+    if (statusUpper === 'ĐÃ HUỶ' || statusUpper === 'HUỶ' || statusUpper === 'CANCEL' || statusUpper === 'HỦY') {
+        curSt = 'ĐÃ HUỶ';
+    } else if (i.qc_status === 'Đạt' || statusUpper === 'DONE' || statusUpper === 'ĐÃ XONG' || isStock) {
+        curSt = 'ĐÃ XONG';
+    } else if (p1 === 'Done' && p2 === 'Done') {
+        curSt = 'KIỂM ĐỊNH';
+    } else {
+        curSt = 'CHỜ SẢN XUẤT';
+    }
     
     return { ...i, _computedStatus: curSt };
   });
+
+  const workerTodayKPI = React.useMemo(() => {
+      const safeDateFull = typeof getLocalISODate === 'function' ? getLocalISODate() : new Date().toISOString();
+      const today = safeDateFull.split('T')[0];
+      let framesCount = 0;
+      let layoutCount = 0;
+      let kpiVND = 0;
+
+      listWithStatus.forEach(i => {
+          ['phase1', 'phase2'].forEach(pk => {
+              if (i.phases && i.phases[pk] && i.phases[pk].status === 'Done' && i.phases[pk].user === currentUser && i.phases[pk].date === today) {
+                  if (String(i.type || '').toLowerCase().includes('bể')) framesCount++;
+                  else layoutCount++;
+                  kpiVND += (i.phases[pk].reward_vnd || 0);
+              }
+          });
+      });
+      return { framesCount, layoutCount, kpiVND };
+  }, [listWithStatus, currentUser]);
 
   const counts = { 'CHỜ SẢN XUẤT': 0, 'KIỂM ĐỊNH': 0, 'ĐÃ XONG': 0, 'ĐÃ HUỶ': 0, 'TẤT CẢ': typeFiltered.length };
   listWithStatus.forEach(i => { counts[i._computedStatus] = (counts[i._computedStatus] || 0) + 1; });
@@ -521,35 +1428,11 @@ function ProductionTab({ orders, prodItems, erpProducts, currentUser, pushDeltas
     return true;
   });
 
-  const stats = React.useMemo(() => {
-      let pending = 0;
-      let running = 0;
-      let done = 0;
-      
-      listWithStatus.forEach(item => {
-          if (item._computedStatus === 'CHỜ SẢN XUẤT') {
-              const p1 = item.phases?.phase1?.status || 'Pending';
-              const p2 = item.phases?.phase2?.status || 'Pending';
-              if (p1 === 'In Progress' || p2 === 'In Progress') {
-                  running++;
-              } else {
-                  pending++;
-              }
-          } else if (item._computedStatus === 'ĐÃ XONG') {
-              done++;
-          }
-      });
-      
-      const total = pending + running + done;
-      const ratio = total > 0 ? Math.round((done / total) * 100) : 0;
-      
-      return { pending, running, done, ratio };
-  }, [listWithStatus]);
 
   const adminCheck = localStorage.getItem('rf_admin') === 'true';
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4 max-w-5xl mx-auto px-1 sm:px-0">
       <style>
         {`
           @keyframes rf-glow-border {
@@ -581,178 +1464,271 @@ function ProductionTab({ orders, prodItems, erpProducts, currentUser, pushDeltas
             animation: rf-glow-border 3.5s linear infinite !important;
             box-shadow: 0 0 10px rgba(245, 158, 11, 0.2) !important;
           }
+          .rf-production-running-border-green {
+            position: relative;
+            border: 1px solid transparent !important;
+            background: linear-gradient(#141414, #141414) padding-box, linear-gradient(90deg, #10b981, #34d399, #059669, #10b981) border-box !important;
+            background-size: 250% 250% !important;
+            animation: rf-glow-border 3.5s linear infinite !important;
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.4) !important;
+          }
+
+          @keyframes rf-spin-slow {
+            from { transform: translate(-50%, -50%) rotate(0deg); }
+            to { transform: translate(-50%, -50%) rotate(360deg); }
+          }
+          .neon-running-dot {
+            position: relative;
+            overflow: hidden;
+            border: none !important;
+          }
+          .neon-running-dot::before {
+            content: "";
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 250%; height: 250%;
+            background: conic-gradient(transparent, transparent, transparent, var(--neon-color));
+            animation: rf-spin-slow 3s linear infinite;
+            z-index: 0;
+          }
+          .neon-running-dot::after {
+            content: "";
+            position: absolute;
+            inset: 1.5px;
+            background: #141414;
+            border-radius: 15px;
+            z-index: 0;
+          }
+          .neon-running-dot > * {
+            position: relative;
+            z-index: 10;
+          }
+          .neon-running-blue { --neon-color: #3b82f6; }
+          .neon-running-yellow { --neon-color: #eab308; }
+          .neon-running-green { --neon-color: #10b981; }
+          .neon-running-orange { --neon-color: #f59e0b; }
+          .neon-running-red { --neon-color: #ef4444; }
         `}
       </style>
 
-      {/* 1. KHUNG TĨNH: NỘI QUY & QUY CHUẨN PHẠT (COLLAPSIBLE TO SAVE SPACE) */}
-      <div className="bg-gradient-to-r from-[#2a0808]/40 to-[#141414]/90 border border-rose-500/20 rounded-2xl shadow-md overflow-hidden transition-all duration-300">
-          <div 
-              onClick={() => setShowRules(!showRules)} 
-              className="p-3 flex justify-between items-center cursor-pointer hover:bg-rose-500/5 transition-colors"
-          >
-              <div className="flex items-center gap-2">
-                  <i className="fas fa-gavel text-rose-500 text-[13px]"></i>
-                  <span className="font-black text-[11px] text-rose-400 uppercase tracking-widest">Nội Quy & Phạt Sản Xuất ({showRules ? 'Thu gọn' : 'Xem chi tiết'})</span>
-              </div>
-              <i className={`fas fa-chevron-${showRules ? 'up' : 'down'} text-rose-500/70 text-[10px] transition-transform`}></i>
-          </div>
-          
-          {showRules && (
-              <div className="p-4 pt-0 border-t border-rose-500/10 animate-fade-in">
-                  <ul className="text-[11px] text-gray-300 font-medium space-y-2.5 pl-1">
-                      <li className="flex items-start gap-2 leading-snug">
-                          <i className="fas fa-times-circle text-[10px] text-rose-500/70 mt-0.5 shrink-0"></i>
-                          <span>Bắt đầu, kết thúc các khâu sản xuất, không bấm nút <b className="text-rose-400 bg-rose-500/10 px-1 py-0.5 rounded ml-1 border border-rose-500/20">-50k</b> <span className="text-gray-500 text-[9px]">/ 1 lệnh</span></span>
-                      </li>
-                      <li className="flex items-start gap-2 leading-snug">
-                          <i className="fas fa-times-circle text-[10px] text-rose-500/70 mt-0.5 shrink-0"></i>
-                          <span>Trạng thái khâu lệnh sản xuất sai với thực tế <b className="text-rose-400 bg-rose-500/10 px-1 py-0.5 rounded ml-1 border border-rose-500/20">-100k</b> <span className="text-gray-500 text-[9px]">/ 1 lệnh</span></span>
-                      </li>
-                      <li className="flex items-start gap-2 leading-snug">
-                          <i className="fas fa-times-circle text-[10px] text-rose-500/70 mt-0.5 shrink-0"></i>
-                          <span>Có đơn hoàn huỷ trả về không sửa <b className="text-rose-400 bg-rose-500/10 px-1 py-0.5 rounded ml-1 border border-rose-500/20">-200k</b> <span className="text-gray-500 text-[9px]">/ 1 đơn</span></span>
-                      </li>
-                      <li className="flex items-start gap-2 leading-snug">
-                          <i className="fas fa-times-circle text-[10px] text-rose-500/70 mt-0.5 shrink-0"></i>
-                          <span>Ảnh không khớp với lệnh sản xuất, nhoè, mờ,... <b className="text-rose-400 bg-rose-500/10 px-1 py-0.5 rounded ml-1 border border-rose-500/20">-100k</b> <span className="text-gray-500 text-[9px]">/ 1 đơn</span></span>
-                      </li>
-                      <li className="flex items-start gap-2 leading-snug">
-                          <i className="fas fa-times-circle text-[10px] text-rose-500/70 mt-0.5 shrink-0"></i>
-                          <span>Trễ bàn giao cho bộ phận đóng gói <b className="text-rose-400 bg-rose-500/10 px-1 py-0.5 rounded ml-1 border border-rose-500/20">-100k</b> <span className="text-gray-500 text-[9px]">/ tổng đơn</span></span>
-                      </li>
-                  </ul>
-              </div>
-          )}
-      </div>
+      {/* DASHBOARD KPI (WORKER ONLY) */}
+      {!adminCheck && !isCTV && (
+        <RFCard className="mb-4 relative overflow-hidden group">
+            <div className="absolute top-0 left-0 w-1.5 bg-gradient-to-b from-[#d4af37] to-[#f59e0b] h-full z-10"></div>
+            <div className="absolute -right-10 -top-10 w-40 h-40 bg-[#d4af37]/5 rounded-full blur-3xl group-hover:bg-[#d4af37]/10 transition-all"></div>
+            <div className="flex justify-between items-center mb-4 pl-2 relative z-10">
+                <h3 className="text-white font-black text-[13px] tracking-wide flex items-center gap-2">
+                    <i className="fas fa-chart-line text-[#d4af37]"></i> KPI HÔM NAY
+                </h3>
+                <RFBadge text={new Date().toLocaleDateString('vi-VN')} type="default" />
+            </div>
+            <div className="grid grid-cols-3 gap-3 relative z-10">
+                <div className="bg-[#0a0a0a] rounded-xl p-3 border border-[#333] text-center shadow-inner relative overflow-hidden group/item">
+                    <div className="absolute inset-0 bg-blue-500/5 opacity-0 group-hover/item:opacity-100 transition-opacity"></div>
+                    <div className="text-gray-500 text-[9px] sm:text-[10px] font-black mb-1.5 tracking-wider">KHUNG BỂ</div>
+                    <div className="text-xl sm:text-2xl font-black text-[#3b82f6] drop-shadow-[0_0_8px_rgba(59,130,246,0.3)]">{workerTodayKPI.framesCount}</div>
+                </div>
+                <div className="bg-[#0a0a0a] rounded-xl p-3 border border-[#333] text-center shadow-inner relative overflow-hidden group/item">
+                    <div className="absolute inset-0 bg-green-500/5 opacity-0 group-hover/item:opacity-100 transition-opacity"></div>
+                    <div className="text-gray-500 text-[9px] sm:text-[10px] font-black mb-1.5 tracking-wider">LAYOUT</div>
+                    <div className="text-xl sm:text-2xl font-black text-[#10b981] drop-shadow-[0_0_8px_rgba(16,185,129,0.3)]">{workerTodayKPI.layoutCount}</div>
+                </div>
+                <div className="bg-[#0a0a0a] rounded-xl p-3 border border-[#333] text-center shadow-inner relative overflow-hidden group/item">
+                    <div className="absolute inset-0 bg-[#d4af37]/5 opacity-0 group-hover/item:opacity-100 transition-opacity"></div>
+                    <div className="text-gray-500 text-[9px] sm:text-[10px] font-black mb-1.5 tracking-wider">TẠM TÍNH</div>
+                    <div className="text-sm sm:text-base font-black text-[#d4af37] drop-shadow-[0_0_8px_rgba(212,175,55,0.3)] mt-1.5">
+                        {workerTodayKPI.kpiVND > 0 ? `+${workerTodayKPI.kpiVND.toLocaleString()}đ` : '0đ'}
+                    </div>
+                </div>
+            </div>
+        </RFCard>
+      )}
 
-      {/* 2. CHỈ SỐ DASHBOARD SẢN XUẤT */}
-      <div className="grid grid-cols-2 gap-3">
-          <div className="bg-[#0f0f11] border border-white/[0.07] p-3.5 rounded-2xl flex items-center justify-between group hover:border-yellow-500/20 transition-colors">
-              <div>
-                  <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">Chờ nhận việc</span>
-                  <span className="text-[18px] font-black text-[#d4af37] leading-none">{stats.pending} <span className="text-[9px] text-gray-500 font-bold">món</span></span>
-              </div>
-              <div className="w-8 h-8 rounded-xl bg-yellow-500/10 flex items-center justify-center text-sm text-[#d4af37] group-hover:scale-110 transition-transform"><i className="fas fa-hourglass-start"></i></div>
-          </div>
-          <div className="bg-[#0f0f11] border border-white/[0.07] p-3.5 rounded-2xl flex items-center justify-between group hover:border-blue-500/20 transition-colors">
-              <div>
-                  <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">Đang sản xuất</span>
-                  <span className="text-[18px] font-black text-[#3b82f6] leading-none">{stats.running} <span className="text-[9px] text-gray-500 font-bold">món</span></span>
-              </div>
-              <div className="w-8 h-8 rounded-xl bg-blue-500/10 flex items-center justify-center text-sm text-[#3b82f6] group-hover:scale-110 transition-transform"><i className="fas fa-hammer"></i></div>
-          </div>
-          <div className="bg-[#0f0f11] border border-white/[0.07] p-3.5 rounded-2xl flex items-center justify-between group hover:border-emerald-500/20 transition-colors">
-              <div>
-                  <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">Hoàn thành</span>
-                  <span className="text-[18px] font-black text-[#10b981] leading-none">{stats.done} <span className="text-[9px] text-gray-500 font-bold">món</span></span>
-              </div>
-              <div className="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center text-sm text-[#10b981] group-hover:scale-110 transition-transform"><i className="fas fa-check-double"></i></div>
-          </div>
-          <div className="bg-[#0f0f11] border border-white/[0.07] p-3.5 rounded-2xl flex items-center justify-between group hover:border-purple-500/20 transition-colors">
-              <div>
-                  <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">Hiệu suất tháng</span>
-                  <span className="text-[18px] font-black text-[#a78bfa] leading-none">{stats.ratio}%</span>
-              </div>
-              <div className="w-8 h-8 rounded-xl bg-purple-500/10 flex items-center justify-center text-sm text-[#a78bfa] group-hover:scale-110 transition-transform"><i className="fas fa-chart-line"></i></div>
-          </div>
-      </div>
-
-
-
-      <div className="flex bg-[#0f0f11] rounded-xl p-1.5 border border-white/[0.07]">
+      {/* FILTER TABS */}
+      <div className="flex gap-2 w-full max-w-sm mx-auto mb-4 bg-[#111] p-1.5 rounded-2xl border border-[#333] shadow-inner">
         {[{id: 'Bể Kính', c: countBeKinh}, {id: 'Layout', c: countLayout}].map(t => (
-          <button key={t.id} onClick={() => setTypeTab(t.id)} className={`flex-1 py-2.5 rounded-lg font-black text-[11px] transition-colors ${typeTab === t.id ? 'bg-[#d4af37] text-[#0a0a0a] shadow-md' : 'text-gray-400 hover:bg-[#1a1a1a]'}`}>
-            {t.id.toUpperCase()} <span className={`ml-1 px-1.5 py-0.5 rounded-md text-[9px] ${typeTab === t.id ? 'bg-black/20' : 'bg-[#222]'}`}>{t.c}</span>
+          <button key={t.id} onClick={() => setTypeTab(t.id)} className={`flex-1 py-2 font-black text-[13px] rounded-xl transition-all duration-300 flex items-center justify-center gap-2 ${typeTab === t.id ? 'bg-[#d4af37] text-black shadow-[0_0_15px_rgba(212,175,55,0.3)] scale-[1.02]' : 'bg-transparent text-gray-400 hover:text-white hover:bg-white/5'}`}>
+            {t.id.toUpperCase()} <span className={`px-2 py-0.5 rounded-lg text-[11px] ${typeTab === t.id ? 'bg-black/20 text-black' : 'bg-white/10 text-gray-300'}`}>{t.c}</span>
           </button>
         ))}
       </div>
 
-      <div className="flex gap-2 mb-1">
-        <select value={filterTime} onChange={e => setFilterTime(e.target.value)} className="w-[105px] py-2.5 px-2 bg-[#0a0a0a] rounded-xl border border-[#333] text-[10px] font-bold outline-none text-white shadow-sm focus:border-[#d4af37]">
+      {/* SEARCH AND FILTERS */}
+      <RFCard noPadding className="p-2 flex flex-col md:flex-row gap-2 mb-4 items-center shrink-0">
+        <div className="flex items-center gap-2 pl-2 border-r border-[#333] pr-3 shrink-0">
+            <i className="fas fa-bolt text-[#d4af37]"></i>
+            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">ACTIONS</span>
+        </div>
+        
+        {adminCheck && !isCTV && (
+          <RFButton variant="outline" onClick={() => setShowAddSXTModal(true)} className="w-10 h-10 !p-0 rounded-xl shrink-0" title="Tạo Lệnh SX Tồn">
+            <i className="fas fa-plus text-lg"></i>
+          </RFButton>
+        )}
+        <select value={filterTime} onChange={e => setFilterTime(e.target.value)} className="h-[42px] px-2.5 bg-[#0a0a0a] rounded-xl border border-[#333] text-[11px] font-bold outline-none text-white shadow-sm focus:border-[#d4af37] transition-colors appearance-none cursor-pointer shrink-0">
           <option>Hôm Nay</option><option>Hôm Qua</option><option>Tháng Này</option><option>Tháng Trước</option><option>Tất Cả</option>
         </select>
         
-        <div className="flex-1 relative">
-            <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-[11px]"></i>
-            <input 
-                type="text" 
-                placeholder="Tìm tên hàng, mã đơn..." 
+        <div className="flex-1 w-full min-w-[200px]">
+            <RFInput 
                 value={searchQuery} 
                 onChange={e => setSearchQuery(e.target.value)} 
-                className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl pl-8 pr-8 py-2.5 text-[11px] font-bold outline-none text-white shadow-sm focus:border-[#d4af37] transition-colors"
+                placeholder="Tìm tên hàng, mã đơn..." 
+                icon="fa-search"
             />
-            {searchQuery && <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"><i className="fas fa-times-circle text-sm"></i></button>}
         </div>
-      </div>
+      </RFCard>
 
-      <div className="flex overflow-x-auto gap-2 pb-1 hide-scrollbar">
+      <div className="flex overflow-x-auto gap-2 pb-2 custom-scrollbar shrink-0">
         {['CHỜ SẢN XUẤT', 'KIỂM ĐỊNH', 'ĐÃ XONG', 'ĐÃ HUỶ', 'TẤT CẢ'].map(t => (
-          <button key={t} onClick={() => setStatusTab(t)} className={`flex-shrink-0 px-3.5 py-2.5 rounded-xl text-[10px] font-bold transition-all ${statusTab === t ? 'bg-[#d4af37] text-[#0a0a0a]' : 'bg-[#0f0f11] text-gray-400 hover:bg-[#18181b] border border-white/[0.07]'}`}>
-            {t} <span className={`ml-1 px-1.5 py-0.5 rounded-md text-[8px] ${statusTab === t ? 'bg-black/20' : 'bg-[#222]'}`}>{counts[t]}</span>
+          <button key={t} onClick={() => setStatusTab(t)} className={`flex-shrink-0 px-4 py-2.5 text-[11px] font-bold rounded-xl transition-all duration-300 border flex items-center gap-1.5 ${statusTab === t ? 'border-[#d4af37] bg-[#d4af37]/10 text-[#d4af37] shadow-[0_0_15px_rgba(212,175,55,0.15)]' : 'border-transparent bg-[#111] text-gray-400 hover:text-white hover:bg-white/5'}`}>
+            {t} <span className={`px-2 py-0.5 rounded-lg text-[10px] ${statusTab === t ? 'bg-[#d4af37] text-black' : 'bg-black/40 text-gray-300'}`}>{counts[t]}</span>
           </button>
         ))}
       </div>
 
       <div className="space-y-3 mt-1 pb-4">
         {list.length === 0 ? (
-          <div className="text-center py-16 text-[#8a8a8a] font-bold text-[13px] bg-[#0f0f11] rounded-[16px] border-2 border-dashed border-white/[0.07] flex flex-col items-center justify-center">
+          <div className="text-center py-16 text-[#8a8a8a] font-bold text-[13px] bg-[#0f0f11] rounded-2xl border-2 border-dashed border-white/[0.07] flex flex-col items-center justify-center">
             <i className="fas fa-clipboard-check text-4xl block mb-3 opacity-50"></i> KHÔNG CÓ LỆNH THỢ
           </div>
         ) : (
           (() => {
-            let lastDateStr = null;
-            
+            const channelPriority = {
+                'QUỐC TẾ': 1,
+                'BẢO HÀNH': 2,
+                'TIKTOK SHOP': 3,
+                'SHOPEE VN': 4,
+                'CỘNG TÁC VIÊN': 5,
+                'CTV': 5,
+                'BÁN LẺ': 6,
+                'BÁN SỈ': 7,
+                'SẢN XUẤT TỒN': 8,
+                'SẢN XUẤT BÙ KHO': 8
+            };
+            const getChannelPrio = (chan) => {
+                const upper = String(chan || '').toUpperCase();
+                for (const key in channelPriority) {
+                    if (upper.includes(key)) return channelPriority[key];
+                }
+                return 99; // unknown channel
+            };
+
             const sortedList = list.sort((a, b) => {
+              const oA = (orders || []).find(x => x.id === a.orderId) || {};
+              const oB = (orders || []).find(x => x.id === b.orderId) || {};
+              
+              const pA = getChannelPrio(oA.channel);
+              const pB = getChannelPrio(oB.channel);
+              if (pA !== pB) return pA - pB;
+
               if (statusTab === 'ĐÃ XONG' || statusTab === 'KIỂM ĐỊNH') {
                   const getEnd = (i) => i.phases?.phase2?.endTime || i.phases?.phase1?.endTime || i.phases?.phase2?.date || i.phases?.phase1?.date || '0';
-                  const comp = getEnd(b).localeCompare(getEnd(a));
+                  const comp = String(getEnd(b)).localeCompare(String(getEnd(a)));
                   if (comp !== 0) return comp;
-                  return String(b.id).localeCompare(String(a.id));
+              } else {
+                  const dateA = oA.createdAt || oA.date || '0';
+                  const dateB = oB.createdAt || oB.date || '0';
+                  const dateComp = String(dateA).localeCompare(String(dateB));
+                  if (dateComp !== 0) return dateComp;
               }
+
               const dDiff = new Date(a.deadline || 0) - new Date(b.deadline || 0);
               if (dDiff !== 0) return dDiff;
               return String(a.id).localeCompare(String(b.id));
             });
 
-            return sortedList.map((item, idx) => {
-              const order = (orders || []).find(o => o.id === item.orderId) || {};
-              
-              let groupHeader = null;
-              if (statusTab === 'ĐÃ XONG') {
-                  const dateVal = item.phases?.phase2?.date || item.phases?.phase1?.date || 'CHƯA RÕ NGÀY';
-                  if (dateVal !== lastDateStr) {
-                      groupHeader = (
-                          <div className="w-full py-2 px-3 mt-4 mb-2 bg-gradient-to-r from-[#1a1a1a] to-[#111] text-[#10b981] font-black text-[11px] rounded-lg border border-[#10b981]/30 shadow-sm flex items-center gap-2 uppercase tracking-wider">
-                              <i className="fas fa-calendar-check text-[13px]"></i> HOÀN THÀNH NGÀY: {dateVal}
-                          </div>
-                      );
-                      lastDateStr = dateVal;
-                  }
-              }
+            // 1. Group by channel first, preserving sorted order
+            const channelGroups = [];
+            
+            sortedList.forEach(item => {
+                const order = (orders || []).find(o => o.id === item.orderId) || {};
+                const channelName = order.channel || 'KHÁC';
+                const pA = getChannelPrio(channelName);
+                const groupKey = pA === 99 ? 'KHÁC' : (Object.keys(channelPriority).find(k => String(channelName).toUpperCase().includes(k)) || channelName).toUpperCase();
+                
+                let group = channelGroups.find(g => g.groupKey === groupKey);
+                if (!group) {
+                    group = { groupKey, items: [], priority: pA };
+                    channelGroups.push(group);
+                }
+                group.items.push(item);
+            });
 
-              return (
-                <React.Fragment key={item.id}>
-                  {groupHeader}
-                  <WorkerCardV2 
-                    key={item.id}
-                    item={item} 
-                    order={order} 
-                    prodItems={prodItems} 
-                    erpProducts={erpProducts} 
-                    currentUser={currentUser} 
-                    pushDeltas={pushDeltas} 
-                    userConfigs={userConfigs} 
-                    triggerToast={triggerToast} 
-                    kpiConfig={kpiConfig} 
-                    idx_num={idx + 1} 
-                    isAdmin={adminCheck}
-                    configs={typeTab === 'Bể Kính' 
-                      ? [{k:'phase1', n:'Cắt Dán', req:[]}, {k:'phase2', n:'Gọt Keo', req:['phase1']}] 
-                      : [{k:'phase1', n:'Dựng Khung', req:[]}, {k:'phase2', n:'Gia Cố', req:['phase1']}]
-                    } 
-                  />
-                </React.Fragment>
-              );
+            // 2. Render channel groups
+            return channelGroups.map((channelGroup, cgIdx) => {
+                const { groupKey, items } = channelGroup;
+                
+                let isGroupCollapsed = collapsedGroups[groupKey];
+                if (isGroupCollapsed === undefined) {
+                    isGroupCollapsed = statusTab === 'ĐÃ XONG';
+                }
+
+                const badgeClass = typeof getChannelBadge === 'function' ? getChannelBadge(groupKey) : 'bg-gray-800 text-white border-gray-700';
+                
+                const groupHeader = (
+                    <div 
+                        onClick={() => setCollapsedGroups(prev => ({ ...prev, [groupKey]: !isGroupCollapsed }))}
+                        className={`w-full py-2.5 px-4 mt-5 mb-2 flex items-center gap-3 rounded-2xl border uppercase tracking-widest shadow-md cursor-pointer select-none transition-all hover:opacity-90 active:scale-[0.99] ${badgeClass}`}
+                    >
+                        <div className="font-black text-[11px] flex items-center gap-2">
+                            <i className="fas fa-layer-group opacity-80"></i> KÊNH BÁN: {groupKey}
+                        </div>
+                        <div className="ml-auto flex items-center gap-1.5 bg-black/30 px-2 py-1 rounded-lg">
+                            <span className="text-[10px] text-white font-black">{items.length} lệnh</span>
+                            <i className={`fas fa-chevron-${isGroupCollapsed ? 'down' : 'up'} ml-1 text-white/70`}></i>
+                        </div>
+                    </div>
+                );
+
+                if (isGroupCollapsed) {
+                    return <React.Fragment key={groupKey}>{groupHeader}</React.Fragment>;
+                }
+
+                // Render items inside this channel
+                let content = items.map((item, idx) => {
+                    const order = (orders || []).find(o => {
+                        const pOrd = String(item.orderId || '').trim();
+                        const oOrd = String(o.id).trim();
+                        if (pOrd === oOrd) return true;
+                        if (pOrd.startsWith(oOrd + '_')) return true;
+                        const parts = pOrd.split('|').map(x => x.trim());
+                        if (parts.includes(oOrd)) return true;
+                        if (parts.some(part => part.startsWith(oOrd + '_'))) return true;
+                        return false;
+                    }) || {};
+                    return (
+                        <WorkerCardV2 
+                            key={item.id}
+                            item={item} 
+                            order={order} 
+                            prodItems={prodItems} 
+                            erpProducts={erpProducts} 
+                            currentUser={currentUser} 
+                            pushDeltas={pushDeltas} 
+                            userConfigs={userConfigs} 
+                            triggerToast={triggerToast} 
+                            kpiConfig={kpiConfig} 
+                            idx_num={idx + 1} 
+                            isAdmin={adminCheck}
+                            orders={orders}
+                            models3D={models3D}
+                            attendance={attendance}
+                            configs={typeTab === 'Bể Kính' 
+                              ? [{k:'phase1', n:'Cắt Dán', req:[]}, {k:'phase2', n:'Gọt Keo', req:['phase1']}] 
+                              : [{k:'phase1', n:'Dựng Khung', req:[]}, {k:'phase2', n:'Gia Cố', req:['phase1']}]
+                            } 
+                            onEditItem={setEditingProdItem}
+                        />
+                    );
+                });
+
+                return (
+                    <React.Fragment key={groupKey}>
+                        {groupHeader}
+                        {content}
+                    </React.Fragment>
+                );
             });
           })()
         )}
@@ -771,7 +1747,85 @@ function ProductionTab({ orders, prodItems, erpProducts, currentUser, pushDeltas
               </div>
           </div>
       )}
+
+      {showAddSXTModal && (
+        <AddModal 
+          onClose={() => setShowAddSXTModal(false)} 
+          pushDeltas={pushDeltas} 
+          products={erpProducts} 
+          erpData={erpData} 
+          triggerToast={triggerToast} 
+          userConfigs={userConfigs} 
+          forceSXTOnly={true} 
+        />
+      )}
+
+      {editingProdItem && (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[9999] p-4 backdrop-blur-sm animate-fade-in" onClick={() => setEditingProdItem(null)}>
+              <div className="bg-[#141414] border border-[#333] w-full max-w-sm rounded-[24px] p-5 shadow-2xl flex flex-col relative animate-slide-up" onClick={e => e.stopPropagation()}>
+                  <button onClick={() => setEditingProdItem(null)} className="absolute top-4 right-4 w-8 h-8 rounded-full bg-[#222] text-gray-400 hover:text-rose-500 flex items-center justify-center transition-all z-20"><i className="fas fa-times text-sm"></i></button>
+                  <h3 className="text-white font-black text-[16px] uppercase tracking-widest mb-4 flex items-center gap-2"><i className="fas fa-edit text-[#d4af37]"></i> CHỈNH SỬA LỆNH</h3>
+                  
+                  <div className="space-y-4">
+                      <div>
+                          <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1.5">Ghi chú Lệnh</label>
+                          <textarea 
+                              value={editingProdItem.note || ''} 
+                              onChange={e => setEditingProdItem({...editingProdItem, note: e.target.value})} 
+                              className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl p-3 text-[12px] font-bold text-white outline-none focus:border-[#d4af37] min-h-[80px]"
+                              placeholder="Nhập ghi chú hoặc cảnh báo cho thợ..."
+                          ></textarea>
+                      </div>
+
+                      <div>
+                          <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1.5">Giao đích danh (Bỏ trống = Ai cũng nhận được)</label>
+                          <select 
+                              value={editingProdItem.assignee || ''} 
+                              onChange={e => setEditingProdItem({...editingProdItem, assignee: e.target.value})} 
+                              className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-3 text-[12px] font-bold text-[#d4af37] outline-none focus:border-[#d4af37]"
+                          >
+                              <option value="">-- KHÔNG GIAO ĐÍCH DANH --</option>
+                              {(Object.values(userConfigs?.pins || {})).map(u => <option key={u.name} value={u.name}>{u.name}</option>)}
+                          </select>
+                      </div>
+
+                      <div>
+                          <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1.5">Hạn bàn giao</label>
+                          <input 
+                              type="datetime-local" 
+                              value={editingProdItem.deadline ? String(editingProdItem.deadline).replace(' ', 'T').substring(0, 16) : ''} 
+                              onChange={e => setEditingProdItem({...editingProdItem, deadline: e.target.value})} 
+                              className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-3 text-[12px] font-bold text-white outline-none focus:border-[#d4af37]"
+                          />
+                      </div>
+                  </div>
+
+                  <button 
+                      onClick={() => {
+                          const upd = { ...editingProdItem };
+                          pushDeltas({ prodItems: [upd] }, 'Đã lưu thay đổi', 'fa-save');
+                          setEditingProdItem(null);
+                      }} 
+                      className="w-full mt-6 py-3.5 bg-[#d4af37] hover:bg-yellow-500 text-black font-black rounded-xl text-[12px] uppercase tracking-wider flex items-center justify-center gap-2 shadow-md active:scale-95 transition-all"
+                  >
+                      <i className="fas fa-check-circle"></i> LƯU THAY ĐỔI
+                  </button>
+              </div>
+          </div>
+      )}
+
+      {annotationData && typeof ImageAnnotationModal !== 'undefined' && (
+          <ImageAnnotationModal 
+              item={annotationData.item || annotationData} 
+              readOnly={annotationData.readOnly || false}
+              onClose={() => setAnnotationData(null)} 
+              onSave={(updatedItem) => {
+                  pushDeltas({ prodItems: [updatedItem] }, 'Từ chối khung, đã báo lỗi cho thợ!', 'fa-exclamation-triangle');
+                  setAnnotationData(null);
+              }} 
+          />
+      )}
     </div>
   );
-}
+});
 </script>

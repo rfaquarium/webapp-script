@@ -1,0 +1,558 @@
+<script type="text/babel">
+// =========================================================================
+// 📦 FILE: Tab_Analytics.txt
+// CHỨC NĂNG: Trung tâm Chỉ huy Phân Tích Lợi Nhuận (Unit Economics & P&L)
+// =========================================================================
+
+const AnalyticsTab = React.memo(function AnalyticsTab({ data, pushData, isAdmin, mode, userConfigs }) {
+    const [dateRange, setDateRange] = React.useState('30'); // '7', '30', 'thisMonth', 'lastMonth', 'custom'
+    const [customStart, setCustomStart] = React.useState('');
+    const [customEnd, setCustomEnd] = React.useState('');
+    const [filterChannel, setFilterChannel] = React.useState('Tất cả');
+    const [showConfig, setShowConfig] = React.useState(false);
+    
+    // States for New Cost Form
+    const [newCostName, setNewCostName] = React.useState('');
+    const [newCostAmount, setNewCostAmount] = React.useState('');
+    const [newCostType, setNewCostType] = React.useState('per_month');
+    
+    // Dynamic Costs Config (Lưu vào localStorage để đơn giản)
+    const [dynamicCosts, setDynamicCosts] = React.useState(() => {
+        try {
+            return JSON.parse(localStorage.getItem('rf_dynamic_costs')) || [];
+        } catch(e) { return []; }
+    });
+
+    const handleAddNewCost = () => {
+        if (!newCostName || !newCostAmount) {
+            alert("Vui lòng nhập đủ tên và số tiền chi phí!");
+            return;
+        }
+        saveDynamicCosts([...dynamicCosts, { 
+            id: Date.now(), 
+            name: newCostName, 
+            amount: Number(newCostAmount), 
+            type: newCostType 
+        }]);
+        setNewCostName('');
+        setNewCostAmount('');
+    };
+
+    const saveDynamicCosts = (costs) => {
+        setDynamicCosts(costs);
+        localStorage.setItem('rf_dynamic_costs', JSON.stringify(costs));
+    };
+    
+    const deleteCost = (id) => {
+        saveDynamicCosts(dynamicCosts.filter(c => c.id !== id));
+    };
+
+    // Hàm lấy giá vốn COGS cho 1 tên sản phẩm
+    const getCOGS = (prodName) => {
+        const p = (data?.Products || []).find(x => x.name === prodName);
+        if (p && p.costPrice) return Number(p.costPrice);
+        
+        // Tìm trong lịch sử nhập gần nhất
+        const imports = (data?.ImportExport || []).filter(x => x.type === 'Nhập');
+        imports.sort((a,b) => new Date(b.date) - new Date(a.date));
+        for (let log of imports) {
+            try {
+                const items = JSON.parse(log.itemsData || '[]');
+                const match = items.find(i => i.name === prodName);
+                if (match && match.price) {
+                    // Cộng phân bổ Thu khác vào giá vốn
+                    const logOtherFees = Number(log.otherFees) || 0;
+                    const totalLogQty = items.reduce((sum, it) => sum + Number(it.qty), 0);
+                    const feePerItem = totalLogQty > 0 ? (logOtherFees / totalLogQty) : 0;
+                    return Number(match.price) + feePerItem;
+                }
+            } catch(e){}
+        }
+        return 0;
+    };
+
+    // Tính toán dữ liệu
+    const stats = React.useMemo(() => {
+        const now = new Date();
+        let startDate = new Date();
+        let endDate = new Date();
+        
+        if (dateRange === '7') startDate.setDate(now.getDate() - 7);
+        else if (dateRange === '30') startDate.setDate(now.getDate() - 30);
+        else if (dateRange === 'thisMonth') { startDate = new Date(now.getFullYear(), now.getMonth(), 1); }
+        else if (dateRange === 'lastMonth') { startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1); endDate = new Date(now.getFullYear(), now.getMonth(), 0); }
+        else if (dateRange === 'custom') { startDate = new Date(customStart || now); endDate = new Date(customEnd || now); }
+
+        startDate.setHours(0,0,0,0);
+        endDate.setHours(23,59,59,999);
+
+        let totalGMV = 0;
+        let totalDiscount = 0;
+        let totalFixedFee = 0;
+        let totalServiceFee = 0;
+        let totalPaymentFee = 0;
+        let totalAffiliateFee = 0;
+        let totalShopVoucher = 0;
+        let totalTax = 0;
+        let totalCOGS = 0;
+        let orderCount = 0;
+        let cancelCount = 0;
+        
+        const skuStats = {};
+        
+        const validOrders = (data?.Orders || []).filter(o => {
+            const dateToUse = o.createdAt || o.date;
+            const dMs = parseDateTimeSafe(dateToUse).timestamp;
+            const inRange = dMs >= startDate.getTime() && dMs <= endDate.getTime();
+            const inChannel = filterChannel === 'Tất cả' || o.channel === filterChannel;
+            return inRange && inChannel;
+        });
+
+        validOrders.forEach(o => {
+            const st = String(o._effectiveStatus || o.status || '').toUpperCase().trim();
+            const isCancelled = st === 'ĐƠN HUỶ' || st === 'HUỶ' || st === 'ĐƠN HỦY' || st === 'HỦY' || st === 'ĐÃ HUỶ' || st === 'ĐÃ HỦY';
+            const isReturned = st === 'HÀNG HOÀN' || (st.includes('HOÀN') && !st.includes('HOÀN THÀNH'));
+            if (isCancelled || isReturned || st === 'BẢO HÀNH') {
+                cancelCount++;
+                return;
+            }
+            
+            orderCount++;
+            const gmv = Number(o.revenue) || Number(o.retailTotal) || 0;
+            const discount = Number(o.discount) || 0;
+            
+            totalGMV += gmv;
+            totalDiscount += discount;
+            totalFixedFee += Number(o.fixedFee || o.feeFixed) || 0;
+            totalServiceFee += Number(o.serviceFee || o.feeService) || 0;
+            totalPaymentFee += Number(o.paymentFee || o.feePayment) || 0;
+            totalAffiliateFee += Number(o.affiliateFee || o.feeAffiliate) || 0;
+            totalShopVoucher += Number(o.shopVoucher) || 0;
+            totalTax += Number(o.tax) || 0;
+            
+            // Calculate COGS and SKU stats
+            let orderCOGS = 0;
+            let prodItems = [];
+            try { prodItems = JSON.parse(o.accessories || '[]'); } catch(e){}
+            if (!Array.isArray(prodItems)) prodItems = [];
+            
+            prodItems.forEach(p => {
+                let cost = getCOGS(p.name);
+                if (cost === 0) {
+                    let dims = 0;
+                    try {
+                        const match = String(p.name).match(/(\d+)x(\d+)x(\d+)/i);
+                        if (match) dims = Number(match[1]) + Number(match[2]) + Number(match[3]);
+                    } catch(e){}
+                    cost = dims > 0 ? (dims * (p.type === 'Bể Kính' ? 800 : 1500)) : 50000; // Fake COGS if unknown
+                }
+                const itemTotalCost = cost * (Number(p.quantity) || 1);
+                orderCOGS += itemTotalCost;
+
+                if (!skuStats[p.name]) skuStats[p.name] = { name: p.name, qty: 0, revenue: 0, cost: 0 };
+                skuStats[p.name].qty += (Number(p.quantity) || 1);
+                // Allocate revenue to SKU proportionally or evenly
+                skuStats[p.name].revenue += (gmv / (prodItems.length || 1));
+                skuStats[p.name].cost += itemTotalCost;
+            });
+
+            totalCOGS += orderCOGS;
+        });
+
+        // 1. Phân bổ định phí tháng (từ Cấu Hình)
+        const filterDays = Math.max(1, Math.round((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)));
+        
+        // Tab Analytics KHÔNG kéo tự động từ Sổ Quỹ (Transactions) để bảo mật thông tin lương thưởng/mặt bằng của công ty.
+        // Mọi chi phí ở đây đều là Cấu Hình Phân Bổ (Dynamic Costs) do user tự setup cho từng tài khoản.
+        const proratedTxCost = 0; 
+
+        // 2. Chi phí cấu hình (Dynamic Costs)
+        const manualPerOrderCost = dynamicCosts.filter(c => c.type === 'per_order').reduce((sum, c) => sum + (Number(c.amount) * orderCount), 0);
+        const manualPerMonthCost = dynamicCosts.filter(c => c.type === 'per_month').reduce((sum, c) => sum + ((Number(c.amount) / 30) * filterDays), 0);
+        
+        const totalOtherCosts = manualPerOrderCost + manualPerMonthCost;
+        
+        const totalPlatformFees = totalFixedFee + totalServiceFee + totalPaymentFee + totalAffiliateFee;
+        const doanThu = totalGMV; // Doanh thu = GMV
+        const thucNhan = doanThu - totalShopVoucher - totalTax - totalPlatformFees;
+        const contributionMargin = thucNhan - totalCOGS;
+        const netProfit = thucNhan - totalOtherCosts - totalCOGS;
+
+        // Top 5 SKU Contribution Margin
+        const skuArr = Object.values(skuStats).map(s => ({
+            ...s,
+            margin: s.revenue - s.cost
+        })).sort((a,b) => b.margin - a.margin).slice(0, 5);
+
+        return {
+            tienHang: totalGMV + totalDiscount, // Tiền hàng ban đầu
+            totalDiscount, totalGMV, totalShopVoucher, totalTax, totalPlatformFees, 
+            fixedFee: totalFixedFee, serviceFee: totalServiceFee, paymentFee: totalPaymentFee, affiliateFee: totalAffiliateFee, 
+            thucNhan, totalCOGS, totalOtherCosts, netProfit, orderCount, cancelCount, skuArr,
+            manualPerOrderCost, manualPerMonthCost, proratedTxCost
+        };
+    }, [data, dateRange, customStart, customEnd, filterChannel, dynamicCosts]);
+
+    const displayMoney = (val) => Number(val || 0).toLocaleString('vi-VN');
+
+    const handleImportKiotViet = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        try {
+            const reader = new FileReader();
+            reader.onload = async (evt) => {
+                try {
+                    const bstr = evt.target.result;
+                    const wb = window.XLSX.read(bstr, { type: 'binary' });
+                    const wsname = wb.SheetNames[0];
+                    const ws = wb.Sheets[wsname];
+                    const rawJson = window.XLSX.utils.sheet_to_json(ws, { header: 1 });
+                    
+                    // Tìm dòng tiêu đề (Dòng có 'Mã hóa đơn')
+                    let headerIdx = -1;
+                    for (let i = 0; i < 20; i++) {
+                        if (rawJson[i] && rawJson[i].includes('Mã hóa đơn')) {
+                            headerIdx = i;
+                            break;
+                        }
+                    }
+                    
+                    if (headerIdx === -1) {
+                        alert('Không tìm thấy cột "Mã hóa đơn" trong file KiotViet!');
+                        return;
+                    }
+                    
+                    const headers = rawJson[headerIdx];
+                    const orderCodeIdx = headers.indexOf('Mã hóa đơn');
+                    const feeIdx = headers.indexOf('Phí trả ĐTGH');
+                    const voucherIdx = headers.indexOf('Voucher');
+                    
+                    if (orderCodeIdx === -1 || feeIdx === -1) {
+                        alert('Thiếu cột Mã hóa đơn hoặc Phí trả ĐTGH trong file!');
+                        return;
+                    }
+                    
+                    let updateCount = 0;
+                    let payloadOrders = [];
+                    
+                    // Lọc trùng lặp mã hóa đơn (KiotViet 1 hóa đơn có nhiều dòng sản phẩm)
+                    const processedCodes = new Set();
+
+                    for (let i = headerIdx + 1; i < rawJson.length; i++) {
+                        const row = rawJson[i];
+                        if (!row || !row[orderCodeIdx]) continue;
+                        
+                        const code = String(row[orderCodeIdx]).trim();
+                        if (processedCodes.has(code)) continue; // Bỏ qua nếu đã xử lý hóa đơn này
+                        processedCodes.add(code);
+
+                        const fee = Number(row[feeIdx]) || 0;
+                        const voucher = voucherIdx !== -1 ? (Number(row[voucherIdx]) || 0) : 0;
+                        
+                        if (fee > 0 || voucher > 0) {
+                            // Tìm order trong hệ thống
+                            const foundOrder = (data?.Orders || []).find(o => String(o.orderCode).trim() === code);
+                            if (foundOrder) {
+                                payloadOrders.push({
+                                    id: foundOrder.id,
+                                    feeFixed: fee, // Ghi nhận toàn bộ phí vận chuyển/phí sàn vào Phí cố định
+                                    shopVoucher: voucher
+                                });
+                                updateCount++;
+                            }
+                        }
+                    }
+                    
+                    if (payloadOrders.length > 0) {
+                        if (confirm(`Tìm thấy ${updateCount} đơn hàng khớp với hệ thống. Tổng số phí sẽ đồng bộ là: ${displayMoney(payloadOrders.reduce((sum, o) => sum + o.feeFixed, 0))}đ. Bấm OK để lưu!`)) {
+                            pushData({ Orders: payloadOrders }, `Đồng bộ phí KiotViet cho ${updateCount} đơn hàng`);
+                        }
+                    } else {
+                        alert('Không tìm thấy đơn hàng nào khớp mã trên hệ thống hoặc các đơn đều không có phí!');
+                    }
+                } catch (e) {
+                    alert('Lỗi xử lý file Excel: ' + e.message);
+                }
+            };
+            reader.readAsBinaryString(file);
+        } catch (err) {
+            alert('Lỗi khi đọc file: ' + err.message);
+        }
+        e.target.value = null;
+    };
+
+    return (
+        <div className="p-4 sm:p-6 lg:p-8 animate-fade-in text-white pb-24 h-full overflow-y-auto custom-scrollbar">
+            
+            {/* HEADER & LỌC */}
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
+                <div>
+                    <h1 className="text-2xl font-black text-[#d4af37] uppercase tracking-widest"><i className="fas fa-chart-pie mr-2"></i> Phân Tích Lợi Nhuận</h1>
+                    <p className="text-xs text-gray-500 font-bold mt-1">Đo lường hiệu quả kinh doanh & Unit Economics</p>
+                </div>
+                
+                <div className="flex flex-wrap gap-2 items-center bg-[#141414] p-2 rounded-xl border border-[#333] shadow-lg">
+                    <select value={filterChannel} onChange={e=>setFilterChannel(e.target.value)} className="bg-[#0a0a0a] text-[#d4af37] text-[11px] font-black uppercase px-3 py-2 rounded-lg outline-none border border-[#333]">
+                        <option value="Tất cả">Tất cả Kênh</option>
+                        <option value="Shopee VN">Shopee</option>
+                        <option value="Tiktok Shop">Tiktok</option>
+                        <option value="Bán Sỉ">Bán Sỉ</option>
+                        <option value="Bán Lẻ">Bán Lẻ</option>
+                    </select>
+                    
+                    <div className="w-px h-6 bg-[#333] mx-1"></div>
+
+                    <button onClick={()=>setDateRange('7')} className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${dateRange==='7'?'bg-[#3b82f6] text-white':'bg-[#222] text-gray-400 hover:bg-[#333]'}`}>7 Ngày</button>
+                    <button onClick={()=>setDateRange('30')} className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${dateRange==='30'?'bg-[#3b82f6] text-white':'bg-[#222] text-gray-400 hover:bg-[#333]'}`}>30 Ngày</button>
+                    <button onClick={()=>setDateRange('thisMonth')} className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${dateRange==='thisMonth'?'bg-[#3b82f6] text-white':'bg-[#222] text-gray-400 hover:bg-[#333]'}`}>Tháng Này</button>
+                    <button onClick={()=>setDateRange('custom')} className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${dateRange==='custom'?'bg-[#3b82f6] text-white':'bg-[#222] text-gray-400 hover:bg-[#333]'}`}><i className="fas fa-calendar-alt"></i> Tùy chọn</button>
+                    
+                    {dateRange === 'custom' && (
+                        <div className="flex gap-1 animate-slide-left items-center ml-2">
+                            <input type="date" value={customStart} onChange={e=>setCustomStart(e.target.value)} className="bg-[#0a0a0a] text-gray-300 text-[10px] p-1.5 rounded border border-[#333] outline-none" />
+                            <span className="text-gray-500">-</span>
+                            <input type="date" value={customEnd} onChange={e=>setCustomEnd(e.target.value)} className="bg-[#0a0a0a] text-gray-300 text-[10px] p-1.5 rounded border border-[#333] outline-none" />
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* KPI CARDS */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                <div className="bg-[#0a0a0a] p-4 rounded-2xl border border-[#222] shadow-[0_5px_15px_rgba(0,0,0,0.5)] relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-4 opacity-10 text-emerald-500 text-4xl"><i className="fas fa-money-bill-wave"></i></div>
+                    <div className="text-[10px] text-gray-500 font-black uppercase tracking-widest mb-1">Doanh thu gộp</div>
+                    <div className="text-2xl font-black text-emerald-400">{displayMoney(stats.totalGMV)}đ</div>
+                </div>
+                <div className="bg-[#0a0a0a] p-4 rounded-2xl border border-[#222] shadow-[0_5px_15px_rgba(0,0,0,0.5)] relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-4 opacity-10 text-[#d4af37] text-4xl"><i className="fas fa-piggy-bank"></i></div>
+                    <div className="text-[10px] text-gray-500 font-black uppercase tracking-widest mb-1">Lợi Nhuận Ròng</div>
+                    <div className={`text-2xl font-black ${stats.netProfit >= 0 ? 'text-[#d4af37]' : 'text-rose-500'}`}>{displayMoney(stats.netProfit)}đ</div>
+                </div>
+                <div className="bg-[#0a0a0a] p-4 rounded-2xl border border-[#222] shadow-[0_5px_15px_rgba(0,0,0,0.5)] relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-4 opacity-10 text-rose-500 text-4xl"><i className="fas fa-ban"></i></div>
+                    <div className="text-[10px] text-gray-500 font-black uppercase tracking-widest mb-1">Đơn Hủy / Hoàn</div>
+                    <div className="text-2xl font-black text-rose-400">{stats.cancelCount}</div>
+                </div>
+                <div className="bg-[#0a0a0a] p-4 rounded-2xl border border-[#222] shadow-[0_5px_15px_rgba(0,0,0,0.5)] relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-4 opacity-10 text-[#3b82f6] text-4xl"><i className="fas fa-shopping-bag"></i></div>
+                    <div className="text-[10px] text-gray-500 font-black uppercase tracking-widest mb-1">Số Đơn Tồn Tại</div>
+                    <div className="text-2xl font-black text-[#3b82f6]">{stats.orderCount}</div>
+                </div>
+            </div>
+
+            {/* MAIN CONTENT GRID */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                
+                {/* CỘT TRÁI: THÁP LỢI NHUẬN */}
+                <div className="bg-[#0a0a0a] rounded-2xl border border-[#222] shadow-xl p-5 relative">
+                    <div className="absolute top-4 right-4 flex gap-2">
+
+                        <button onClick={() => setShowConfig(true)} className="text-[10px] font-bold bg-[#141414] border border-[#333] hover:border-[#d4af37] text-gray-400 hover:text-[#d4af37] px-3 py-1.5 rounded-lg transition-colors"><i className="fas fa-cog mr-1"></i> Cấu hình Phân bổ</button>
+                    </div>
+                    
+                    <h2 className="text-[13px] font-black text-gray-300 uppercase tracking-widest mb-6 border-b border-[#222] pb-2 w-max pr-8 mt-8">Phân Tích Dòng Đời 1 Đồng Doanh Thu</h2>
+                    
+                    <div className="space-y-0 relative">
+                        {/* LINE KẾT NỐI */}
+                        <div className="absolute left-6 top-6 bottom-12 w-0.5 bg-[#222] z-0"></div>
+
+                        {/* ROW 1: DOANH THU */}
+                        <div className="flex items-center gap-4 relative z-10 py-3">
+                            <div className="w-12 h-12 rounded-full bg-emerald-500/10 border-2 border-emerald-500/30 flex items-center justify-center text-emerald-500 shrink-0"><i className="fas fa-shopping-basket"></i></div>
+                            <div className="flex-1">
+                                <div className="text-[11px] font-bold text-gray-400">Tiền hàng (GMV)</div>
+                                <div className="text-lg font-black text-emerald-400">{displayMoney(stats.totalGMV)} đ</div>
+                            </div>
+                        </div>
+
+                        {/* ROW 2: VOUCHER */}
+                        <div className="flex items-center gap-4 relative z-10 py-2 pl-4">
+                            <div className="w-8 h-8 rounded-full bg-amber-500/10 border-2 border-amber-500/30 flex items-center justify-center text-amber-500 shrink-0 text-[10px]"><i className="fas fa-ticket-alt"></i></div>
+                            <div className="flex-1 flex justify-between items-center bg-[#141414] px-3 py-2 rounded-lg border border-[#222]">
+                                <span className="text-[11px] font-bold text-gray-400">Voucher của Shop</span>
+                                <span className="text-[12px] font-black text-amber-500">- {displayMoney(stats.totalShopVoucher)} đ</span>
+                            </div>
+                        </div>
+
+                        {/* ROW 3: PHÍ SÀN */}
+                        <div className="flex items-center gap-4 relative z-10 py-2 pl-4 group">
+                            <div className="w-8 h-8 rounded-full bg-rose-500/10 border-2 border-rose-500/30 flex items-center justify-center text-rose-500 shrink-0 text-[10px]"><i className="fas fa-percentage"></i></div>
+                            <div className="flex-1 bg-[#141414] rounded-lg border border-[#222] overflow-hidden">
+                                <div className="flex justify-between items-center px-3 py-2 cursor-pointer hover:bg-[#1a1a1a]">
+                                    <span className="text-[11px] font-bold text-gray-400">Thuế thu hộ [1.50%]</span>
+                                    <span className="text-[12px] font-black text-rose-500">- {displayMoney(stats.totalTax)} đ</span>
+                                </div>
+                                <div className="flex justify-between items-center px-3 py-2 cursor-pointer hover:bg-[#1a1a1a] border-t border-[#222]">
+                                    <span className="text-[11px] font-bold text-gray-400">Tổng Phí Sàn</span>
+                                    <span className="text-[12px] font-black text-rose-500">- {displayMoney(stats.totalPlatformFees)} đ</span>
+                                </div>
+                                <div className="px-4 py-2 bg-[#0d0d0d] border-t border-[#222] space-y-1.5">
+                                    <div className="flex justify-between text-[10px]"><span className="text-gray-500">Phí cố định</span><span className="text-rose-400 font-bold">{displayMoney(stats.fixedFee)} đ</span></div>
+                                    <div className="flex justify-between text-[10px]"><span className="text-gray-500">Phí dịch vụ</span><span className="text-rose-400 font-bold">{displayMoney(stats.serviceFee)} đ</span></div>
+                                    <div className="flex justify-between text-[10px]"><span className="text-gray-500">Phí thanh toán</span><span className="text-rose-400 font-bold">{displayMoney(stats.paymentFee)} đ</span></div>
+                                    <div className="flex justify-between text-[10px]"><span className="text-gray-500">Tiếp thị liên kết</span><span className="text-rose-400 font-bold">{displayMoney(stats.affiliateFee)} đ</span></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* SUM 1: THỰC NHẬN */}
+                        <div className="flex items-center gap-4 relative z-10 py-4 mt-2">
+                            <div className="flex-1 bg-[#1a1c23] border border-[#2d334a] rounded-xl p-4 flex justify-between items-center shadow-lg ml-6 relative overflow-hidden">
+                                <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#3b82f6]"></div>
+                                <span className="font-black text-[13px] text-[#3b82f6] tracking-widest">THỰC NHẬN</span>
+                                <span className="font-black text-xl text-[#60a5fa]">{displayMoney(stats.thucNhan)} đ</span>
+                            </div>
+                        </div>
+
+                        {/* ROW 4: COGS & DYNAMIC */}
+                        <div className="flex items-center gap-4 relative z-10 py-2 pl-4">
+                            <div className="w-8 h-8 rounded-full bg-[#f97316]/10 border-2 border-[#f97316]/30 flex items-center justify-center text-[#f97316] shrink-0 text-[10px]"><i className="fas fa-box-open"></i></div>
+                            <div className="flex-1 space-y-2">
+                                <div className="flex justify-between items-center bg-[#141414] px-3 py-2 rounded-lg border border-[#222]">
+                                    <span className="text-[11px] font-bold text-gray-400">Giá Nhập (COGS)</span>
+                                    <span className="text-[12px] font-black text-[#f97316]">- {displayMoney(stats.totalCOGS)} đ</span>
+                                </div>
+                                <div className="flex justify-between items-center bg-[#141414] px-3 py-2 rounded-lg border border-[#222] cursor-help" title={dynamicCosts.map(c => `${c.name}: ${displayMoney(c.amount)}đ`).join(' | ')}>
+                                    <span className="text-[11px] font-bold text-gray-400">Chi phí khác (+) ({dynamicCosts.length} cấu hình)</span>
+                                    <span className="text-[12px] font-black text-[#f97316]">- {displayMoney(stats.totalOtherCosts)} đ</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* SUM 3: FINAL NET PROFIT */}
+                        <div className="flex items-center gap-4 relative z-10 py-4 mt-4">
+                            <div className={`flex-1 border rounded-2xl p-5 flex justify-between items-center shadow-[0_0_30px_rgba(0,0,0,0.5)] ml-2 relative overflow-hidden ${stats.netProfit >= 0 ? 'bg-[#061810] border-[#059669]/50' : 'bg-[#2a0808] border-[#e11d48]/50'}`}>
+                                <div className={`absolute left-0 top-0 bottom-0 w-2 ${stats.netProfit >= 0 ? 'bg-[#10b981]' : 'bg-[#e11d48]'}`}></div>
+                                <div>
+                                    <div className={`font-black text-[10px] uppercase tracking-widest mb-1 ${stats.netProfit >= 0 ? 'text-[#10b981]' : 'text-[#e11d48]'}`}>KẾT QUẢ CUỐI CÙNG</div>
+                                    <div className="font-black text-2xl text-white">LỢI NHUẬN RÒNG</div>
+                                </div>
+                                <span className={`font-black text-3xl drop-shadow-md ${stats.netProfit >= 0 ? 'text-[#10b981]' : 'text-[#e11d48]'}`}>{displayMoney(stats.netProfit)} đ</span>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                {/* CỘT PHẢI */}
+                <div className="space-y-6">
+                    {/* BẢNG XẾP HẠNG SKU */}
+                    <div className="bg-[#0a0a0a] rounded-2xl border border-[#222] shadow-xl p-5">
+                        <h2 className="text-[13px] font-black text-gray-300 uppercase tracking-widest mb-4 border-b border-[#222] pb-2"><i className="fas fa-trophy text-[#d4af37] mr-2"></i> Top SKU Đóng Góp Lãi (Contribution Margin)</h2>
+                        
+                        <div className="space-y-2 max-h-[300px] overflow-y-auto custom-scrollbar pr-1">
+                            {stats.skuArr.length === 0 ? <div className="text-center text-gray-500 text-xs py-5">Chưa có dữ liệu</div> : stats.skuArr.map((s, idx) => (
+                                <div key={idx} className="flex justify-between items-center p-3 bg-[#141414] rounded-xl border border-[#333] group hover:border-[#d4af37] transition-colors">
+                                    <div className="flex items-center gap-3 w-1/2">
+                                        <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black ${idx===0?'bg-[#d4af37] text-black':(idx===1?'bg-gray-300 text-black':(idx===2?'bg-amber-700 text-white':'bg-[#222] text-gray-500'))}`}>#{idx+1}</div>
+                                        <div className="truncate text-[11px] font-bold text-gray-300 group-hover:text-white transition-colors">{s.name}</div>
+                                    </div>
+                                    <div className="flex flex-col items-end gap-0.5">
+                                        <div className="text-[12px] font-black text-emerald-400">Lãi: {displayMoney(s.margin)}đ</div>
+                                        <div className="text-[9px] font-bold text-gray-500">Đã bán: {s.qty} • Doanh thu: {displayMoney(s.revenue)}đ</div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* INSIGHTS / CẢNH BÁO */}
+                    <div className="bg-[#140a0a] rounded-2xl border border-[#4c0519] shadow-xl p-5 relative overflow-hidden">
+                        <div className="absolute top-0 right-0 p-4 opacity-5 text-rose-500 text-6xl"><i className="fas fa-exclamation-triangle"></i></div>
+                        <h2 className="text-[13px] font-black text-rose-500 uppercase tracking-widest mb-4 border-b border-[#4c0519] pb-2 relative z-10"><i className="fas fa-bell mr-2"></i> Cảnh Báo Hệ Thống</h2>
+                        
+                        <div className="space-y-3 relative z-10">
+                            {stats.contributionMargin < 0 ? (
+                                <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-[11px] font-bold leading-relaxed">
+                                    <i className="fas fa-fire mr-1"></i> BÁO ĐỘNG ĐỎ: Biên lợi nhuận (Contribution Margin) đang ÂM! Nghĩa là tiền thu về từ sàn KHÔNG ĐỦ bù đắp giá vốn và tiền đóng gói. Càng bán càng lỗ!
+                                </div>
+                            ) : (
+                                <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400 text-[11px] font-bold leading-relaxed">
+                                    <i className="fas fa-check-circle mr-1"></i> Biên lợi nhuận đóng góp TỐT. Tiền thu về đủ bù đắp trực tiếp.
+                                </div>
+                            )}
+
+                            {stats.netProfit < 0 && stats.contributionMargin > 0 && (
+                                <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-400 text-[11px] font-bold leading-relaxed">
+                                    <i className="fas fa-exclamation-circle mr-1"></i> LƯU Ý: Lãi gộp không đủ gánh Chi phí cố định (Lương, Mặt bằng...). Cần tăng doanh thu hoặc tối ưu định phí.
+                                </div>
+                            )}
+                            
+                            <div className="p-3 bg-[#111] border border-[#333] rounded-xl text-gray-300 text-[11px] font-medium leading-relaxed">
+                                <span className="font-bold text-gray-500 uppercase text-[9px] block mb-1">Tỷ trọng Phí Sàn / GMV:</span>
+                                {stats.totalGMV > 0 ? ((stats.totalPlatformFees / stats.totalGMV) * 100).toFixed(1) : 0}% - Mức độ sàn "cấu rỉa" doanh thu của bạn.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* MODAL DANH SÁCH CHI PHÍ */}
+            {showConfig && (
+                <div className="fixed inset-0 bg-[#0a0a0a]/95 flex items-center justify-center z-[9999] p-4 backdrop-blur-md animate-fade-in">
+                    <div className="bg-[#0f172a] border border-[#1e293b] w-full max-w-2xl rounded-2xl p-6 shadow-[0_0_50px_rgba(0,0,0,0.8)] animate-slide-up">
+                        <div className="flex justify-between items-center mb-6">
+                            <h2 className="text-[15px] font-black text-white tracking-widest"><i className="fas fa-list-ul mr-2 text-[#3b82f6]"></i> DANH SÁCH CHI PHÍ</h2>
+                            <button onClick={()=>setShowConfig(false)} className="text-gray-500 hover:text-rose-500 transition-colors"><i className="fas fa-times text-lg"></i></button>
+                        </div>
+                        
+                        <div className="bg-[#1e293b]/50 p-4 rounded-xl border border-[#334155] mb-6 space-y-4">
+                            <div>
+                                <label className="text-[11px] font-bold text-rose-500 mb-1 block">* Tên chi phí:</label>
+                                <input value={newCostName} onChange={e=>setNewCostName(e.target.value)} type="text" className="w-full p-2.5 bg-[#0f172a] border border-[#334155] rounded-lg text-sm text-white outline-none focus:border-[#3b82f6]" placeholder="Ví dụ: Phí thuê mặt bằng" />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="text-[11px] font-bold text-white mb-1 block">* Số tiền:</label>
+                                    <input value={newCostAmount} onChange={e=>setNewCostAmount(e.target.value)} type="number" className="w-full p-2.5 bg-[#0f172a] border border-[#334155] rounded-lg text-sm text-white outline-none focus:border-[#3b82f6]" placeholder="Ví dụ: 5000000" />
+                                </div>
+                                <div>
+                                    <label className="text-[11px] font-bold text-rose-500 mb-1 block">* Phân bổ:</label>
+                                    <div className="flex rounded-lg overflow-hidden border border-[#334155] bg-[#0f172a]">
+                                        <button onClick={()=>setNewCostType('per_month')} className={`flex-1 py-2.5 text-[11px] font-bold transition-colors ${newCostType === 'per_month' ? 'bg-[#1e3a8a] text-[#60a5fa]' : 'text-gray-400 hover:text-white'}`}>Theo tháng</button>
+                                        <button onClick={()=>setNewCostType('per_order')} className={`flex-1 py-2.5 text-[11px] font-bold transition-colors ${newCostType === 'per_order' ? 'bg-[#1e3a8a] text-[#60a5fa]' : 'text-gray-400 hover:text-white'}`}>Theo mỗi đơn</button>
+                                    </div>
+                                </div>
+                            </div>
+                            <button onClick={handleAddNewCost} className="w-full py-3 border border-[#1e3a8a] text-[#60a5fa] font-bold rounded-lg text-[13px] hover:bg-[#1e3a8a]/30 transition-colors"><i className="fas fa-plus mr-2"></i> Thêm chi phí</button>
+                        </div>
+
+                        <div className="border border-[#334155] rounded-xl overflow-hidden max-h-[30vh] overflow-y-auto custom-scrollbar">
+                            <table className="w-full text-left border-collapse relative">
+                                <thead>
+                                    <tr className="bg-[#1e293b]/90 border-b border-[#334155] sticky top-0 backdrop-blur">
+                                        <th className="p-3 text-[11px] font-bold text-gray-400 w-16 text-center">STT</th>
+                                        <th className="p-3 text-[11px] font-bold text-gray-400">Tên chi phí</th>
+                                        <th className="p-3 text-[11px] font-bold text-gray-400 text-right">Số tiền</th>
+                                        <th className="p-3 text-[11px] font-bold text-gray-400 text-center">Phân bổ</th>
+                                        <th className="p-3 w-12 text-center"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {dynamicCosts.map((c, i) => (
+                                        <tr key={c.id} className="border-b border-[#1e293b] hover:bg-[#1e293b]/30">
+                                            <td className="p-3 text-[12px] text-[#3b82f6] font-bold text-center">{i+1}</td>
+                                            <td className="p-3 text-[12px] text-white">{c.name}</td>
+                                            <td className="p-3 text-[12px] font-bold text-emerald-400 text-right">{displayMoney(c.amount)} đ</td>
+                                            <td className="p-3 text-[12px] text-white text-center font-bold">{c.type === 'per_month' ? 'Theo tháng' : 'Theo mỗi đơn'}</td>
+                                            <td className="p-3 text-center">
+                                                <button onClick={()=>deleteCost(c.id)} className="text-rose-500 hover:text-rose-400"><i className="fas fa-trash-alt"></i></button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {dynamicCosts.length === 0 && (
+                                        <tr><td colSpan="5" className="p-4 text-center text-gray-500 text-[11px]">Chưa có chi phí nào.</td></tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+});
+
+</script>

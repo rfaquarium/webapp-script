@@ -1,10 +1,10 @@
 <script type="text/babel">
 // =========================================================================
 // 🤝 FILE: Tab_Suppliers.txt
-// CHỨC NĂNG: Quản lý đối tác, nhà cung cấp, công nợ và thanh toán (Giao diện nâng cấp)
+// CHỨC NĂNG: Quản lý Nhà Cung Cấp, công nợ và thanh toán (Giao diện nâng cấp)
 // =========================================================================
 
-function SuppliersTab({ data, pushData, isAdmin }) {
+const SuppliersTab = React.memo(function SuppliersTab({ data, pushData, isAdmin, triggerToast }) {
     const [searchTerm, setSearchTerm] = React.useState('');
     const [debtFilter, setDebtFilter] = React.useState('ALL'); // ALL, DEBT, NO_DEBT
     const [showAddModal, setShowAddModal] = React.useState(false);
@@ -12,13 +12,18 @@ function SuppliersTab({ data, pushData, isAdmin }) {
     const [isSaving, setIsSaving] = React.useState(false);
     const [historyFilters, setHistoryFilters] = React.useState({}); // supId -> ALL, UNPAID
 
-    const [newSup, setNewSup] = React.useState({ name: '', phone: '', category: 'HÀNG HOÁ' });
+    const [newSup, setNewSup] = React.useState({ id: null, name: '', phone: '', category: 'HÀNG HOÁ', note: '' });
     const [payingLog, setPayingLog] = React.useState(null);
     const [payAccId, setPayAccId] = React.useState('');
     const [payAmount, setPayAmount] = React.useState('');
     const [editingLog, setEditingLog] = React.useState(null);
     const [editNote, setEditNote] = React.useState('');
     const [editTotal, setEditTotal] = React.useState('');
+
+    // States cho tính năng Đối Soát Bank (N:1)
+    const [reconcileSupplier, setReconcileSupplier] = React.useState(null);
+    const [reconSelectedTxId, setReconSelectedTxId] = React.useState('');
+    const [reconSelectedImportIds, setReconSelectedImportIds] = React.useState([]);
 
     const CATEGORIES = ['HÀNG HOÁ', 'NGUYÊN LIỆU & VẬT TƯ', 'CÔNG CỤ MÁY MÓC', 'NỘI BỘ', 'KHÁC'];
     const suppliers = data.Suppliers || [];
@@ -48,7 +53,7 @@ function SuppliersTab({ data, pushData, isAdmin }) {
         };
     }, [suppliers, data.ImportExport, data.Transactions]);
 
-    // PHÂN LOẠI & LỌC ĐỐI TÁC
+    // PHÂN LOẠI & LỌC NHÀ CUNG CẤP
     const groupedSuppliers = React.useMemo(() => {
         const groups = {};
         CATEGORIES.forEach(cat => groups[cat] = []);
@@ -91,25 +96,43 @@ function SuppliersTab({ data, pushData, isAdmin }) {
     };
 
     const handleSaveSup = async () => {
-        if (!newSup.name.trim()) return alert('Vui lòng nhập Tên đối tác/Nhà cung cấp!');
+        if (!newSup.name.trim()) return triggerToast('Vui lòng nhập Tên Nhà Cung Cấp!', 'fa-exclamation', 'warning');
         setIsSaving(true);
         try {
-            await pushData({ Suppliers: [{ id: 'SUP_' + Date.now(), name: newSup.name, phone: newSup.phone, category: newSup.category, totalDebt: 0 }] });
+            if (newSup.id) {
+                const existing = suppliers.find(s => s.id === newSup.id);
+                const payload = { Suppliers: [{ ...existing, name: newSup.name, phone: newSup.phone, category: newSup.category, note: newSup.note }] };
+                
+                // CRITICAL FIX: If name changed, update all associated ImportExport logs
+                if (existing.name !== newSup.name) {
+                    const relatedLogs = (data.ImportExport || []).filter(log => log.type === 'Nhập' && log.target === existing.name);
+                    if (relatedLogs.length > 0) {
+                        payload.ImportExport = relatedLogs.map(log => ({ ...log, target: newSup.name }));
+                    }
+                }
+                
+                await pushData(payload);
+                triggerToast('Cập nhật Nhà Cung Cấp thành công!', 'fa-check', 'success');
+            } else {
+                await pushData({ Suppliers: [{ id: 'SUP_' + Date.now(), name: newSup.name, phone: newSup.phone, category: newSup.category, note: newSup.note, totalDebt: 0 }] });
+                triggerToast('Tạo Nhà Cung Cấp thành công!', 'fa-check', 'success');
+            }
             setShowAddModal(false);
-            setNewSup({ name: '', phone: '', category: 'HÀNG HOÁ' });
-        } catch (e) { alert('Gặp lỗi khi tạo đối tác: ' + e.message); }
+            setNewSup({ id: null, name: '', phone: '', category: 'HÀNG HOÁ', note: '' });
+        } catch (e) { triggerToast('Gặp lỗi khi lưu Nhà Cung Cấp: ' + e.message, 'fa-times', 'danger'); }
         setIsSaving(false);
     };
 
     const handleDeleteSup = async (sup) => {
         if (Number(sup.totalDebt || 0) > 0) {
-            return alert('Không thể xóa đối tác đang còn công nợ chưa chi trả!');
+            return triggerToast('Không thể xóa Nhà Cung Cấp đang còn công nợ chưa chi trả!', 'fa-ban', 'danger');
         }
-        if (!window.confirm(`Bạn có chắc muốn XÓA VĨNH VIỄN đối tác: [${sup.name}]?`)) return;
+        if (!window.confirm(`Bạn có chắc muốn XÓA VĨNH VIỄN Nhà Cung Cấp: [${sup.name}]?`)) return;
         setIsSaving(true);
         try {
             await pushData({ deletes: { Suppliers: [sup.id] } });
-        } catch (e) { alert('Gặp lỗi khi xóa đối tác: ' + e.message); }
+            triggerToast('Xóa Nhà Cung Cấp thành công!', 'fa-check', 'success');
+        } catch (e) { triggerToast('Gặp lỗi khi xóa Nhà Cung Cấp: ' + e.message, 'fa-times', 'danger'); }
         setIsSaving(false);
     };
 
@@ -119,11 +142,15 @@ function SuppliersTab({ data, pushData, isAdmin }) {
         setPayAccId('');
     };
 
-    const handleConfirmPayment = async () => {
-        const amountToPay = Number(payAmount);
-        if (!payAccId) return alert('Vui lòng chọn quỹ tiền để trừ!');
-        if (amountToPay <= 0) return alert('Số tiền thanh toán phải lớn hơn 0!');
+    const isSavingRef = React.useRef(false);
 
+    const handleConfirmPayment = async () => {
+        if (isSavingRef.current) return;
+        const amountToPay = Number(payAmount);
+        if (!payAccId) return triggerToast('Vui lòng chọn quỹ tiền để trừ!', 'fa-exclamation', 'warning');
+        if (amountToPay <= 0) return triggerToast('Số tiền thanh toán phải lớn hơn 0!', 'fa-exclamation', 'warning');
+
+        isSavingRef.current = true;
         setIsSaving(true);
         try {
             const acc = (data.Accounts || []).find(a => a.id === payAccId);
@@ -131,10 +158,10 @@ function SuppliersTab({ data, pushData, isAdmin }) {
             const log = payingLog.log;
             
             const newTransaction = {
-                id: 'TX_' + Date.now(), type: 'Chi', category: 'Thanh Toán Hoá Đơn', amount: amountToPay,
+                id: 'TX_' + Date.now() + Math.floor(Math.random()*1000), type: 'Chi', category: 'Thanh Toán Hoá Đơn', amount: amountToPay,
                 fromAccount: payAccId, toAccount: '', title: `Thanh toán phiếu nhập: ${log.id}`,
                 date: new Date().toISOString().slice(0, 16).replace('T', ' '),
-                note: `Chi trả tiền nhập hàng cho đối tác ${sup.name}`
+                note: `Chi trả tiền nhập hàng cho nhà cung cấp ${sup.name}`
             };
 
             await pushData({
@@ -144,8 +171,10 @@ function SuppliersTab({ data, pushData, isAdmin }) {
                 ImportExport: [{ ...log, isPaid: true, paidAt: new Date().toISOString() }]
             });
             setPayingLog(null);
-        } catch (e) { alert('Lỗi thanh toán: ' + e.message); }
+            triggerToast('Thanh toán thành công!', 'fa-check', 'success');
+        } catch (e) { triggerToast('Lỗi thanh toán: ' + e.message, 'fa-times', 'danger'); }
         setIsSaving(false);
+        setTimeout(() => { isSavingRef.current = false; }, 500);
     };
 
     const openEditModal = (log) => {
@@ -157,10 +186,131 @@ function SuppliersTab({ data, pushData, isAdmin }) {
     const handleConfirmEdit = async () => {
         setIsSaving(true);
         try {
-            await pushData({ ImportExport: [{ ...editingLog, note: editNote, totalAmount: Number(editTotal) }] });
+            const oldAmount = Number(editingLog.totalAmount || 0);
+            const newAmount = Number(editTotal);
+            const diff = newAmount - oldAmount;
+            
+            const payload = { ImportExport: [{ ...editingLog, note: editNote, totalAmount: newAmount }] };
+            
+            if (diff !== 0 && !editingLog.isPaid) {
+                const sup = suppliers.find(s => s.name === editingLog.target);
+                if (sup) {
+                    payload.Suppliers = [{ ...sup, totalDebt: Number(sup.totalDebt || 0) + diff }];
+                }
+            }
+            
+            await pushData(payload);
             setEditingLog(null);
-        } catch (e) { alert('Lỗi sửa phiếu: ' + e.message); }
+            triggerToast('Cập nhật phiếu thành công!', 'fa-check', 'success');
+        } catch (e) { triggerToast('Lỗi sửa phiếu: ' + e.message, 'fa-times', 'danger'); }
         setIsSaving(false);
+    };
+
+    const handleDeleteTicket = async (log, sup) => {
+        const choice = window.prompt(`XOÁ PHIẾU NHẬP: ${log.id}\n\nNhập "1" để: Xoá phiếu NHƯNG GIỮ NGUYÊN tồn kho (Dùng khi hàng vật lý đã vào kho, chỉ xoá rác sổ sách).\nNhập "2" để: Xoá phiếu và TRỪ LẠI số tồn kho đã cộng.\n\nHãy nhập số 1 hoặc 2:`);
+        if (!choice) return;
+        if (choice !== '1' && choice !== '2') return triggerToast('Lựa chọn không hợp lệ', 'fa-times', 'danger');
+
+        setIsSaving(true);
+        try {
+            const payload = { deletes: { ImportExport: [log.id] }, Products: [], Suppliers: [] };
+            
+            if (!log.isPaid && Number(log.totalAmount || 0) > 0) {
+                payload.Suppliers.push({
+                    ...sup, 
+                    totalDebt: Number(sup.totalDebt || 0) - Number(log.totalAmount)
+                });
+            }
+
+            if (choice === '2') {
+                let parsed = [];
+                try { parsed = JSON.parse(log.itemsData); } catch(e) {}
+                parsed.forEach(item => {
+                    const p = (data?.Products||[]).find(x => x.name === item.name);
+                    if (p) {
+                        const diffVal = -Number(item.qty || 0);
+                        payload.Products.push({...p, quantity: Number(p.quantity) + diffVal, _diff: diffVal});
+                    }
+                });
+            }
+
+            await pushData(payload);
+            triggerToast('Đã xoá phiếu thành công!', 'fa-trash', 'success');
+        } catch (e) {
+            triggerToast('Lỗi xoá phiếu: ' + e.message, 'fa-times', 'danger');
+        }
+        setIsSaving(false);
+    };
+
+    // Bank Auto-sync Transactions cho Modal Đối Soát
+    const recentBankTxs = React.useMemo(() => {
+        const now = new Date();
+        const thirtyDaysAgo = new Date(now.setDate(now.getDate() - 30)).toISOString().split('T')[0];
+        return (data.Transactions || []).filter(t => {
+            if (t.type !== 'Chi') return false;
+            const tDate = (t.date || '').split('T')[0];
+            if (tDate < thirtyDaysAgo) return false;
+            const noteLower = String(t.note || '').toLowerCase();
+            if (noteLower.includes('đối soát công nợ')) return false;
+            return true;
+        }).sort((a,b) => new Date(b.date||0) - new Date(a.date||0));
+    }, [data.Transactions]);
+
+    const handleSaveReconciliation = async () => {
+        if (!reconSelectedTxId) return triggerToast('Vui lòng chọn 1 Phiếu Chi Bank!', 'fa-exclamation', 'warning');
+        if (reconSelectedImportIds.length === 0) return triggerToast('Vui lòng tick ít nhất 1 Phiếu Nhập!', 'fa-exclamation', 'warning');
+
+        const tx = recentBankTxs.find(t => t.id === reconSelectedTxId);
+        if (!tx) return;
+
+        const allImports = getImportHistory(reconcileSupplier.name);
+        const selectedImports = allImports.filter(log => reconSelectedImportIds.includes(log.id));
+        const totalImportAmount = selectedImports.reduce((sum, log) => sum + Number(log.totalAmount || 0), 0);
+        const balanceDiff = Number(tx.amount || 0) - totalImportAmount;
+
+        if (balanceDiff < 0) {
+            return triggerToast('LỖI BẢO MẬT: Phiếu Chi không đủ để thanh toán!', 'fa-ban', 'danger');
+        }
+
+        setIsSaving(true);
+        try {
+            // Update the Bank Transaction note
+            const updatedTx = {
+                ...tx,
+                note: `[Đã đối soát công nợ: ${reconcileSupplier.name}]. ${tx.note || ''}`
+            };
+
+            // Deduct totalDebt by exactly the total of the checked import logs (not the bank amount, in case of fee)
+            const updatedSupplier = {
+                ...reconcileSupplier,
+                totalDebt: Number(reconcileSupplier.totalDebt) - totalImportAmount
+            };
+
+            // Mark import logs as paid
+            const updatedImports = selectedImports.map(log => ({
+                ...log,
+                isPaid: true,
+                paidAt: new Date().toISOString()
+            }));
+
+            await pushData({
+                Transactions: [updatedTx],
+                Suppliers: [updatedSupplier],
+                ImportExport: updatedImports
+            });
+
+            setReconcileSupplier(null);
+            triggerToast('Đã đối soát Bank và Cấn trừ nợ thành công!', 'fa-shield-check', 'success');
+        } catch (e) {
+            triggerToast('Lỗi đối soát: ' + e.message, 'fa-times', 'danger');
+        }
+        setIsSaving(false);
+    };
+
+    const handleToggleImport = (id) => {
+        setReconSelectedImportIds(prev => 
+            prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+        );
     };
 
     const handlePrintReceipt = (log, sup) => {
@@ -235,7 +385,7 @@ function SuppliersTab({ data, pushData, isAdmin }) {
                 <div className="bg-[#141414] p-4 rounded-2xl border border-blue-500/20 shadow-sm relative overflow-hidden flex items-center justify-between">
                     <div className="absolute top-0 right-0 w-16 h-16 bg-blue-500/5 rounded-full blur-xl pointer-events-none"></div>
                     <div>
-                        <span className="text-[9px] font-black text-blue-400 uppercase tracking-widest block mb-1">TỔNG SỐ ĐỐI TÁC</span>
+                        <span className="text-[9px] font-black text-blue-400 uppercase tracking-widest block mb-1">TỔNG NHÀ CUNG CẤP</span>
                         <span className="text-[20px] font-black text-blue-400 leading-none">{stats.totalPartners} <span className="text-[10px] text-gray-500">nhà CC</span></span>
                     </div>
                     <div className="w-10 h-10 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center justify-center text-sm"><i className="fas fa-user-tie"></i></div>
@@ -274,10 +424,10 @@ function SuppliersTab({ data, pushData, isAdmin }) {
                 <div className="flex items-center gap-3 w-full md:w-auto">
                     <div className="relative flex-1 md:w-64">
                         <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-[12px]"></i>
-                        <input type="text" placeholder="Tìm kiếm đối tác..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl pl-9 pr-4 py-2.5 text-[12px] font-bold text-white outline-none focus:border-[#10b981] shadow-inner transition-colors" />
+                        <input type="text" placeholder="Tìm kiếm nhà cung cấp..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl pl-9 pr-4 py-2.5 text-[12px] font-bold text-white outline-none focus:border-[#10b981] shadow-inner transition-colors" />
                         {searchTerm && <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white text-xs"><i className="fas fa-times-circle"></i></button>}
                     </div>
-                    <button onClick={() => setShowAddModal(true)} className="px-5 py-3 bg-[#10b981] hover:bg-emerald-500 text-[#0a0a0a] font-black text-[11px] tracking-wider rounded-xl transition-all shadow-[0_0_15px_rgba(16,185,129,0.2)] active:scale-95 whitespace-nowrap uppercase flex items-center gap-1.5">
+                    <button onClick={() => { setNewSup({ id: null, name: '', phone: '', category: 'HÀNG HOÁ', note: '' }); setShowAddModal(true); }} className="px-5 py-3 bg-[#10b981] hover:bg-emerald-500 text-[#0a0a0a] font-black text-[11px] tracking-wider rounded-xl transition-all shadow-[0_0_15px_rgba(16,185,129,0.2)] active:scale-95 whitespace-nowrap uppercase flex items-center gap-1.5">
                         <i className="fas fa-plus"></i> Mới
                     </button>
                 </div>
@@ -323,11 +473,14 @@ function SuppliersTab({ data, pushData, isAdmin }) {
                                                     </div>
                                                     <div className="min-w-0 flex-1 pr-2">
                                                         <div className="font-black text-[14px] text-[#f5f5f5] leading-tight mb-1 truncate">{sup.name}</div>
-                                                        <div className="text-[10px] text-gray-500 font-bold flex items-center gap-2">
+                                                        <div className="text-[10px] text-gray-500 font-bold flex flex-wrap items-center gap-2 mt-1">
                                                             {sup.phone ? (
                                                                 <a href={`tel:${sup.phone}`} onClick={e => e.stopPropagation()} className="text-gray-400 hover:text-[#10b981] flex items-center gap-1 bg-[#0a0a0a] px-1.5 py-0.5 rounded border border-[#333] transition-colors"><i className="fas fa-phone-alt text-[9px]"></i> {sup.phone}</a>
                                                             ) : (
                                                                 <span className="text-gray-600">Chưa có SĐT</span>
+                                                            )}
+                                                            {sup.note && (
+                                                                <span className="text-gray-400 bg-[#0a0a0a] px-1.5 py-0.5 rounded border border-[#333] line-clamp-1" title={sup.note}><i className="fas fa-info-circle text-[9px] mr-1"></i>{sup.note}</span>
                                                             )}
                                                             {pendingBillsCount > 0 && (
                                                                 <span className="text-[8px] font-black bg-amber-500/10 text-amber-500 border border-amber-500/20 px-1.5 py-0.5 rounded-full">{pendingBillsCount} phiếu nợ</span>
@@ -344,10 +497,24 @@ function SuppliersTab({ data, pushData, isAdmin }) {
                                                         </div>
                                                     </div>
 
+                                                    {/* NÚT SỬA */}
+                                                    {isAdmin && (
+                                                        <button onClick={(e) => { e.stopPropagation(); setNewSup({ id: sup.id, name: sup.name, phone: sup.phone || '', category: sup.category || 'HÀNG HOÁ', note: sup.note || '' }); setShowAddModal(true); }} className="w-8 h-8 rounded-lg bg-[#0a0a0a] border border-[#2a2a2a] text-gray-500 hover:text-amber-500 hover:border-amber-500/20 transition-all flex items-center justify-center active:scale-95" title="Sửa nhà cung cấp">
+                                                            <i className="fas fa-edit text-[11px]"></i>
+                                                        </button>
+                                                    )}
+
                                                     {/* NÚT XÓA KHI KHÔNG CÒN NỢ */}
                                                     {isAdmin && !hasDebt && (
-                                                        <button onClick={(e) => { e.stopPropagation(); handleDeleteSup(sup); }} className="w-8 h-8 rounded-lg bg-[#0a0a0a] border border-[#2a2a2a] text-gray-500 hover:text-rose-500 hover:border-rose-500/20 transition-all flex items-center justify-center active:scale-95" title="Xoá đối tác">
+                                                        <button onClick={(e) => { e.stopPropagation(); handleDeleteSup(sup); }} className="w-8 h-8 rounded-lg bg-[#0a0a0a] border border-[#2a2a2a] text-gray-500 hover:text-rose-500 hover:border-rose-500/20 transition-all flex items-center justify-center active:scale-95" title="Xoá nhà cung cấp">
                                                             <i className="fas fa-trash text-[11px]"></i>
+                                                        </button>
+                                                    )}
+
+                                                    {/* NÚT ĐỐI SOÁT BANK */}
+                                                    {isAdmin && hasDebt && (
+                                                        <button onClick={(e) => { e.stopPropagation(); setReconcileSupplier(sup); setReconSelectedTxId(''); setReconSelectedImportIds([]); }} className="h-8 px-3 rounded-lg bg-[#10b981]/10 border border-[#10b981]/20 text-[#10b981] hover:bg-[#10b981] hover:text-black transition-all flex items-center justify-center font-bold text-[10px] gap-1.5 active:scale-95 shadow-[0_0_10px_rgba(16,185,129,0.1)]" title="Đối soát qua Bank">
+                                                            <i className="fas fa-link text-[11px]"></i> Đối Soát
                                                         </button>
                                                     )}
 
@@ -409,18 +576,30 @@ function SuppliersTab({ data, pushData, isAdmin }) {
 
                                                                         <div className="mt-1 pt-2 border-t border-[#222] flex justify-end gap-2">
                                                                             {isNeedPayment ? (
-                                                                                <>
+                                                                                <React.Fragment>
                                                                                     <button onClick={(e) => { e.stopPropagation(); openEditModal(log); }} className="px-3 py-1.5 bg-[#222] hover:bg-amber-500/20 text-gray-400 hover:text-amber-400 border border-[#333] hover:border-amber-500/30 rounded-lg text-[9px] font-black transition-all flex items-center gap-1 shadow-sm">
                                                                                         <i className="fas fa-pen text-[8px]"></i> Sửa phiếu
                                                                                     </button>
+                                                                                    {isAdmin && (
+                                                                                        <button onClick={(e) => { e.stopPropagation(); handleDeleteTicket(log, sup); }} className="px-3 py-1.5 bg-[#222] hover:bg-rose-500/20 text-gray-400 hover:text-rose-400 border border-[#333] hover:border-rose-500/30 rounded-lg text-[9px] font-black transition-all flex items-center gap-1 shadow-sm">
+                                                                                            <i className="fas fa-trash text-[8px]"></i> Xoá
+                                                                                        </button>
+                                                                                    )}
                                                                                     <button onClick={(e) => { e.stopPropagation(); openPaymentModal(log, sup); }} className="px-3 py-1.5 bg-[#10b981]/20 hover:bg-[#10b981] text-[#10b981] hover:text-[#0a0a0a] border border-[#10b981]/30 rounded-lg text-[9px] font-black transition-all flex items-center gap-1 shadow-sm">
                                                                                         <i className="fas fa-money-bill-wave text-[8px]"></i> Chi trả ngay
                                                                                     </button>
-                                                                                </>
+                                                                                </React.Fragment>
                                                                             ) : (
-                                                                                <button onClick={(e) => { e.stopPropagation(); handlePrintReceipt(log, sup); }} className="px-3 py-1.5 bg-[#3b82f6]/10 hover:bg-[#3b82f6]/20 text-[#60a5fa] border border-[#3b82f6]/30 rounded-lg text-[9px] font-black transition-all flex items-center gap-1 shadow-sm">
-                                                                                    <i className="fas fa-print text-[8px]"></i> In phiếu chi
-                                                                                </button>
+                                                                                <React.Fragment>
+                                                                                    {isAdmin && (
+                                                                                        <button onClick={(e) => { e.stopPropagation(); handleDeleteTicket(log, sup); }} className="px-3 py-1.5 bg-[#222] hover:bg-rose-500/20 text-gray-400 hover:text-rose-400 border border-[#333] hover:border-rose-500/30 rounded-lg text-[9px] font-black transition-all flex items-center gap-1 shadow-sm">
+                                                                                            <i className="fas fa-trash text-[8px]"></i> Xoá
+                                                                                        </button>
+                                                                                    )}
+                                                                                    <button onClick={(e) => { e.stopPropagation(); handlePrintReceipt(log, sup); }} className="px-3 py-1.5 bg-[#3b82f6]/10 hover:bg-[#3b82f6]/20 text-[#60a5fa] border border-[#3b82f6]/30 rounded-lg text-[9px] font-black transition-all flex items-center gap-1 shadow-sm">
+                                                                                        <i className="fas fa-print text-[8px]"></i> In phiếu chi
+                                                                                    </button>
+                                                                                </React.Fragment>
                                                                             )}
                                                                         </div>
                                                                     </div>
@@ -445,28 +624,32 @@ function SuppliersTab({ data, pushData, isAdmin }) {
                     <div className="bg-[#141414] w-full max-w-sm rounded-[24px] p-5 border border-[#333] shadow-2xl flex flex-col relative overflow-hidden animate-slide-up" onClick={e => e.stopPropagation()}>
                         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-[#10b981] to-transparent opacity-50"></div>
                         <div className="flex justify-between items-center mb-5 border-b border-[#222] pb-3">
-                            <h3 className="font-black text-[#10b981] text-[15px] uppercase tracking-wider"><i className="fas fa-user-tie mr-2"></i> Thêm đối tác mới</h3>
+                            <h3 className="font-black text-[#10b981] text-[15px] uppercase tracking-wider"><i className="fas fa-user-tie mr-2"></i> {newSup.id ? 'Sửa nhà cung cấp' : 'Thêm nhà cung cấp mới'}</h3>
                             <button onClick={() => setShowAddModal(false)} disabled={isSaving} className="w-8 h-8 bg-[#1a1a1a] rounded-full text-gray-400 hover:text-rose-500 border border-[#333] transition-colors"><i className="fas fa-times"></i></button>
                         </div>
                         <div className="space-y-4">
                             <div>
-                                <label className="text-[10px] font-black text-gray-500 uppercase block mb-1.5">TÊN ĐỐI TÁC / NHÀ CUNG CẤP (*)</label>
-                                <input type="text" value={newSup.name} onChange={e => setNewSup({...newSup, name: e.target.value})} disabled={isSaving} className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-3 text-[12px] text-white font-bold outline-none focus:border-[#10b981]" placeholder="Nhập tên đối tác..." />
+                                <label className="text-[10px] font-black text-gray-500 uppercase block mb-1.5">TÊN NHÀ CUNG CẤP (*)</label>
+                                <input type="text" value={newSup.name} onChange={e => setNewSup({...newSup, name: e.target.value})} disabled={isSaving} className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-3 text-[12px] text-white font-bold outline-none focus:border-[#10b981]" placeholder="Nhập tên nhà cung cấp..." />
                             </div>
                             <div>
                                 <label className="text-[10px] font-black text-gray-500 uppercase block mb-1.5">SỐ ĐIỆN THOẠI</label>
                                 <input type="text" value={newSup.phone} onChange={e => setNewSup({...newSup, phone: e.target.value})} disabled={isSaving} className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-3 text-[12px] text-white font-bold outline-none focus:border-[#10b981]" placeholder="Nhập SĐT..." />
                             </div>
                             <div>
-                                <label className="text-[10px] font-black text-gray-500 uppercase block mb-1.5">PHÂN LOẠI NHÓM ĐỐI TÁC</label>
+                                <label className="text-[10px] font-black text-gray-500 uppercase block mb-1.5">PHÂN LOẠI NHÓM NHÀ CUNG CẤP</label>
                                 <select disabled={isSaving} value={newSup.category} onChange={e => setNewSup({...newSup, category: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-3 text-[12px] text-[#10b981] font-black outline-none focus:border-[#10b981] cursor-pointer">
                                     {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                                 </select>
                             </div>
+                            <div>
+                                <label className="text-[10px] font-black text-gray-500 uppercase block mb-1.5">GHI CHÚ LƯU Ý</label>
+                                <textarea rows="2" value={newSup.note} onChange={e => setNewSup({...newSup, note: e.target.value})} disabled={isSaving} className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-3 text-[12px] text-white font-medium outline-none focus:border-[#10b981] shadow-inner" placeholder="Ghi chú nhân viên lấy gì ở đâu của ai..."></textarea>
+                            </div>
                         </div>
                         <div className="pt-5 mt-2 border-t border-[#222]">
                             <button onClick={handleSaveSup} disabled={isSaving} className="w-full py-3.5 bg-[#10b981] hover:bg-emerald-500 text-[#0a0a0a] font-black rounded-xl text-[12px] tracking-widest uppercase transition-all shadow-md flex items-center justify-center gap-2 active:scale-95">
-                                {isSaving ? <><i className="fas fa-circle-notch fa-spin"></i> Đang lưu...</> : <><i className="fas fa-save"></i> Tạo đối tác</>}
+                                {isSaving ? <><i className="fas fa-circle-notch fa-spin"></i> Đang lưu...</> : <><i className="fas fa-save"></i> {newSup.id ? 'Cập nhật nhà cung cấp' : 'Tạo nhà cung cấp'}</>}
                             </button>
                         </div>
                     </div>
@@ -538,7 +721,137 @@ function SuppliersTab({ data, pushData, isAdmin }) {
                     </div>
                 </div>
             )}
+
+            {/* MODAL ĐỐI SOÁT BANK N:1 */}
+            {reconcileSupplier && (
+                <div className="fixed inset-0 bg-[#0a0a0a]/90 z-[300] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in" onClick={() => setReconcileSupplier(null)}>
+                    <div className="bg-[#141414] w-full max-w-md max-h-[90vh] rounded-[24px] p-5 border border-[#333] shadow-2xl flex flex-col relative overflow-hidden animate-slide-up" onClick={e => e.stopPropagation()}>
+                        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-[#10b981] to-transparent opacity-50"></div>
+                        <div className="flex justify-between items-center mb-4 border-b border-[#222] pb-3">
+                            <h3 className="font-black text-[#10b981] text-[15px] uppercase tracking-wider flex items-center gap-2">
+                                <i className="fas fa-link"></i> Đối Soát Bank (N:1)
+                            </h3>
+                            <button onClick={() => setReconcileSupplier(null)} disabled={isSaving} className="w-8 h-8 bg-[#1a1a1a] rounded-full text-gray-400 hover:text-rose-500 border border-[#333] transition-colors flex items-center justify-center"><i className="fas fa-times"></i></button>
+                        </div>
+                        
+                        <div className="text-[10px] text-[#10b981]/70 italic mb-4 leading-relaxed bg-[#10b981]/10 p-2.5 rounded-lg border border-[#10b981]/20">
+                            * Công cụ Khớp Lệnh: Ghép 1 Phiếu Chi tự động từ Ngân Hàng với N Phiếu Nhập Hàng của nhà cung cấp <strong>{reconcileSupplier.name}</strong>.
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto custom-scrollbar space-y-4 pr-1">
+                            {/* Chon Phieu Chi */}
+                            <div>
+                                <label className="text-[10px] font-black text-[#10b981] uppercase block mb-1.5">1. CHỌN PHIẾU CHI BANK (TỰ ĐỘNG)</label>
+                                <select 
+                                    value={reconSelectedTxId} 
+                                    onChange={e => setReconSelectedTxId(e.target.value)} 
+                                    disabled={isSaving} 
+                                    className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-3 text-[12px] text-white font-bold outline-none focus:border-[#10b981] cursor-pointer shadow-inner"
+                                >
+                                    <option value="">-- Chọn Giao Dịch Chi Tiền (30 Ngày) --</option>
+                                    {recentBankTxs.map(t => (
+                                        <option key={t.id} value={t.id}>
+                                            {(t.date||'').split('T')[0].split('-').reverse().join('/')} - {displayMoney(t.amount)}đ - {t.note || t.title}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {/* Chon Phieu Nhap */}
+                            <div>
+                                <div className="flex justify-between items-center mb-1.5">
+                                    <label className="text-[10px] font-black text-amber-500 uppercase block">2. CHỌN CÁC PHIẾU NHẬP CẦN XÓA NỢ</label>
+                                    <span className="text-[9px] bg-[#1a1a1a] border border-[#333] px-2 py-0.5 rounded text-gray-400 font-bold">Đã chọn: {reconSelectedImportIds.length}</span>
+                                </div>
+                                <div className="max-h-48 overflow-y-auto custom-scrollbar bg-[#0a0a0a] border border-[#333] rounded-xl p-2 space-y-2">
+                                    {(() => {
+                                        const unpaidLogs = getImportHistory(reconcileSupplier.name).filter(l => !l.isPaid && Number(l.totalAmount) > 0);
+                                        if (unpaidLogs.length === 0) return <div className="text-center text-[10px] text-gray-500 italic py-4">Không có Phiếu Nhập nào đang nợ.</div>;
+                                        return unpaidLogs.map(log => {
+                                            const isChecked = reconSelectedImportIds.includes(log.id);
+                                            return (
+                                                <div 
+                                                    key={log.id} 
+                                                    onClick={() => handleToggleImport(log.id)}
+                                                    className={`p-2.5 rounded-lg border cursor-pointer flex items-start gap-3 transition-colors ${isChecked ? 'bg-amber-500/10 border-amber-500/50' : 'bg-[#141414] border-[#333] hover:border-[#444]'}`}
+                                                >
+                                                    <div className={`w-4 h-4 rounded shrink-0 mt-0.5 flex items-center justify-center border ${isChecked ? 'bg-amber-500 border-amber-500' : 'border-gray-600'}`}>
+                                                        {isChecked && <i className="fas fa-check text-[#0a0a0a] text-[10px]"></i>}
+                                                    </div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex justify-between items-center">
+                                                            <span className="text-white font-black text-[12px]">{displayMoney(log.totalAmount)}đ</span>
+                                                            <span className="text-gray-500 text-[10px]">{(log.date||'').split('T')[0].split('-').reverse().join('/')}</span>
+                                                        </div>
+                                                        <div className="text-gray-400 text-[10px] truncate mt-0.5"><span className="text-gray-600 font-mono">[{log.id}]</span> {log.note}</div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        });
+                                    })()}
+                                </div>
+                            </div>
+
+                            {/* Cán Cân Kế Toán */}
+                            {(() => {
+                                const tx = recentBankTxs.find(t => t.id === reconSelectedTxId);
+                                const txAmount = Number(tx?.amount || 0);
+                                const allImports = getImportHistory(reconcileSupplier.name);
+                                const selectedImports = allImports.filter(log => reconSelectedImportIds.includes(log.id));
+                                const importsAmount = selectedImports.reduce((sum, log) => sum + Number(log.totalAmount || 0), 0);
+                                const balanceDiff = txAmount - importsAmount;
+                                
+                                let balanceColor = 'text-gray-400';
+                                let balanceMsg = 'Vui lòng chọn Phiếu Chi & Phiếu Nhập';
+                                let canSave = false;
+
+                                if (reconSelectedTxId && reconSelectedImportIds.length > 0) {
+                                    if (balanceDiff === 0) {
+                                        balanceColor = 'text-[#10b981]'; // Xanh lá
+                                        balanceMsg = 'Khớp lệnh tuyệt đối. Sẵn sàng lưu.';
+                                        canSave = true;
+                                    } else if (balanceDiff > 0) {
+                                        balanceColor = 'text-yellow-400'; // Vàng
+                                        balanceMsg = 'Tiền dư sẽ ghi nhận vào phí giao dịch.';
+                                        canSave = true;
+                                    } else {
+                                        balanceColor = 'text-rose-500'; // Đỏ gắt
+                                        balanceMsg = 'Phiếu chi không đủ để thanh toán.';
+                                        canSave = false;
+                                    }
+                                }
+
+                                return (
+                                    <div className="bg-[#0a0a0a] p-3 rounded-xl border border-[#333] mt-4">
+                                        <div className="flex justify-between items-center text-[10px] font-black uppercase text-gray-500 mb-2">
+                                            <span><i className="fas fa-balance-scale mr-1"></i> CÁN CÂN KẾ TOÁN</span>
+                                            <span className={balanceColor}>Lệch: {displayMoney(Math.abs(balanceDiff))}đ</span>
+                                        </div>
+                                        <div className="flex justify-between items-center text-[12px] font-black">
+                                            <div className="text-gray-400">P.Chi Bank: <span className="text-[#10b981]">{displayMoney(txAmount)}</span></div>
+                                            <div className="text-[#333]">|</div>
+                                            <div className="text-gray-400">Nợ Phiếu: <span className="text-amber-500">{displayMoney(importsAmount)}</span></div>
+                                        </div>
+                                        <div className={`text-[9px] mt-2 text-center font-bold ${balanceColor}`}>
+                                            {balanceMsg}
+                                        </div>
+                                        <div className="pt-3 mt-3 border-t border-[#222]">
+                                            <button 
+                                                onClick={handleSaveReconciliation} 
+                                                disabled={isSaving || !canSave} 
+                                                className={`w-full py-3 font-black rounded-xl text-[12px] tracking-widest uppercase transition-all flex items-center justify-center gap-2 active:scale-95 ${canSave ? 'bg-[#10b981] hover:bg-emerald-500 text-black shadow-[0_0_15px_rgba(16,185,129,0.2)]' : 'bg-[#222] text-gray-500 cursor-not-allowed'}`}
+                                            >
+                                                {isSaving ? <><i className="fas fa-spinner fa-spin"></i> Đang khớp lệnh...</> : <><i className="fas fa-shield-check"></i> XÁC NHẬN KHỚP LỆNH</>}
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })()}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
-}
+});
 </script>

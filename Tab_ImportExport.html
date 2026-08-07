@@ -13,7 +13,7 @@ function StockHistoryModal({ product, onClose, importExport }) {
         let result = [];
         importExport.forEach(log => {
             try {
-                const items = JSON.parse(log.itemsData || '[]');
+                const items = safeJSONParse(log.itemsData);
                 const match = items.find(i => i.name === product.name);
                 if (match) {
                     result.push({
@@ -24,7 +24,19 @@ function StockHistoryModal({ product, onClose, importExport }) {
                 }
             } catch(e) {}
         });
-        return result.sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0));
+        result.sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0));
+        
+        let currentBal = Number(product.quantity || 0);
+        result.forEach(log => {
+            log.balanceAfter = currentBal;
+            if (log.type === 'Nhập') {
+                currentBal -= Number(log.changedQty || 0);
+            } else {
+                currentBal += Number(log.changedQty || 0);
+            }
+        });
+        
+        return result;
     }, [importExport, product]);
 
     return (
@@ -64,8 +76,13 @@ function StockHistoryModal({ product, onClose, importExport }) {
                                     </div>
                                     <div className="text-[11px] font-bold text-gray-300 leading-tight group-hover:text-white transition-colors line-clamp-2">{L.note || L.target}</div>
                                 </div>
-                                <div className={`text-[15px] font-black shrink-0 ${L.type==='Nhập' ? 'text-[#10b981]' : 'text-[#fb7185]'}`}>
-                                    {L.type==='Nhập' ? '+' : '-'}{L.changedQty} <span className="text-[9px] font-bold uppercase opacity-70">{product.unit || 'Cái'}</span>
+                                <div className="flex flex-col items-end shrink-0">
+                                    <div className={`text-[15px] font-black ${L.type==='Nhập' ? 'text-[#10b981]' : 'text-[#fb7185]'}`}>
+                                        {L.type==='Nhập' ? '+' : '-'}{L.changedQty} <span className="text-[9px] font-bold uppercase opacity-70">{product.unit || 'Cái'}</span>
+                                    </div>
+                                    <div className="text-[9px] text-gray-500 font-bold mt-1 bg-[#1a1a1a] px-2 py-0.5 rounded border border-[#333]">
+                                        Tồn: <span className="text-[#f5f5f5]">{L.balanceAfter}</span>
+                                    </div>
                                 </div>
                             </div>
                         ))
@@ -79,366 +96,584 @@ function StockHistoryModal({ product, onClose, importExport }) {
 // -------------------------------------------------------------------------
 // 2. TAB LỊCH SỬ XUẤT NHẬP TỔNG HỢP & NÚT KIỂM KHO (ImportExportTab)
 // -------------------------------------------------------------------------
-function ImportExportTab({ data, pushData, isAdmin }) {
-  const displayMoney = (val) => Number(val || 0).toLocaleString('vi-VN');
-  const [showForm, setShowForm] = React.useState(false);
-  const [filter, setFilter] = React.useState('Hôm Nay'); 
-  const [typeTab, setTypeTab] = React.useState('Xuất'); 
-  const [subWarehouse, setSubWarehouse] = React.useState('156');
-  const [search, setSearch] = React.useState('');
-  const [prefilledProduct, setPrefilledProduct] = React.useState(null);
+const ImportExportTab = React.memo(function ImportExportTab({ data, pushData, isAdmin, mode, userConfigs, triggerToast }) {
+    // 1. Modals & Forms State
+    const [showForm, setShowForm] = React.useState(false);
+    const [prefilledProduct, setPrefilledProduct] = React.useState(null);
+    const [editingLog, setEditingLog] = React.useState(null);
+    const [editingItems, setEditingItems] = React.useState([]);
 
-  React.useEffect(() => {
-      const handleTrigger = (e) => {
-          const product = e.detail;
-          setPrefilledProduct(product);
-          setTypeTab('Nhập');
-          const cat = String(product.category || '').toUpperCase();
-          if (cat.includes('DANH MỤC SẢN XUẤT') || cat.includes('NGUYÊN LIỆU') || cat.includes('VẬT TƯ')) {
-              setSubWarehouse('152');
-          } else if (cat.includes('PHỤ KIỆN')) {
-              setSubWarehouse('156');
-          } else if (cat.includes('LAYOUT') || cat.includes('BỂ KÍNH') || cat.includes('THÀNH PHẨM')) {
-              setSubWarehouse('155');
-          } else {
-              setSubWarehouse('156');
-          }
-          setShowForm(true);
-      };
-      window.addEventListener('triggerCreateImportTicket', handleTrigger);
-      return () => window.removeEventListener('triggerCreateImportTicket', handleTrigger);
-  }, []);
+    React.useEffect(() => {
+        const handleTrigger = (e) => {
+            const product = e ? e.detail : {};
+            setPrefilledProduct(product || null);
+            setShowForm(true);
+        };
+        if (window.pendingAction === 'createImportTicket') {
+            window.pendingAction = null;
+            handleTrigger(null);
+        }
+        window.addEventListener('triggerCreateImportTicket', handleTrigger);
+        return () => window.removeEventListener('triggerCreateImportTicket', handleTrigger);
+    }, []);
 
-  const isDateInRangeLocal = (dateStr) => {
-      if (!dateStr) return false;
-      const d = new Date(dateStr.replace(' ', 'T')); 
-      const today = new Date();
-      if (filter === 'Hôm Nay') return d.toDateString() === today.toDateString();
-      if (filter === 'Tháng Này') return d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
-      return true; 
-  };
-  
-  const getWarehouseAccount = (category) => {
-      const cat = String(category || '').toUpperCase();
-      if (cat.includes('DANH MỤC SẢN XUẤT') || cat.includes('NGUYÊN LIỆU') || cat.includes('VẬT TƯ')) return '152'; 
-      if (cat.includes('PHỤ KIỆN')) return '156';
-      if (cat.includes('LAYOUT') || cat.includes('BỂ KÍNH') || cat.includes('THÀNH PHẨM')) return '155'; 
-      return '156'; 
-  };
+    // 2. New UI State
+    const [filterType, setFilterType] = React.useState('TẤT CẢ');
+    const [filterMonth, setFilterMonth] = React.useState(new Date().toISOString().slice(0, 7));
+    const [searchTerm, setSearchTerm] = React.useState('');
+    const [expandedIds, setExpandedIds] = React.useState({});
 
-  const filteredLogs = React.useMemo(() => {
-      return (data?.ImportExport || []).filter(log => isDateInRangeLocal(log.date || log.createdAt));
-  }, [data?.ImportExport, filter]);
+    const currentRole = localStorage.getItem('rf_role') || '';
+    const currentUser = localStorage.getItem('rf_user');
+    const isKiemToan = currentRole === 'TỐI CAO' || currentRole === 'KẾ TOÁN' || currentRole === 'KIỂM TOÁN' || currentUser === 'Nguyễn Thị Diệu Hương' || isAdmin;
+    const canDelete = isAdmin || currentRole === 'TỐI CAO';
 
-  // PHÂN TÍCH KPI SỐ LIỆU ĐẦU TRANG
-  const stats = React.useMemo(() => {
-      let count = 0;
-      let totalAmount = 0;
-      let lastDate = 'N/A';
-      
-      let allMatchedLogs = [];
-      filteredLogs.forEach(log => {
-          if (log.type !== typeTab) return;
-          
-          let parsedItems = [];
-          try { parsedItems = JSON.parse(log.itemsData || '[]'); } catch(e){}
-          
-          let matchSearch = false;
-          if (!search) { 
-              matchSearch = true; 
-          } else {
-              const term = search.toLowerCase();
-              if (String(log.id).toLowerCase().includes(term) || String(log.note).toLowerCase().includes(term) || String(log.target).toLowerCase().includes(term)) {
-                  matchSearch = true;
-              } else if (parsedItems.some(i => String(i.name).toLowerCase().includes(term))) {
-                  matchSearch = true;
-              }
-          }
-          
-          if (matchSearch) {
-              const hasWarehouseItem = parsedItems.some(item => {
-                  const prodInfo = (data?.Products || []).find(p => p.name === item.name);
-                  const cat = prodInfo ? prodInfo.category : 'PHỤ KIỆN';
-                  return getWarehouseAccount(cat) === subWarehouse;
-              });
-              if (hasWarehouseItem) {
-                  allMatchedLogs.push(log);
-                  totalAmount += (Number(log.totalAmount) || 0);
-                  count++;
-              }
-          }
-      });
-      
-      if (allMatchedLogs.length > 0) {
-          const sorted = [...allMatchedLogs].sort((a,b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
-          const latest = sorted[0];
-          lastDate = latest.date ? String(latest.date).slice(11, 16) : 'N/A';
-      }
-      
-      return {
-          count,
-          totalAmount,
-          lastDate
-      };
-  }, [filteredLogs, typeTab, subWarehouse, search, data?.Products]);
+    const toggleExpand = (id) => {
+        setExpandedIds(prev => ({ ...prev, [id]: !prev[id] }));
+    };
 
-  // GROUP LOGS THEO NGÀY ĐỂ VẼ TIMELINE
-  const logsByDate = React.useMemo(() => {
-      const groups = {};
-      filteredLogs.filter(log => log.type === typeTab).forEach(log => {
-          let parsedItems = [];
-          try { parsedItems = JSON.parse(log.itemsData || '[]'); } catch(e){}
+    // 3. Filter Logs
+    const logs = data?.ImportExport || [];
+    const filteredLogs = React.useMemo(() => {
+        let list = logs.filter(log => {
+            if (mode === 'KIEM_KHO') {
+                if (!(log.id && String(log.id).includes('IE_GCHK'))) return false;
+            } else if (mode === 'NHAT_KY') {
+                if (log.id && String(log.id).includes('IE_GCHK')) return false;
+            }
 
-          let matchSearch = false;
-          if (!search) { 
-              matchSearch = true; 
-          } else {
-              const term = search.toLowerCase();
-              if (String(log.id).toLowerCase().includes(term) || String(log.note).toLowerCase().includes(term) || String(log.target).toLowerCase().includes(term)) {
-                  matchSearch = true;
-              } else if (parsedItems.some(i => String(i.name).toLowerCase().includes(term))) {
-                  matchSearch = true;
-              }
-          }
+            const type = String(log.type || '').trim();
+            const target = String(log.target || '').trim().toLowerCase();
+            const note = String(log.note || '').trim().toLowerCase();
+            const id = String(log.id || '').toLowerCase();
+            const items = String(log.itemsData || '').toLowerCase();
+            const user = String(log.user || '').toLowerCase();
 
-          if (matchSearch) {
-              let warehouseMatchedItems = [];
-              parsedItems.forEach(item => {
-                  const prodInfo = (data?.Products || []).find(p => p.name === item.name);
-                  const cat = prodInfo ? prodInfo.category : 'PHỤ KIỆN';
-                  if (getWarehouseAccount(cat) === subWarehouse) {
-                      warehouseMatchedItems.push(item);
-                  }
-              });
-              if (warehouseMatchedItems.length > 0) {
-                  const rawDate = log.date || log.createdAt || new Date().toISOString();
-                  const dateKey = String(rawDate).slice(0, 10);
-                  if (!groups[dateKey]) groups[dateKey] = [];
-                  groups[dateKey].push({ ...log, parsedItems: warehouseMatchedItems });
-              }
-          }
-      });
-      return groups;
-  }, [filteredLogs, typeTab, subWarehouse, search, data?.Products]);
+            if (filterType === 'NHẬP SẢN XUẤT') {
+                if (type !== 'Nhập' || !(target.includes('sản xuất') || target.includes('nội bộ') || target.includes('thợ') || target.includes('quản lý') || target.includes('tự động nhập kho') || target.includes('khác'))) {
+                    return false;
+                }
+            } else if (filterType === 'NHẬP MUA') {
+                if (type !== 'Nhập' || target.includes('sản xuất') || target.includes('nội bộ') || target.includes('thợ') || target.includes('kiểm kho') || target.includes('tự động') || target.includes('khác')) {
+                    const suppliers = data?.Suppliers || [];
+                    const isSup = suppliers.some(s => String(s.name).toLowerCase() === target);
+                    if (!isSup && !target.includes('kiểm kho')) return false;
+                }
+            } else if (filterType === 'XUẤT BÁN') {
+                if (type !== 'Xuất' || !(target.includes('bàn giao') || target.includes('shopee') || target.includes('tiktok') || target.includes('lẻ') || target.includes('cộng tác viên'))) {
+                    return false;
+                }
+            } else if (filterType === 'XUẤT HỦY/VỠ') {
+                if (type !== 'Xuất' || !(note.includes('hủy') || note.includes('vỡ') || note.includes('thanh lý') || target.includes('hủy') || target.includes('vỡ') || target.includes('thanh lý'))) {
+                    return false;
+                }
+            } else if (filterType === 'ĐẶT HÀNG') {
+                if (type !== 'Đặt Hàng') return false;
+            } else if (filterType !== 'TẤT CẢ') {
+                if (type !== filterType) return false;
+            }
 
-  const sortedDates = React.useMemo(() => {
-      return Object.keys(logsByDate).sort((a,b) => new Date(b) - new Date(a));
-  }, [logsByDate]);
+            if (filterMonth) {
+                const logDate = log.date || log.createdAt || '';
+                if (!String(logDate).startsWith(filterMonth)) return false;
+            }
 
-  const getWarehouseName = (id) => {
-      if (id === '152') return 'Nguyên Liệu 152';
-      if (id === '155') return 'Thành Phẩm 155';
-      return 'Hàng Hoá 156';
-  };
+            if (searchTerm) {
+                const term = searchTerm.toLowerCase();
+                const matchId = id.includes(term);
+                const matchTarget = target.includes(term);
+                const matchNote = note.includes(term);
+                const matchItems = items.includes(term);
+                const matchUser = user.includes(term);
+                if (!matchId && !matchTarget && !matchNote && !matchItems && !matchUser) return false;
+            }
+            return true;
+        });
+        
+        return list.sort((a,b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
+    }, [logs, filterType, filterMonth, searchTerm, mode, data?.Suppliers]);
 
-  return (
-    <div className="space-y-5 animate-fade-in pb-10 w-full">
-      {/* 1. KHUNG TĨNH: NỘI QUY KHO VẬN */}
-      <div className="bg-gradient-to-r from-[#2a0808] to-[#141414] border border-rose-500/20 rounded-2xl p-4 shadow-lg relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-rose-500/5 rounded-full blur-2xl -mr-6 -mt-6 pointer-events-none"></div>
-          <div className="flex items-center gap-2 mb-3 border-b border-rose-500/15 pb-2 relative z-10">
-              <i className="fas fa-gavel text-rose-500 text-[14px]"></i>
-              <span className="font-black text-[12px] text-rose-500 uppercase tracking-widest">Nội Quy & Phạt Kho Vận</span>
-          </div>
-          <ul className="text-[11px] text-gray-300 font-medium space-y-2 relative z-10 pl-1">
-              <li className="flex items-start gap-2 leading-snug">
-                  <i className="fas fa-times-circle text-[10px] text-rose-500/60 mt-0.5 shrink-0"></i>
-                  <span>Đầu kỳ, cuối kỳ không kiểm hàng<b className="text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded ml-1 border border-rose-500/20">-500k</b></span>
-              </li>
-              <li className="flex items-start gap-2 leading-snug">
-                  <i className="fas fa-times-circle text-[10px] text-rose-500/60 mt-0.5 shrink-0"></i>
-                  <span>Tạo lệnh xuất nhập sai thực tế, Chứng từ thiếu thông tin<b className="text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded ml-1 border border-rose-500/20">-100k</b></span>
-              </li>
-              <li className="flex items-start gap-2 leading-snug">
-                  <i className="fas fa-times-circle text-[10px] text-rose-500/60 mt-0.5 shrink-0"></i>
-                  <span>Có tạo phiếu kiểm kho nhưng sai thực tế<b className="text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded ml-1 border border-rose-500/20">-100k</b></span>
-              </li>
-          </ul>
-      </div>
+    const totalValue = React.useMemo(() => {
+        return filteredLogs.reduce((sum, l) => sum + (Number(l.totalAmount) || 0), 0);
+    }, [filteredLogs]);
 
-      {/* 2. CHỈ SỐ DASHBOARD KHO VẬN */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <div className="bg-[#141414] p-4 rounded-2xl border border-zinc-800/60 shadow-sm flex items-center justify-between">
-              <div>
-                  <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">TỔNG SỐ PHIẾU</span>
-                  <span className="text-[20px] font-black text-white leading-none">{stats.count} <span className="text-[10px] text-gray-500">phiếu</span></span>
-              </div>
-              <div className="w-9 h-9 rounded-xl bg-zinc-800 flex items-center justify-center text-sm text-gray-400"><i className="fas fa-file-invoice"></i></div>
-          </div>
-          <div className="bg-[#141414] p-4 rounded-2xl border border-zinc-800/60 shadow-sm flex items-center justify-between">
-              <div>
-                  <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">TỔNG GIÁ TRỊ ({typeTab})</span>
-                  <span className={`text-[18px] font-black leading-none ${typeTab === 'Nhập' ? 'text-emerald-500' : 'text-rose-500'}`}>{displayMoney(stats.totalAmount)}đ</span>
-              </div>
-              <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-sm ${typeTab==='Nhập'?'bg-emerald-500/10 text-emerald-500':'bg-rose-500/10 text-rose-500'}`}><i className="fas fa-coins"></i></div>
-          </div>
-          <div className="bg-[#141414] p-4 rounded-2xl border border-zinc-800/60 shadow-sm flex items-center justify-between">
-              <div>
-                  <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">KHO ĐANG CHỌN</span>
-                  <span className="text-[13px] font-black text-gray-300 leading-none truncate max-w-[120px] block mt-1">{getWarehouseName(subWarehouse)}</span>
-              </div>
-              <div className="w-9 h-9 rounded-xl bg-zinc-800 flex items-center justify-center text-sm text-gray-400"><i className="fas fa-warehouse"></i></div>
-          </div>
-          <div className="bg-[#141414] p-4 rounded-2xl border border-zinc-800/60 shadow-sm flex items-center justify-between">
-              <div>
-                  <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">CẬP NHẬT GẦN NHẤT</span>
-                  <span className="text-[15px] font-black text-[#d4af37] leading-none mt-1 block">{stats.lastDate}</span>
-              </div>
-              <div className="w-9 h-9 rounded-xl bg-zinc-800 flex items-center justify-center text-sm text-[#d4af37]/70"><i className="fas fa-clock"></i></div>
-          </div>
-      </div>
+    const handleDelete = async (log) => {
+        if (!canDelete) {
+            if (triggerToast) triggerToast('Bạn không có quyền xóa chứng từ này!', 'fa-lock', 'danger');
+            else alert('Bạn không có quyền xóa chứng từ này!');
+            return;
+        }
+        if (!window.confirm(`Bạn có chắc muốn XOÁ VĨNH VIỄN phiếu ${log.id} này không?`)) return;
+        
+        const payload = { deletes: { ImportExport: [log.id] }, Products: [] };
+        
+        let parsed = safeJSONParse(log.itemsData) || [];
+        parsed.forEach(item => {
+            const p = (data?.Products||[]).find(x => x.name === item.name);
+            if (p) {
+                const diffVal = log.type === 'Nhập' ? -item.qty : item.qty; 
+                payload.Products.push({...p, quantity: Number(p.quantity) + diffVal, _diff: diffVal});
+            }
+        });
+        
+        const hasPayment = Number(log.totalAmount || 0) > 0;
+        if (hasPayment) {
+            const relatedTx = (data?.Transactions || []).find(tx => String(tx.note).includes(log.id) || (String(tx.title).includes('Thanh toán') && String(tx.title).includes(log.target) && String(tx.date).slice(0,10) === String(log.date).slice(0,10)));
+            if (relatedTx) {
+                if (window.confirm(`Phiếu này có khoản thanh toán liên đới trên sổ quỹ (${relatedTx.id}). Bạn có muốn XOÁ LUÔN phiếu Thu/Chi này không?`)) {
+                    payload.deletes.Transactions = [relatedTx.id];
+                }
+            } else {
+                if (window.confirm('Hệ thống phát hiện phiếu này có giá trị tiền. Bạn có muốn tự tìm và xoá phiếu Thu/Chi liên quan (nếu có) không? \n(Chọn OK để đồng ý tự tìm thủ công)')) {}
+            }
+        }
+        
+        try {
+            await pushData(payload);
+            if (triggerToast) triggerToast('Đã xóa chứng từ!', 'fa-check', 'success');
+        } catch (e) {
+            alert('Lỗi khi xoá: ' + e.message);
+        }
+    };
 
-      {/* 3. ĐIỀU HƯỚNG & LỌC */}
-      <div className="flex gap-2">
-          <select value={filter} onChange={e=>setFilter(e.target.value)} className="w-1/3 bg-[#141414] border border-[#2a2a2a] rounded-xl px-3 py-2.5 text-[10px] font-black text-white outline-none focus:border-[#d4af37] shadow-inner cursor-pointer">
-              <option value="Hôm Nay">HÔM NAY</option>
-              <option value="Tháng Này">THÁNG NÀY</option>
-              <option value="Tất Cả">TẤT CẢ GIAO DỊCH</option>
-          </select>
-          <select value={subWarehouse} onChange={e=>setSubWarehouse(e.target.value)} className="w-2/3 bg-[#141414] border border-[#2a2a2a] rounded-xl px-3 py-2.5 text-[10px] font-black text-white outline-none focus:border-[#d4af37] shadow-inner cursor-pointer">
-              <option value="152">KHO NGUYÊN LIỆU (Kho 152)</option>
-              <option value="156">KHO HÀNG HOÁ (Kho 156)</option>
-              <option value="155">KHO THÀNH PHẨM (Kho 155)</option>
-          </select>
-      </div>
+    const handleConfirmReceived = async (log) => {
+        if (!window.confirm(`Xác nhận ĐÃ NHẬN HÀNG cho phiếu đặt: ${log.id}?\nHệ thống sẽ tự động cộng số lượng các mặt hàng trong phiếu vào tồn kho hiện tại.`)) return;
+        
+        const payload = { ImportExport: [], Products: [] };
+        
+        // Update type from Đặt Hàng to Nhập
+        payload.ImportExport.push({...log, type: 'Nhập'});
+        
+        let parsed = safeJSONParse(log.itemsData) || [];
+        parsed.forEach(item => {
+            const p = (data?.Products||[]).find(x => x.name === item.name);
+            if (p) {
+                payload.Products.push({...p, quantity: Number(p.quantity) + item.qty, _diff: item.qty});
+            }
+        });
+        
+        try {
+            await pushData(payload);
+            if (triggerToast) triggerToast('Đã xác nhận nhận hàng!', 'fa-check', 'success');
+        } catch (e) {
+            alert('Lỗi: ' + e.message);
+        }
+    };
 
-      {/* 4. TÌM KIẾM VÀ CHUYỂN TABS */}
-      <div className="flex items-center gap-2">
-          <div className="flex bg-[#141414] border border-[#2a2a2a] rounded-xl overflow-hidden shadow-sm shrink-0 p-0.5">
-              <button onClick={()=>setTypeTab('Nhập')} className={`px-4 py-2.5 text-[10px] font-black uppercase transition-colors rounded-lg ${typeTab==='Nhập' ? 'bg-[#10b981] text-[#0a0a0a] shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}>NHẬP</button>
-              <button onClick={()=>setTypeTab('Xuất')} className={`px-4 py-2.5 text-[10px] font-black uppercase transition-colors rounded-lg ${typeTab==='Xuất' ? 'bg-[#f43f5e] text-white shadow-sm' : 'text-gray-500 hover:text-gray-300'}`}>XUẤT</button>
-          </div>
-          
-          <div className="flex-1 relative">
-              <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-[12px]"></i>
-              <input 
-                  type="text" 
-                  placeholder="Tìm kiếm phiếu, tên sản phẩm..." 
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  className="w-full bg-[#141414] border border-[#2a2a2a] rounded-xl pl-9 pr-8 py-3 text-[11px] font-bold text-white outline-none focus:border-[#d4af37] shadow-inner transition-colors"
-              />
-              {search && <button onClick={()=>setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"><i className="fas fa-times-circle"></i></button>}
-          </div>
-      </div>
+    const handlePrintK58 = (log) => {
+        let itemsHtml = '';
+        let parsedItems = safeJSONParse(log.itemsData) || [];
+        parsedItems.forEach(it => {
+            itemsHtml += `
+            <div style="display:flex; justify-content:space-between; margin-bottom: 2px;">
+                <div style="width:60%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${it.name}</div>
+                <div style="width:15%; text-align:right;">${it.qty}</div>
+                <div style="width:25%; text-align:right;">${Number(it.price || 0).toLocaleString('vi-VN')}</div>
+            </div>`;
+        });
 
-      {/* 5. TIÊU ĐỀ HÀNG HOÁ & NÚT TẠO PHIẾU */}
-      <div className="flex justify-between items-center bg-[#141414] p-3.5 rounded-2xl shadow-sm border border-[#2a2a2a]">
-          <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-[#d4af37]/10 flex items-center justify-center"><i className="fas fa-receipt text-[#d4af37] text-[12px]"></i></div>
-              <div>
-                  <h3 className="font-black text-[#f5f5f5] text-[12px] uppercase tracking-wide">Danh sách chứng từ {typeTab}</h3>
-                  <div className="text-[10px] text-gray-500 font-bold">Tìm thấy {stats.count} phiếu hợp lệ</div>
-              </div>
-          </div>
-          <button onClick={() => {
-              const currentRole = localStorage.getItem('rf_role');
-              const currentUser = localStorage.getItem('rf_user');
-              if (currentRole === 'TỐI CAO' || currentRole === 'KHO VẬN' || currentRole === 'KẾ TOÁN' || currentRole === 'KIỂM TOÁN' || currentUser === 'Nguyễn Thị Diệu Hương' || isAdmin) {
-                  setShowForm(true);
-              } else {
-                  alert('Chỉ Quản Lý Kho, Kế Toán hoặc Kiểm Toán mới có quyền tạo phiếu xuất nhập!');
-              }
-          }} className="bg-[#2563eb] text-white text-[10px] font-black px-4.5 py-3 rounded-xl shadow-[0_0_15px_rgba(37,99,235,0.3)] hover:bg-blue-600 active:scale-95 transition-all uppercase tracking-wider">
-              <i className="fas fa-plus mr-1"></i> Tạo Phiếu
-          </button>
-      </div>
+        const printContent = `
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>In Phiếu ${log.type}</title>
+                <style>
+                    @page { margin: 0; size: 58mm auto; }
+                    body { font-family: 'Courier New', Courier, monospace; width: 58mm; margin: 0; padding: 10px 5px; font-size: 11px; color: #000; line-height: 1.4; box-sizing: border-box; }
+                    .text-center { text-align: center; }
+                    .text-right { text-align: right; }
+                    .bold { font-weight: bold; }
+                    .border-bottom { border-bottom: 1px dashed #000; margin: 6px 0; padding-bottom: 6px; }
+                    .title { font-size: 14px; margin-bottom: 4px; }
+                    .row { display: flex; justify-content: space-between; }
+                </style>
+            </head>
+            <body>
+                <div class="text-center bold title">RF Aquarium</div>
+                <div class="text-center" style="font-size: 10px;">Kiến Tạo Thế Giới Thuỷ Sinh</div>
+                <div class="border-bottom"></div>
+                <div class="text-center bold" style="font-size: 15px; margin: 5px 0;">PHIẾU ${String(log.type).toUpperCase()} KHO</div>
+                <div class="border-bottom"></div>
+                <div><span class="bold">Mã phiếu:</span> ${log.id}</div>
+                <div><span class="bold">Ngày lập:</span> ${new Date().toLocaleString('vi-VN')}</div>
+                <div><span class="bold">Ngày GD:</span> ${String(log.date).slice(0, 16).replace('T', ' ')}</div>
+                <div><span class="bold">${log.type === 'Nhập' ? 'Nhà CC' : 'Khách/Mục đích'}:</span> ${log.target || 'Nội bộ'}</div>
+                <div class="border-bottom"></div>
+                
+                <div class="row bold" style="margin-bottom:3px;">
+                    <div style="width:60%;">Tên SP</div>
+                    <div style="width:15%; text-align:right;">SL</div>
+                    <div style="width:25%; text-align:right;">Đ.Giá</div>
+                </div>
+                ${itemsHtml}
+                
+                <div class="border-bottom" style="margin-top: 5px;"></div>
+                <div class="row bold" style="font-size: 13px;">
+                    <span>TỔNG TIỀN:</span>
+                    <span>${Number(log.totalAmount || 0).toLocaleString('vi-VN')}đ</span>
+                </div>
+                <div class="border-bottom"></div>
+                <div class="bold">Ghi chú:</div>
+                <div style="font-size: 10px;">${log.note || 'Không có'}</div>
+                <div class="row" style="margin-top: 15px; font-size: 10px; font-weight: bold;">
+                    <div class="text-center" style="width: 50%;">Người Lập<br><br><br>Ký tên</div>
+                    <div class="text-center" style="width: 50%;">Người Giao/Nhận<br><br><br>Ký tên</div>
+                </div>
+                <div style="margin-top: 40px; text-align: center; font-size: 10px; border-top: 1px solid #000; padding-top: 5px;">
+                    Cảm ơn quý khách!
+                </div>
+            </body>
+            </html>
+        `;
+        const win = window.open('', '_blank');
+        win.document.write(printContent);
+        win.document.close();
+        win.focus();
+        setTimeout(() => { win.print(); win.close(); }, 800);
+    };
 
-      {/* 6. TIMELINE DANH SÁCH PHIẾU THEO NGÀY */}
-      <div className="relative pl-4 border-l border-zinc-800 space-y-6">
-         {sortedDates.length === 0 ? (
-             <div className="text-center py-12 text-gray-500 font-bold text-[11px] bg-[#141414] rounded-2xl border border-[#2a2a2a] flex flex-col items-center justify-center -ml-4">
-                <i className="fas fa-box-open text-3xl mb-3 opacity-20"></i> 
-                <span>Không có dữ liệu {typeTab.toLowerCase()} kho khớp bộ lọc</span>
-                <span className="text-[9px] font-medium opacity-65 mt-1">Vui lòng thử đổi từ khóa hoặc bộ lọc thời gian</span>
-             </div>
-         ) : sortedDates.map(date => {
-             const displayDate = date.split('-').reverse().join('/');
-             const logsForDate = logsByDate[date].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+    return (
+        <div className="space-y-5 animate-fade-in pb-10 w-full">
+            {/* Action Buttons (Kiểm Kho / Nhập / Xuất) */}
+            <div className="flex justify-between items-center bg-[#141414] p-3.5 rounded-2xl shadow-sm border border-[#2a2a2a]">
+                <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-sky-500/10 flex items-center justify-center"><i className="fas fa-boxes text-sky-500 text-[12px]"></i></div>
+                    <div>
+                        <h3 className="font-black text-white text-[12px] uppercase tracking-wide">QUẢN LÝ {mode === 'KIEM_KHO' ? 'KIỂM KHO' : 'CHỨNG TỪ'}</h3>
+                        <div className="text-[10px] text-gray-500 font-bold">Hệ thống quản lý kho vận</div>
+                    </div>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                    {mode === 'KIEM_KHO' && (
+                        <button onClick={() => {
+                            if (isKiemToan || currentRole === 'KHO VẬN' || currentRole === 'QUẢN LÝ KHO VẬN') {
+                                window.pendingType = 'Kiểm Kho'; setShowForm(true);
+                            } else {
+                                alert('Chỉ Quản Lý Kho, Kế Toán hoặc Kiểm Toán mới có quyền tạo phiếu kiểm kho!');
+                            }
+                        }} className="bg-[#2563eb] text-white text-[12px] font-black px-6 py-4 rounded-xl shadow-[0_0_15px_rgba(37,99,235,0.3)] hover:bg-blue-600 active:scale-95 transition-all uppercase tracking-wider">
+                            <i className="fas fa-plus mr-1"></i> Tạo Phiếu Kiểm Kho
+                        </button>
+                    )}
+                    {mode === 'NHAT_KY' && (
+                        <>
+                            <button onClick={() => { window.pendingType = 'Nhập'; setShowForm(true); }} className="bg-emerald-600 text-white border-emerald-500 border text-[11px] font-black px-4 py-3 rounded-xl active:scale-95 transition-all uppercase shadow-sm">
+                                <i className="fas fa-arrow-down mr-1"></i> Nhập Kho
+                            </button>
+                            <button onClick={() => { window.pendingType = 'Đặt Hàng'; setShowForm(true); }} className="bg-purple-600 text-white border-purple-500 border text-[11px] font-black px-4 py-3 rounded-xl active:scale-95 transition-all uppercase shadow-sm">
+                                <i className="fas fa-file-invoice mr-1"></i> Đặt Hàng
+                            </button>
+                            <button onClick={() => { window.pendingType = 'Xuất'; setShowForm(true); }} className="bg-red-600 text-white border-red-500 border text-[11px] font-black px-4 py-3 rounded-xl active:scale-95 transition-all uppercase shadow-sm">
+                                <i className="fas fa-arrow-up mr-1"></i> Xuất Kho
+                            </button>
+                            <button onClick={() => { window.pendingType = 'Thanh Lý'; setShowForm(true); }} className="bg-amber-400 text-black border-amber-300 border text-[11px] font-black px-4 py-3 rounded-xl active:scale-95 transition-all uppercase shadow-sm">
+                                <i className="fas fa-trash-restore mr-1"></i> Thanh Lý
+                            </button>
+                        </>
+                    )}
+                </div>
+            </div>
 
-             return (
-                 <div key={date} className="relative space-y-3 animate-fade-in">
-                     {/* ĐIỂM TIMELINE TRÒN */}
-                     <div className="absolute -left-[21px] top-2.5 w-2.5 h-2.5 rounded-full bg-[#d4af37] border-2 border-[#0a0a0a] shadow-[0_0_8px_rgba(212,175,55,0.8)] z-20"></div>
-                     
-                     <div className="flex items-center gap-2 pl-1.5 py-1">
-                         <span className="font-black text-[11px] text-gray-400 uppercase tracking-widest">Ngày {displayDate}</span>
-                         <span className="text-[8px] text-zinc-500 font-black bg-[#141414] px-2 py-0.5 rounded-full border border-zinc-800">{logsForDate.length} phiếu</span>
-                     </div>
-                     
-                     {logsForDate.map(log => (
-                          <div key={log.id} className="bg-[#141414] rounded-2xl shadow-sm border border-[#2a2a2a] p-4 transition-colors hover:border-zinc-700 ml-1">
-                              <div className="flex justify-between items-start mb-3 border-b border-zinc-800 pb-2">
-                                  <div>
-                                      <div className="flex items-center gap-2 mb-1">
-                                          <span className="font-black text-[13px] text-[#f5f5f5] uppercase font-mono tracking-wide">{log.id}</span>
-                                          <span className="text-[9px] font-mono font-bold bg-[#0a0a0a] border border-[#222] text-gray-400 px-2 py-0.5 rounded shadow-sm">{String(log.date).slice(11, 16)}</span>
-                                      </div>
-                                      <div className="text-[10px] text-gray-500 font-bold flex items-center gap-1.5">
-                                          <i className="fas fa-user-edit text-[#d4af37]/80 text-[9px]"></i>{log.user || 'Hệ thống'}
-                                      </div>
-                                  </div>
-                                  {isAdmin && (
-                                      <button onClick={() => { if(window.confirm('Bạn có chắc muốn XOÁ VĨNH VIỄN phiếu nhập xuất này không?')) pushData({deletes:{ImportExport:[log.id]}}); }} className="w-7 h-7 bg-[#4c0519]/50 text-[#e11d48] border border-[#e11d48]/20 hover:bg-[#e11d48] hover:text-white rounded-lg flex items-center justify-center transition-colors shadow-sm active:scale-95">
-                                          <i className="fas fa-trash text-[10px]"></i>
-                                      </button>
-                                  )}
-                              </div>
-                              
-                              <div className="space-y-1.5 mb-3">
-                                  {log.parsedItems.map((it, idx) => (
-                                      <div key={idx} className="flex justify-between items-center text-[11px] bg-[#0a0a0a] p-2.5 rounded-xl border border-zinc-900 shadow-inner">
-                                          <span className="text-gray-300 font-bold truncate pr-2">
-                                              <i className="fas fa-caret-right text-[8px] opacity-40 mr-1.5 text-[#d4af37]"></i>{it.name}
-                                          </span>
-                                          <span className={`font-black shrink-0 ${typeTab === 'Nhập' ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                              {typeTab === 'Nhập' ? '+' : '-'}{it.qty} <span className="text-[9px] text-gray-500 ml-0.5 font-bold uppercase">{it.unit || 'Cái'}</span>
-                                          </span>
-                                      </div>
-                                  ))}
-                              </div>
-                              
-                              <div className="flex flex-col sm:flex-row justify-between sm:items-center bg-[#0a0a0a] p-2.5 rounded-xl border border-zinc-900 gap-2">
-                                  <div className="flex-1">
-                                      <div className="text-[8px] font-black text-gray-500 uppercase tracking-widest mb-0.5"><i className="fas fa-tag mr-1 text-[7px]"></i>Mục đích / Ghi chú</div>
-                                      <div className="text-[11px] text-[#60a5fa] font-medium italic leading-snug line-clamp-1">{log.note || log.target || 'Nội bộ'}</div>
-                                  </div>
-                                  <div className="text-left sm:text-right shrink-0 border-t sm:border-t-0 border-zinc-900 pt-1.5 sm:pt-0">
-                                      <div className="text-[8px] font-black text-gray-500 uppercase tracking-widest mb-0.5">TỔNG TRỊ GIÁ PHIẾU</div>
-                                      <div className={`text-[14px] font-black leading-none tracking-tight ${typeTab === 'Nhập' ? 'text-[#10b981]' : 'text-[#f43f5e]'}`}>{Number(log.totalAmount || 0).toLocaleString('vi-VN')}đ</div>
-                                  </div>
-                              </div>
-                          </div>
-                     ))}
-                 </div>
-             )
-         })}
-      </div>
+            {/* Thống kê tổng quan */}
+            {mode !== 'KIEM_KHO' && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="bg-[#141414] border border-[#2a2a2a] p-4 rounded-2xl flex flex-col">
+                    <span className="text-[10px] font-black text-gray-500 uppercase tracking-wider mb-1">Tổng Số Phiếu</span>
+                    <span className="text-xl font-black text-white">{filteredLogs.length} <span className="text-xs font-normal text-gray-500">phiếu</span></span>
+                </div>
+                <div className="bg-[#141414] border border-[#2a2a2a] p-4 rounded-2xl flex flex-col">
+                    <span className="text-[10px] font-black text-gray-500 uppercase tracking-wider mb-1">Tổng Giá Trị</span>
+                    <span className="text-xl font-black text-sky-400">{totalValue.toLocaleString('vi-VN')}đ</span>
+                </div>
+            </div>
+            )}
 
-      {showForm && <IEFormModal data={data} onClose={() => { setShowForm(false); setPrefilledProduct(null); }} pushData={pushData} prefilledProduct={prefilledProduct} />}
-    </div>
-  )
-}
+            {/* Bộ lọc nghiệp vụ & Thanh tìm kiếm */}
+            <div className="bg-[#141414] border border-[#2a2a2a] p-4 rounded-2xl space-y-3 shadow-sm">
+                {mode !== 'KIEM_KHO' && (
+                <div className="flex gap-2 overflow-x-auto custom-scrollbar pb-1">
+                    <button onClick={() => setFilterType('TẤT CẢ')} className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all whitespace-nowrap border ${filterType === 'TẤT CẢ' ? 'bg-zinc-950 text-white border-zinc-700 shadow-sm' : 'bg-transparent text-gray-500 border-[#333] hover:text-gray-300'}`}>TẤT CẢ</button>
+                    <button onClick={() => setFilterType('NHẬP SẢN XUẤT')} className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all whitespace-nowrap border ${filterType === 'NHẬP SẢN XUẤT' ? 'bg-emerald-600 text-white border-emerald-500 shadow-[0_0_10px_rgba(5,150,105,0.3)]' : 'bg-transparent text-gray-500 border-[#333] hover:text-gray-300'}`}>NHẬP SẢN XUẤT</button>
+                    <button onClick={() => setFilterType('NHẬP MUA')} className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all whitespace-nowrap border ${filterType === 'NHẬP MUA' ? 'bg-emerald-600 text-white border-emerald-500 shadow-[0_0_10px_rgba(5,150,105,0.3)]' : 'bg-transparent text-gray-500 border-[#333] hover:text-gray-300'}`}>NHẬP MUA</button>
+                    <button onClick={() => setFilterType('ĐẶT HÀNG')} className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all whitespace-nowrap border ${filterType === 'ĐẶT HÀNG' ? 'bg-purple-600 text-white border-purple-500 shadow-[0_0_10px_rgba(147,51,234,0.3)]' : 'bg-transparent text-gray-500 border-[#333] hover:text-gray-300'}`}>ĐẶT HÀNG</button>
+                    <button onClick={() => setFilterType('XUẤT BÁN')} className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all whitespace-nowrap border ${filterType === 'XUẤT BÁN' ? 'bg-red-600 text-white border-red-500 shadow-[0_0_10px_rgba(220,38,38,0.3)]' : 'bg-transparent text-gray-500 border-[#333] hover:text-gray-300'}`}>XUẤT BÁN</button>
+                    <button onClick={() => setFilterType('XUẤT HỦY/VỠ')} className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all whitespace-nowrap border ${filterType === 'XUẤT HỦY/VỠ' ? 'bg-amber-400 text-black border-amber-300 shadow-[0_0_10px_rgba(251,191,36,0.3)]' : 'bg-transparent text-gray-500 border-[#333] hover:text-gray-300'}`}>XUẤT HỦY/VỠ</button>
+                </div>
+                )}
 
-function IEFormModal({ data, onClose, pushData, prefilledProduct }) {
-   const [type, setType] = React.useState('Nhập'); 
+                <div className="flex gap-2">
+                    <div className="relative flex-1">
+                        <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-500"></i>
+                        <input 
+                            type="text" 
+                            value={searchTerm} 
+                            onChange={(e) => setSearchTerm(e.target.value)} 
+                            placeholder="Tìm kiếm theo mã phiếu, đối tượng, ghi chú, nhân sự hoặc tên sản phẩm..." 
+                            className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl pl-11 pr-4 py-3.5 text-xs font-bold text-white outline-none focus:border-[#0dcaf0] transition-colors shadow-inner"
+                        />
+                    </div>
+                    <div className="relative w-[130px] sm:w-40 shrink-0">
+                        <input 
+                            type="month" 
+                            value={filterMonth}
+                            onChange={(e) => setFilterMonth(e.target.value)}
+                            className="w-full h-full bg-[#0a0a0a] border border-[#333] rounded-xl px-2 sm:px-4 py-3.5 text-xs font-bold text-white outline-none focus:border-[#0dcaf0] transition-colors custom-month-picker"
+                            style={{minHeight: "46px"}}
+                        />
+                    </div>
+                </div>
+            </div>
+
+            {/* Danh sách chứng từ dạng Accordion Cards */}
+            <div className="space-y-3">
+                {filteredLogs.length === 0 ? (
+                    <div className="text-center py-16 bg-[#141414] border border-[#2a2a2a] rounded-2xl text-gray-500 font-bold">
+                        <i className="fas fa-box-open text-4xl mb-3 opacity-30 block"></i>
+                        Không tìm thấy chứng từ kho nào phù hợp.
+                    </div>
+                ) : (
+                    filteredLogs.map(log => {
+                        const isExpanded = !!expandedIds[log.id];
+                        const isImport = String(log.type).trim() === 'Nhập';
+                        let items = safeJSONParse(log.itemsData) || [];
+
+                        return (
+                            <div key={log.id} className={`bg-[#141414] border rounded-2xl overflow-hidden transition-all shadow-sm ${isExpanded ? 'border-sky-500/50' : 'border-[#2a2a2a]'}`}>
+                                {/* Card Header */}
+                                <div className="p-4 flex items-center justify-between gap-3 cursor-pointer hover:bg-[#1a1a1a]/50 transition-colors" onClick={() => toggleExpand(log.id)}>
+                                    <div className="flex items-center gap-3 min-w-0">
+                                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 font-black text-xs ${isImport ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'}`}>
+                                            <i className={`fas ${isImport ? 'fa-arrow-down' : 'fa-arrow-up'}`}></i>
+                                        </div>
+                                        <div className="min-w-0">
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-black text-xs text-white truncate font-mono">{log.id}</span>
+                                                <span className={`px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wide ${isImport ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
+                                                    {log.type}
+                                                </span>
+                                            </div>
+                                            <div className="text-[11px] font-bold text-gray-400 truncate mt-1">
+                                                Đối tượng: <span className="text-sky-300 font-black">{log.target || 'Nội bộ'}</span> • <span className="text-gray-500 font-mono text-[10px]">{String(log.date).slice(0, 16).replace('T', ' ')}</span>
+                                            </div>
+                                            <div className="text-[10px] text-gray-500 font-bold mt-0.5">
+                                                <i className="fas fa-user-edit mr-1"></i> {log.user || 'Hệ thống'}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-3 shrink-0">
+                                        <div className="text-right hidden sm:block">
+                                            <div className={`font-black text-sm ${isImport ? 'text-emerald-400' : 'text-rose-400'}`}>{Number(log.totalAmount || 0).toLocaleString('vi-VN')}đ</div>
+                                            <div className="text-[10px] text-gray-500 font-bold">{items.length} mặt hàng</div>
+                                        </div>
+
+                                        <div className="flex gap-1.5" onClick={e => e.stopPropagation()}>
+                                            <button onClick={() => handlePrintK58(log)} className="w-8 h-8 rounded-lg bg-[#222] hover:bg-[#333] text-gray-300 flex items-center justify-center transition-colors border border-[#333]" title="In phiếu K58">
+                                                <i className="fas fa-print text-[10px]"></i>
+                                            </button>
+                                            
+                                            {log.type === 'Đặt Hàng' && (isAdmin || isBossRole || currentRole === 'KHO VẬN') && (
+                                            <button onClick={() => handleConfirmReceived(log)} className="w-8 h-8 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 flex items-center justify-center transition-colors border border-emerald-500/20" title="Xác nhận Hàng Đã Về (Cộng Kho)">
+                                                <i className="fas fa-check-circle text-[12px]"></i>
+                                            </button>
+                                            )}
+                                            
+                                            {isAdmin && (
+                                            <button onClick={() => {
+                                                setEditingLog(log);
+                                                setEditingItems(safeJSONParse(log.itemsData));
+                                            }} className="w-8 h-8 rounded-lg bg-[#222] hover:bg-sky-500/20 text-gray-300 hover:text-sky-400 flex items-center justify-center transition-colors border border-[#333]" title="Sửa phiếu">
+                                                <i className="fas fa-pencil-alt text-[10px]"></i>
+                                            </button>
+                                            )}
+
+                                            {canDelete && (
+                                            <button onClick={() => handleDelete(log)} className="w-8 h-8 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 flex items-center justify-center transition-colors border border-rose-500/20" title="Xóa chứng từ">
+                                                <i className="fas fa-trash-alt text-[10px]"></i>
+                                            </button>
+                                            )}
+                                        </div>
+
+                                        <div className={`w-8 h-8 rounded-lg bg-[#1a1a1a] border border-[#333] flex items-center justify-center text-gray-400 transition-transform duration-200 ${isExpanded ? 'rotate-180 bg-sky-500/20 text-sky-400 border-sky-500/30' : ''}`}>
+                                            <i className="fas fa-chevron-down text-[10px]"></i>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Expanded Mini-Table */}
+                                {isExpanded && (
+                                    <div className="border-t border-[#222] bg-[#0a0a0a] p-4 animate-fade-in">
+                                        {/* Mobile view only total amount */}
+                                        <div className="sm:hidden flex justify-between items-center mb-3 p-2 bg-[#141414] rounded-lg border border-[#2a2a2a]">
+                                            <span className="text-[10px] font-black text-gray-400 uppercase">TỔNG TIỀN PHIẾU:</span>
+                                            <span className={`font-black text-sm ${isImport ? 'text-emerald-400' : 'text-rose-400'}`}>{Number(log.totalAmount || 0).toLocaleString('vi-VN')}đ</span>
+                                        </div>
+
+                                        {log.note && (
+                                            <div className="text-[11px] text-sky-300 mb-3 bg-sky-500/10 p-3 rounded-xl border border-sky-500/20 shadow-inner">
+                                                <span className="font-black text-sky-400 uppercase tracking-wider text-[10px] block mb-0.5"><i className="fas fa-tag mr-1"></i> Ghi chú:</span> 
+                                                {log.note}
+                                            </div>
+                                        )}
+                                        <div className="text-[10px] font-black text-gray-500 uppercase tracking-wider mb-2 mt-2">Chi tiết sản phẩm ({items.length}):</div>
+                                        {items.length === 0 ? (
+                                            <div className="text-xs text-gray-500 italic py-2">Không có thông tin chi tiết mặt hàng.</div>
+                                        ) : (
+                                            <div className="overflow-x-auto rounded-xl border border-[#222]">
+                                                <table className="w-full text-left text-xs">
+                                                    <thead>
+                                                        <tr className="bg-[#141414] text-gray-500 border-b border-[#222]">
+                                                            <th className="py-2.5 px-3 font-black uppercase text-[9px] tracking-wider">Tên Sản Phẩm</th>
+                                                            <th className="py-2.5 px-3 font-black uppercase text-[9px] tracking-wider text-center">Số Lượng</th>
+                                                            <th className="py-2.5 px-3 font-black uppercase text-[9px] tracking-wider text-right">Đơn Giá</th>
+                                                            <th className="py-2.5 px-3 font-black uppercase text-[9px] tracking-wider text-right">Thành Tiền</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-[#222]">
+                                                        {items.map((it, idx) => {
+                                                            const qty = Number(it.qty) || 1;
+                                                            const price = Number(it.price) || 0;
+                                                            return (
+                                                                <tr key={idx} className="hover:bg-[#1a1a1a]/40 transition-colors">
+                                                                    <td className="py-2.5 px-3 font-bold text-gray-200">{it.name || it.sku || 'N/A'}</td>
+                                                                    <td className="py-2.5 px-3 text-center font-black text-sky-400">
+                                                                        <span className="bg-sky-500/10 px-2 py-0.5 rounded-md border border-sky-500/20">{qty} {it.unit || 'Cái'}</span>
+                                                                    </td>
+                                                                    <td className="py-2.5 px-3 text-right text-gray-400 font-mono">{price.toLocaleString('vi-VN')}đ</td>
+                                                                    <td className="py-2.5 px-3 text-right font-black text-emerald-400 font-mono">{(qty * price).toLocaleString('vi-VN')}đ</td>
+                                                                </tr>
+                                                            );
+                                                        })}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })
+                )}
+            </div>
+
+            {/* KEEP EXISTING MODALS */}
+            {showForm && <IEFormModal data={data} userConfigs={userConfigs} onClose={() => { setShowForm(false); setPrefilledProduct(null); }} pushData={pushData} prefilledProduct={prefilledProduct} />}
+            
+            {editingLog && (
+                <div className="fixed inset-0 bg-[#0a0a0a]/90 z-[300] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in" onClick={() => setEditingLog(null)}>
+                    <div className="bg-[#141414] w-full max-w-lg rounded-[24px] p-5 border border-[#333] shadow-2xl flex flex-col relative overflow-hidden animate-slide-up" onClick={e => e.stopPropagation()}>
+                        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-blue-500 to-transparent opacity-50"></div>
+                        <div className="flex justify-between items-center mb-4 border-b border-[#222] pb-3">
+                            <h3 className="font-black text-blue-400 text-[15px] uppercase tracking-wider"><i className="fas fa-edit mr-2"></i> Sửa Phiếu {editingLog.id}</h3>
+                            <button onClick={() => setEditingLog(null)} className="w-8 h-8 bg-[#1a1a1a] rounded-full text-gray-400 hover:text-rose-500 border border-[#333] transition-colors"><i className="fas fa-times"></i></button>
+                        </div>
+                        
+                        <div className="space-y-3 max-h-[50vh] overflow-y-auto custom-scrollbar pr-1">
+                            {editingItems.map((it, idx) => (
+                                <div key={idx} className="flex justify-between items-center bg-[#0a0a0a] p-3 rounded-xl border border-[#222]">
+                                    <div className="flex-1">
+                                        <div className="text-[12px] font-black text-gray-200">{it.name}</div>
+                                        <div className="text-[10px] text-gray-500 font-bold">{Number(it.price || 0).toLocaleString()}đ / {it.unit || 'Cái'}</div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <label className="text-[10px] font-bold text-gray-500">SỐ LƯỢNG:</label>
+                                        <input 
+                                            type="number" 
+                                            value={it.qty} 
+                                            onChange={e => {
+                                                const newItems = [...editingItems];
+                                                newItems[idx].qty = Number(e.target.value);
+                                                setEditingItems(newItems);
+                                            }}
+                                            className="w-20 bg-[#1a1a1a] border border-[#333] rounded-lg px-2 py-1.5 text-[13px] font-black text-center text-blue-400 outline-none focus:border-blue-500"
+                                        />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        
+                        <div className="pt-4 mt-2 border-t border-[#222]">
+                            <button onClick={async () => {
+                                const payload = { ImportExport: [], Products: [], deletes: {} };
+                                
+                                let newTotal = 0;
+                                let oldParsed = safeJSONParse(editingLog.itemsData) || [];
+                                
+                                editingItems.forEach(newItem => {
+                                    newTotal += newItem.qty * (newItem.price || 0);
+                                    const oldItem = oldParsed.find(x => x.name === newItem.name) || {qty: 0};
+                                    const diffQty = newItem.qty - oldItem.qty;
+                                    
+                                    if (diffQty !== 0) {
+                                        const p = (data?.Products||[]).find(x => x.name === newItem.name);
+                                        if (p) {
+                                            const sign = editingLog.type === 'Nhập' ? 1 : -1;
+                                            const stockChange = diffQty * sign;
+                                            payload.Products.push({...p, quantity: Number(p.quantity) + stockChange, _diff: stockChange});
+                                        }
+                                    }
+                                });
+                                
+                                const updatedLog = { ...editingLog, itemsData: JSON.stringify(editingItems), totalAmount: newTotal };
+                                payload.ImportExport.push(updatedLog);
+                                
+                                const relatedTx = (data?.Transactions || []).find(tx => String(tx.note).includes(editingLog.id) || (String(tx.title).includes('Thanh toán') && String(tx.title).includes(editingLog.target) && String(tx.date).slice(0,10) === String(editingLog.date).slice(0,10)));
+                                
+                                if (relatedTx && newTotal !== Number(editingLog.totalAmount)) {
+                                    if (window.confirm('Phiếu này có khoản thanh toán liên đới trên sổ quỹ. Tổng tiền đã thay đổi, bạn có muốn XOÁ LUÔN phiếu Thu/Chi đó để sau đó tự tạo lại cho chính xác không?')) {
+                                        payload.deletes.Transactions = [relatedTx.id];
+                                    }
+                                }
+                                
+                                try {
+                                    await pushData(payload);
+                                    setEditingLog(null);
+                                    if (triggerToast) triggerToast('Đã lưu thành công!', 'fa-check', 'success');
+                                } catch (e) {
+                                    alert('Lỗi: ' + e.message);
+                                }
+                            }} className="w-full py-3.5 bg-blue-500 hover:bg-blue-600 text-[#0a0a0a] font-black rounded-xl text-[12px] tracking-widest uppercase transition-all shadow-md active:scale-95">
+                                <i className="fas fa-save mr-2"></i> LƯU THAY ĐỔI
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+});
+
+function IEFormModal({ data, onClose, pushData, prefilledProduct, userConfigs }) {
+   const [type, setType] = React.useState(window.pendingType === 'Thanh Lý' ? 'Xuất' : (window.pendingType || 'Nhập')); 
+   const [importSubTab, setImportSubTab] = React.useState('NguyenLieu');
+   const [exportSubTab, setExportSubTab] = React.useState(window.pendingType === 'Thanh Lý' ? 'ThanhLy' : 'SanXuat');
+   const [thanhLyAmount, setThanhLyAmount] = React.useState('');
    const [isSaving, setIsSaving] = React.useState(false);
    
+   const [linkedReqId, setLinkedReqId] = React.useState('');
+
    React.useEffect(() => {
-       if (prefilledProduct) {
+       if (prefilledProduct && Object.keys(prefilledProduct).length > 0) {
            setType('Nhập');
-           const p = (data?.Products||[]).find(x => x.id === prefilledProduct.id) || prefilledProduct;
-           setItems([{
-               id: p.id,
-               name: p.name,
-               qty: 1,
-               price: parseFloat(p.costPrice) || 0,
-               unit: p.unit || 'Cái'
-           }]);
-           setSelProd(p.id);
-           setSearchProd(p.name);
-           setSelQty('1');
-           setSelPrice(p.costPrice || '');
+           if (prefilledProduct.data && prefilledProduct.data.linkedRequestId) {
+               setLinkedReqId(prefilledProduct.data.linkedRequestId);
+               setNote(`Nhập hàng theo báo cáo nhập hàng: ${prefilledProduct.data.linkedMaterialName}`);
+           } else {
+               const p = (data?.Products||[]).find(x => x.id === prefilledProduct.id) || prefilledProduct;
+               if (p && p.name) {
+                   setItems([{
+                       id: p.id,
+                       name: p.name,
+                       qty: 1,
+                       price: parseFloat(p.costPrice) || 0,
+                       unit: p.unit || 'Cái'
+                   }]);
+                   setSelProd(p.id);
+                   setSearchProd(p.name || '');
+                   setSelQty('1');
+                   setSelPrice(p.costPrice || '');
+               }
+           }
        }
    }, [prefilledProduct, data?.Products]);
    
@@ -476,7 +711,7 @@ function IEFormModal({ data, onClose, pushData, prefilledProduct }) {
    const [checkItems, setCheckItems] = React.useState(() => {
        try {
            const draft = localStorage.getItem('rf_kiemkho_draft');
-           return draft ? JSON.parse(draft) : {};
+           return draft ? safeJSONParse(draft) : {};
        } catch(e) { return {}; }
    });
 
@@ -499,8 +734,21 @@ function IEFormModal({ data, onClose, pushData, prefilledProduct }) {
 
    const filteredProducts = React.useMemo(() => { 
        if (!showDropdown && !searchProd) return []; 
-       return (data?.Products||[]).filter(p => String(p.name).toLowerCase().includes(searchProd.toLowerCase()) || String(p.sku).toLowerCase().includes(searchProd.toLowerCase())).slice(0, 30); 
-   }, [data?.Products, searchProd, showDropdown]);
+       const query = String(searchProd || '').toLowerCase();
+       let list = (data?.Products||[]);
+       if (type === 'Nhập') {
+           if (importSubTab === 'NguyenLieu') {
+               list = list.filter(p => String(p.category).toUpperCase().includes('DANH MỤC SẢN XUẤT') || String(p.category).toUpperCase().includes('NGUYÊN LIỆU') || String(p.category).toUpperCase().includes('VẬT TƯ'));
+           } else if (importSubTab === 'HangHoa') {
+               list = list.filter(p => String(p.category).toUpperCase().includes('PHỤ KIỆN') && !String(p.category).toUpperCase().includes('LAYOUT') && !String(p.category).toUpperCase().includes('BỂ KÍNH'));
+           }
+       } else if (type === 'Xuất') {
+           if (exportSubTab === 'SanXuat') {
+               list = list.filter(p => String(p.category).toUpperCase().includes('DANH MỤC SẢN XUẤT') || String(p.category).toUpperCase().includes('NGUYÊN LIỆU'));
+           }
+       }
+       return list.filter(p => String(p.name).toLowerCase().includes(query) || String(p.sku).toLowerCase().includes(query)).slice(0, 30); 
+   }, [data?.Products, searchProd, showDropdown, type, importSubTab, exportSubTab]);
 
    const selectedProductInfo = React.useMemo(() => (data?.Products||[]).find(x => x.id === selProd), [data?.Products, selProd]);
 
@@ -509,7 +757,9 @@ function IEFormModal({ data, onClose, pushData, prefilledProduct }) {
        setIsUsingImportUnit(false);
    };
 
-   const totalAmount = items.reduce((acc, curr) => acc + (curr.qty * curr.price), 0);
+   const [otherFees, setOtherFees] = React.useState(0);
+   const baseAmount = items.reduce((acc, curr) => acc + (curr.qty * curr.price), 0);
+   const totalAmount = type === 'Nhập' ? baseAmount + (Number(otherFees) || 0) : baseAmount;
    const displayMoney = (val) => Number(val || 0).toLocaleString('vi-VN');
 
    const addItem = () => { 
@@ -547,7 +797,7 @@ function IEFormModal({ data, onClose, pushData, prefilledProduct }) {
 
      setIsSaving(true);
      let payload = { Products: [], ImportExport: [], Transactions: [], Accounts: [], Suppliers: [] };
-     let formattedDate = new Date(dateStr).toISOString().slice(0, 16).replace('T', ' ');
+     let formattedDate = (dateStr || '').replace('T', ' ');
 
      if (type === 'Kiểm Kho') {
          let nhapItems = []; let xuatItems = []; let totalNhapAmt = 0; let totalXuatAmt = 0;
@@ -576,14 +826,14 @@ function IEFormModal({ data, onClose, pushData, prefilledProduct }) {
          const logId = 'IE_'+Date.now(); let totalDebtAdd = 0;
          items.forEach(i => { 
              const p = (data?.Products||[]).find(x=>x.id===i.id); 
-             if(p) {
+             if(p && type !== 'Đặt Hàng') {
                  const diffVal = type === 'Nhập' ? i.qty : -i.qty;
                  payload.Products.push({...p, quantity: Number(p.quantity) + diffVal, _diff: diffVal}); 
              }
          });
          let targetName = 'Nội bộ/Khác';
 
-         if(type === 'Nhập') {
+         if(type === 'Nhập' || type === 'Đặt Hàng') {
             targetName = supplierId ? ((data?.Suppliers||[]).find(s=>s.id===supplierId)?.name || 'Khác') : 'Khác';
             if(supplierId) {
                 const paid = parseInt(paidAmount) || 0; totalDebtAdd = totalAmount - paid;
@@ -591,21 +841,43 @@ function IEFormModal({ data, onClose, pushData, prefilledProduct }) {
                     if(!accId) { setIsSaving(false); return alert('Vui lòng chọn quỹ để xuất Phiếu Chi thanh toán!'); }
                     const acc = (data?.Accounts||[]).find(a=>a.id===accId); 
                     payload.Accounts.push({...acc, balance: Number(acc.balance) - paid}); 
-                    payload.Transactions.push({ id: 'TX_'+Date.now(), type: 'Chi', category: 'Thanh Toán Hoá Đơn', amount: paid, fromAccount: accId, toAccount: '', title: `Thanh toán nhập hàng: ${targetName}`, date: formattedDate, note: 'Hệ thống tạo tự động từ Phiếu Nhập Kho' });
+                    payload.Transactions.push({ id: 'TX_'+Date.now(), type: 'Chi', category: 'Thanh Toán Hoá Đơn', amount: paid, fromAccount: accId, toAccount: '', title: `Thanh toán nhập hàng: ${targetName}`, date: formattedDate, note: `Hệ thống tạo tự động từ Phiếu ${type} (${logId})` });
                 }
                 if(totalDebtAdd > 0) { 
                     const sup = (data?.Suppliers||[]).find(s=>s.id===supplierId);
                     payload.Suppliers.push({...sup, totalDebt: Number(sup.totalDebt) + totalDebtAdd}); 
                 }
             }
-         } else { targetName = receiverName || 'Xuất nội bộ'; }
+         } else { 
+             targetName = receiverName || 'Xuất nội bộ';
+             if (exportSubTab === 'ThanhLy') {
+                 targetName = 'Thanh lý hàng hoá';
+                 const amount = parseInt(thanhLyAmount) || 0;
+                 if (amount > 0) {
+                     if (!accId) { setIsSaving(false); return alert('Vui lòng chọn quỹ để tạo Phiếu Thu!'); }
+                     const acc = (data?.Accounts||[]).find(a=>a.id===accId); 
+                     payload.Accounts.push({...acc, balance: Number(acc.balance) + amount}); 
+                     payload.Transactions.push({ id: 'TX_'+Date.now(), type: 'Thu', category: 'Thanh Lý Hàng Hoá', amount: amount, fromAccount: '', toAccount: accId, title: `Thu tiền thanh lý kho`, date: formattedDate, note: `Hệ thống tạo tự động từ Phiếu Xuất Thanh Lý (${logId})` });
+                 }
+             }
+         }
          
          let finalNote = note;
          if(type === 'Nhập') { 
              const u = (localStorage.getItem('rf_user') || 'Admin').split(' ').pop(); 
              finalNote = `${note ? note + ' - ' : ''}Nhập từ NCC (Người tạo: ${u})`;
+         } else if (type === 'Xuất' && exportSubTab === 'ThanhLy') {
+             finalNote = `${note ? note + ' - ' : ''}Thanh lý (Hệ thống)`;
+         } else if (type === 'Xuất' && exportSubTab === 'Huy') {
+             finalNote = `${note ? note + ' - ' : ''}Xuất huỷ (Hệ thống)`;
          }
-         payload.ImportExport.push({ id: logId, type, target: targetName, totalAmount, date: formattedDate, note: finalNote, itemsData: JSON.stringify(items) });
+         payload.ImportExport.push({ id: logId, type, target: targetName, totalAmount, date: formattedDate, note: finalNote, itemsData: JSON.stringify(items), otherFees: type === 'Nhập' ? (Number(otherFees) || 0) : 0 });
+     }
+
+     if (linkedReqId) {
+         payload.deletes = payload.deletes || {};
+         if (!payload.deletes.Production) payload.deletes.Production = [];
+         payload.deletes.Production.push(linkedReqId);
      }
 
      try {
@@ -617,7 +889,6 @@ function IEFormModal({ data, onClose, pushData, prefilledProduct }) {
 
    const hasDraft = checkItems && Object.keys(checkItems).length > 0;
 
-   // Tính toán tổng số lượng chênh lệch trong chế độ Kiểm Kho để hiển thị báo cáo tổng quan
    const checkDiffsSummary = React.useMemo(() => {
        if (type !== 'Kiểm Kho' || !checkSubCat) return { surplus: 0, deficit: 0, matched: 0 };
        let surplus = 0, deficit = 0, matched = 0;
@@ -640,16 +911,26 @@ function IEFormModal({ data, onClose, pushData, prefilledProduct }) {
              <button onClick={onClose} disabled={isSaving} className="w-8 h-8 bg-[#1a1a1a] rounded-full text-gray-400 hover:text-rose-500 border border-[#333] transition-colors"><i className="fas fa-times"></i></button>
          </div>
          
-         <div className="flex gap-1.5 mb-4 p-1 bg-[#0a0a0a] rounded-xl border border-[#222] shrink-0">
-             <button onClick={()=>setType('Nhập')} disabled={isSaving} className={`flex-1 py-2 rounded-lg font-black text-[10px] uppercase transition-all ${type==='Nhập'?'bg-[#10b981] text-[#0a0a0a] shadow-sm':'text-gray-500'}`}>NHẬP KHO</button>
-             <button onClick={()=>setType('Xuất')} disabled={isSaving} className={`flex-1 py-2 rounded-lg font-black text-[10px] uppercase transition-all ${type==='Xuất'?'bg-[#f43f5e] text-white shadow-sm':'text-gray-500'}`}>XUẤT KHO</button>
-             {isKiemToan && (
-                 <button onClick={()=>setType('Kiểm Kho')} disabled={isSaving} className={`flex-1 py-2 rounded-lg font-black text-[10px] uppercase transition-all ${type==='Kiểm Kho'?'bg-[#2563eb] text-white shadow-sm':'text-gray-500'}`}>KIỂM KHO</button>
-             )}
-         </div>
+         {type === 'Nhập' && (
+             <div className="flex gap-1.5 mb-4 p-1 bg-[#0a0a0a] rounded-xl border border-[#222] shrink-0">
+                 <button onClick={()=>setImportSubTab('NguyenLieu')} disabled={isSaving} className={`flex-1 py-2 rounded-lg font-black text-[10px] uppercase transition-all ${importSubTab==='NguyenLieu'?'bg-[#10b981] text-[#0a0a0a] shadow-sm':'text-gray-500'}`}>NGUYÊN LIỆU & VẬT TƯ</button>
+                 <button onClick={()=>setImportSubTab('HangHoa')} disabled={isSaving} className={`flex-1 py-2 rounded-lg font-black text-[10px] uppercase transition-all ${importSubTab==='HangHoa'?'bg-[#10b981] text-[#0a0a0a] shadow-sm':'text-gray-500'}`}>HÀNG HOÁ</button>
+             </div>
+         )}
+         {type === 'Xuất' && (
+             <div className="flex gap-1.5 mb-4 p-1 bg-[#0a0a0a] rounded-xl border border-[#222] shrink-0">
+                 <button onClick={()=>setExportSubTab('SanXuat')} disabled={isSaving} className={`flex-1 py-2 rounded-lg font-black text-[9px] uppercase transition-all ${exportSubTab==='SanXuat'?'bg-[#f43f5e] text-white shadow-sm':'text-gray-500'}`}>SẢN XUẤT</button>
+                 <button onClick={()=>setExportSubTab('Huy')} disabled={isSaving} className={`flex-1 py-2 rounded-lg font-black text-[9px] uppercase transition-all ${exportSubTab==='Huy'?'bg-[#f43f5e] text-white shadow-sm':'text-gray-500'}`}>XUẤT HUỶ</button>
+                 <button onClick={()=>setExportSubTab('ThanhLy')} disabled={isSaving} className={`flex-1 py-2 rounded-lg font-black text-[9px] uppercase transition-all ${exportSubTab==='ThanhLy'?'bg-[#f59e0b] text-[#0a0a0a] shadow-sm border border-[#f59e0b]/50':'text-gray-500'}`}>THANH LÝ</button>
+             </div>
+         )}
+         {type === 'Kiểm Kho' && (
+             <div className="flex gap-1.5 mb-4 p-1 bg-[#0a0a0a] rounded-xl border border-[#222] shrink-0">
+                 <button className="flex-1 py-2 rounded-lg font-black text-[10px] uppercase transition-all bg-[#2563eb] text-white shadow-sm">KIỂM KHO</button>
+             </div>
+         )}
 
          <div className="flex-1 overflow-y-auto space-y-4 custom-scrollbar pr-1 pb-2">
-           {/* GIAO DIỆN KIỂM KHO CHUYÊN NGHIỆP */}
            {type === 'Kiểm Kho' && (
              <div className="space-y-4 animate-fade-in">
                 <div className="p-3 bg-[#2563eb]/10 border border-[#2563eb]/20 rounded-xl flex gap-2 items-start shadow-sm text-[10px] leading-relaxed text-gray-300">
@@ -688,14 +969,18 @@ function IEFormModal({ data, onClose, pushData, prefilledProduct }) {
 
                             return (
                                 <div key={p.id} className="flex justify-between items-center bg-[#0a0a0a] p-3 rounded-xl border border-[#222] shadow-sm transition-all hover:border-[#2563eb]/40">
-                                    <div className="flex-1 min-w-0 pr-3">
-                                        <div className="font-black text-[12px] text-[#e5e5e5] leading-tight mb-1 truncate">{p.name}</div>
-                                        <div className="text-[10px] text-gray-500 font-bold">
-                                            Sổ sách: <span className="text-gray-300 font-black ml-1">{p.quantity} {p.unit || ''}</span>
+                                    <div className="flex items-center gap-3 flex-1 min-w-0 pr-3">
+                                        <div className="w-10 h-10 rounded bg-[#1a1a1a] border border-[#333] shrink-0 overflow-hidden flex items-center justify-center">
+                                            {p.images ? <img src={p.images.split(',')[0]} className="w-full h-full object-cover" /> : <i className="fas fa-box text-gray-600"></i>}
+                                        </div>
+                                        <div>
+                                            <div className="font-black text-[12px] text-[#e5e5e5] leading-tight mb-1 truncate">{p.name}</div>
+                                            <div className="text-[10px] text-gray-500 font-bold">
+                                                Sổ sách: <span className="text-gray-300 font-black ml-1">{p.quantity} {p.unit || ''}</span>
+                                            </div>
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-3 shrink-0">
-                                        {/* NHÃN CÂN ĐỐI TRỰC QUAN */}
                                         {isTyped && (
                                             <div className="text-right">
                                                 {diff > 0 ? (
@@ -717,7 +1002,6 @@ function IEFormModal({ data, onClose, pushData, prefilledProduct }) {
                     </div>
                 )}
                 
-                {/* TÓM TẮT KẾT QUẢ KIỂM KHO */}
                 {checkSubCat && (
                     <div className="bg-[#0a0a0a] border border-[#222] p-3 rounded-xl text-[10px] font-black text-gray-400 flex justify-between items-center gap-2 shadow-inner">
                         <span className="text-gray-500 uppercase tracking-widest text-[9px]"><i className="fas fa-calculator mr-1"></i> BÁO CÁO NHANH</span>
@@ -731,7 +1015,6 @@ function IEFormModal({ data, onClose, pushData, prefilledProduct }) {
              </div>
            )}
 
-           {/* GIAO DIỆN NHẬP KHO / XUẤT KHO TIÊU CHUẨN */}
            {type !== 'Kiểm Kho' && (
              <div className="space-y-4 animate-fade-in">
                 <div className="grid grid-cols-2 gap-3 bg-[#0a0a0a] p-3 rounded-xl border border-[#222]">
@@ -747,13 +1030,24 @@ function IEFormModal({ data, onClose, pushData, prefilledProduct }) {
                             </div>
                             <select disabled={isSaving} className="w-full p-2 bg-[#141414] rounded-lg border border-[#222] text-[11px] font-bold outline-none text-white focus:border-[#10b981] cursor-pointer" value={supplierId} onChange={e=>setSupplierId(e.target.value)}>
                                 <option value="">-- Hàng trôi nổi / Khác --</option>
-                                {(data?.Suppliers||[]).map(s=><option key={s.id} value={s.id}>{s.name} {s.category ? `(${s.category})` : ''}</option>)}
+                                {(data?.Suppliers||[]).filter(s => {
+                                    if (importSubTab === 'NguyenLieu') return String(s.category).toUpperCase().includes('NGUYÊN LIỆU') || String(s.category).toUpperCase().includes('VẬT TƯ');
+                                    if (importSubTab === 'HangHoa') return String(s.category).toUpperCase().includes('HÀNG HOÁ') || !s.category;
+                                    return true;
+                                }).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
                             </select>
                         </div>
-                    ) : (
+                    ) : (type === 'Xuất' && exportSubTab === 'Huy') ? null : (
                         <div>
                             <label className="text-[9px] font-black text-gray-500 block mb-1.5 uppercase tracking-widest">Người Nhận Hàng</label>
-                            <input disabled={isSaving} placeholder="VD: Thợ Tùng..." className="w-full p-2 bg-[#141414] rounded-lg border border-[#222] text-[11px] font-bold outline-none text-white focus:border-[#f43f5e] placeholder-zinc-650" value={receiverName} onChange={e=>setReceiverName(e.target.value)}/>
+                            {type === 'Xuất' && exportSubTab === 'SanXuat' ? (
+                                <select disabled={isSaving} className="w-full p-2 bg-[#141414] rounded-lg border border-[#222] text-[11px] font-bold outline-none text-white focus:border-[#f43f5e] cursor-pointer" value={receiverName} onChange={e=>setReceiverName(e.target.value)}>
+                                    <option value="">-- Chọn nhân sự --</option>
+                                    {(userConfigs?.users || []).map(u => <option key={u} value={u}>{u}</option>)}
+                                </select>
+                            ) : (
+                                <input disabled={isSaving} placeholder="VD: Thợ Tùng..." className="w-full p-2 bg-[#141414] rounded-lg border border-[#222] text-[11px] font-bold outline-none text-white focus:border-[#f43f5e] placeholder-zinc-650" value={receiverName} onChange={e=>setReceiverName(e.target.value)}/>
+                            )}
                         </div>
                     )}
                 </div>
@@ -775,7 +1069,6 @@ function IEFormModal({ data, onClose, pushData, prefilledProduct }) {
                     </div>
                 )}
 
-                {/* KHU VỰC THÊM HÀNG HOÁ VÀO GIỎ */}
                 <div className="border border-[#222] p-3 rounded-2xl bg-[#0a0a0a]/50 space-y-3.5 shadow-sm">
                     <div className="flex items-center justify-between">
                         <div className="text-[9px] font-black text-gray-500 uppercase tracking-widest flex items-center gap-1.5"><i className="fas fa-boxes text-[#d4af37]/80"></i> CHI TIẾT MẶT HÀNG</div>
@@ -850,8 +1143,31 @@ function IEFormModal({ data, onClose, pushData, prefilledProduct }) {
                                 ))}
                             </div>
                             <div className="flex justify-between items-end pt-3 pb-1 border-t border-zinc-800 mt-2">
-                                <div className="text-[9px] font-black text-gray-500 uppercase tracking-widest">Tổng tiền phiếu</div>
-                                <div className={`text-[16px] font-black tracking-tight ${type === 'Nhập' ? 'text-emerald-400' : 'text-rose-400'}`}>{displayMoney(totalAmount)}<span className="text-[11px] ml-1 text-gray-500 font-black">VND</span></div>
+                                <div className="text-[9px] font-black text-gray-500 uppercase tracking-widest flex flex-col gap-1.5">
+                                    <span>Tổng tiền hàng: <span className="text-gray-300 font-mono">{displayMoney(baseAmount)}</span></span>
+                                    {type === 'Nhập' && (
+                                        <div className="flex items-center gap-2">
+                                            <span>Thu/Chi Khác (Cộng vào vốn):</span>
+                                            <input type="number" disabled={isSaving} placeholder="0" className="w-24 p-1 bg-[#141414] rounded border border-[#333] text-xs font-bold outline-none text-white focus:border-[#d4af37]" value={otherFees} onChange={e=>setOtherFees(e.target.value)} />
+                                        </div>
+                                    )}
+                                </div>
+                                {type === 'Xuất' && exportSubTab === 'ThanhLy' ? (
+                                    <div className="flex flex-col items-end gap-1">
+                                        <input type="number" disabled={isSaving} placeholder="Nhập số tiền thu được..." className="w-40 p-2 bg-[#0a0a0a] rounded-lg border border-[#f59e0b] text-[12px] font-black outline-none text-[#f59e0b] text-right focus:border-[#f59e0b]" value={thanhLyAmount} onChange={e=>setThanhLyAmount(e.target.value)} />
+                                        {(parseInt(thanhLyAmount) > 0) && (
+                                            <select disabled={isSaving} className="w-40 p-1.5 bg-[#0a0a0a] rounded-lg border border-[#333] text-[9px] font-bold outline-none shadow-sm focus:border-[#f59e0b] text-white cursor-pointer" value={accId} onChange={e=>setAccId(e.target.value)}>
+                                                <option value="">-- Thu vào quỹ --</option>
+                                                {(data?.Accounts||[]).map(a=><option key={a.id} value={a.id}>{a.accountName}</option>)}
+                                            </select>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div className="text-right">
+                                        <div className="text-[8px] font-black text-gray-500 uppercase tracking-widest mb-1">TỔNG CẦN TRẢ</div>
+                                        <div className={`text-[16px] font-black tracking-tight ${type === 'Nhập' ? 'text-emerald-400' : 'text-rose-400'}`}>{displayMoney(totalAmount)}<span className="text-[11px] ml-1 text-gray-500 font-black">VND</span></div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}
@@ -862,7 +1178,6 @@ function IEFormModal({ data, onClose, pushData, prefilledProduct }) {
                     <input disabled={isSaving} placeholder="Nhập ghi chú mục đích xuất nhập..." className="w-full p-2.5 bg-[#0a0a0a] rounded-xl border border-[#333] text-[11px] font-bold outline-none text-white focus:border-[#d4af37]" value={note} onChange={e=>setNote(e.target.value)}/>
                 </div>
                 
-                {/* TÍCH HỢP CHI TIỀN THANH TOÁN KHI NHẬP KHO CỦA NCC */}
                 {type === 'Nhập' && supplierId && (
                     <div className="p-3.5 bg-emerald-950/15 border border-emerald-900/40 rounded-xl space-y-3 shadow-inner relative overflow-hidden">
                         <div className="flex justify-between items-center border-b border-emerald-900/20 pb-2"><span className="text-[10px] font-black text-[#10b981] uppercase tracking-widest">TỔNG CẦN TRẢ</span><span className="text-[16px] font-black text-[#10b981]">{displayMoney(totalAmount)}đ</span></div>
@@ -892,4 +1207,6 @@ function IEFormModal({ data, onClose, pushData, prefilledProduct }) {
       </div>
     );
 }
+
+
 </script>

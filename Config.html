@@ -11,15 +11,35 @@
 // 1. HẰNG SỐ CẤU HÌNH GỐC
 // ==========================================
 const SALARY_PER_HOUR = 20000;
-const USERS = ['Nguyễn Ngọc Tiến', 'Nguyễn Thị Huyền Trang', 'Nguyễn Hoàng Dương', 'Lại Trường Tâm', 'Nguyễn Thế Hoàng Anh', 'Nguyễn Diệu Linh', 'Nguyễn Thị Diệu Hương'];
-const USER_PINS = { 'Nguyễn Ngọc Tiến': '826193', 'Nguyễn Thị Huyền Trang': '174920', 'Nguyễn Hoàng Dương': '592038', 'Lại Trường Tâm': '381047', 'Nguyễn Thế Hoàng Anh': '649281', 'Nguyễn Diệu Linh': '472859', 'Nguyễn Thị Diệu Hương': '284015' };
-const ADMIN_PIN = '268';
+
+const USER_PINS = {}; // Đã chuyển sang quản lý qua sheet Config_NhanSu – xem getUserConfig() ở backend
+const ADMIN_PIN = ''; // Đã chuyển sang quản lý qua sheet Config_NhanSu – xem validatePin() ở backend
 const CHANNELS = ['Shopee VN', 'Tiktok Shop', 'Bán Lẻ', 'Bán Sỉ', 'Cộng Tác Viên', 'Shopee SG', 'Shopee MA', 'Shopee TH', 'Shopee PH', 'Bảo Hành'];
 const ORDER_STATUS = { AUTO_SCAN: 'Quét Tự Động', PENDING_PROD: 'Chờ Sản Xuất', READY_PACK: 'Sẵn sàng đóng gói', PENDING_HANDOVER: 'Chờ Bàn Giao', HANDED_OVER: 'Đã Bàn Giao', CANCELLED: 'Đơn Huỷ' };
 const CATEGORIES = ['LAYOUT', 'BỂ KÍNH', 'PHỤ KIỆN', 'DANH MỤC SẢN XUẤT', 'HÀNG HỎNG VỠ'];
 const SUB_CATEGORIES = { 'LAYOUT': ['LINH THÚ', 'VÁCH SUỐI', 'HẺM NÚI', 'NATURE', 'NHẤT TRỤ', 'TRĂNG', 'BONSAI', 'CẦU VỒNG', 'BIOTOP CUỘI', 'HANG ĐỘNG', 'RỪNG', 'ĐẢO BAY', 'CỔNG VÒM', 'COVER'], 'BỂ KÍNH': ['BỂ MINI', 'TERRARIUM', 'BÁN CẠN', 'BỂ BETTA', 'BỂ NÂNG ĐÁY'], 'PHỤ KIỆN': ['CÁT, PHÂN NỀN', 'BƠM LỌC', 'VẬT LIỆU LỌC', 'ĐÈN LED', 'THỨC ĂN', 'PHỤ KIỆN KHÁC'], 'DANH MỤC SẢN XUẤT': ['NGUYÊN LIỆU LAYOUT', 'NGUYÊN LIỆU BỂ KÍNH', 'NGUYÊN LIỆU ĐÓNG GÓI', 'VẬT TƯ SẢN XUẤT'] };
 const CAT_THU = ['Bán Hàng', 'COD Đối Tác Giao Hàng', 'Sàn TMĐT', 'Đầu Tư', 'Thu Khác', 'Bán Phế Liệu'];
 const CAT_CHI = ['Nguyên Liệu Sản Xuất', 'Vật Tư Sản Xuất', 'Quảng Cáo & Marketing', 'Thanh Toán Hoá Đơn', 'Phần Mềm Dịch Vụ', 'Cước Vận Chuyển', 'Bảo Hành Đơn Hàng', 'Lương Nhân Sự', 'Công Cụ Máy Móc', 'Trang Thiết Bị', 'Khác'];
+
+// Hệ thống rào chắn phân hệ tài chính (Sub-ledger Isolation)
+const FINANCE_CATEGORIES = [
+    { name: "Thu Tiền Bán Hàng", type: "Thu", module: "SALES" },
+    { name: "Thu Cọc Đơn Hàng", type: "Thu", module: "SALES" },
+    { name: "Thu Khác", type: "Thu", module: "FINANCE" },
+    { name: "Thanh Toán NCC", type: "Chi", module: "PURCHASE" },
+    { name: "Nhập Hàng", type: "Chi", module: "PURCHASE" },
+    { name: "Trả Lương", type: "Chi", module: "HR" },
+    { name: "Tạm Ứng", type: "Chi", module: "HR" },
+    { name: "Chi Phí Điện Nước", type: "Chi", module: "FINANCE" },
+    { name: "Chi Phí Mặt Bằng", type: "Chi", module: "FINANCE" },
+    { name: "Văn Phòng Phẩm", type: "Chi", module: "FINANCE" },
+    { name: "Tiếp Khách", type: "Chi", module: "FINANCE" },
+    { name: "Lãi Vay", type: "Chi", module: "FINANCE" },
+    { name: "Phí Ngân Hàng", type: "Chi", module: "FINANCE" },
+    { name: "Rút/Nạp Tiền Nội Bộ", type: "Chi", module: "FINANCE" },
+    { name: "Chi Phí Khác", type: "Chi", module: "FINANCE" },
+    { name: "Chờ Xử Lý", type: "Chờ Xử Lý", module: "SYSTEM" }
+];
 
 // ==========================================
 // 2. CÁC HÀM TIỆN ÍCH XỬ LÝ (LOGIC & THỜI GIAN)
@@ -242,82 +262,98 @@ const checkTimeFilter = (dateStr, mode) => {
 };
 
 function getSopAndReward(item, phaseName, kpiConfig = [], channel = '') {
-  if (!item?.name || !kpiConfig?.length) {
-    return { time: 30, reward: 0 };
-  }
-
-  const itemName = String(item.name).toLowerCase().trim();
+  if (!item?.name || !kpiConfig?.length) { return { time: 30, reward: 0 }; }
+  const rawName = String(item.name).toLowerCase().trim();
   const phase = String(phaseName || '').toLowerCase();
+  const itemType = String(item.type || '').toUpperCase();
+  const isLayoutItem = itemType === 'LAYOUT' || /rừng|layout|đảo|bonsai|trang|cover|nature|suối|vách|hẻm|núi|cầu|thác|hang|tiểu cảnh/i.test(rawName);
 
-  let matchedRow = null;
-
-  // 1. Thử match theo tên hàng trước
-  matchedRow = kpiConfig.find(row => {
-    const rowName = String(row['Tên Hàng'] || '').toLowerCase().trim();
-    return rowName && itemName.includes(rowName);
+  let matchedRow = kpiConfig.find(row => {
+    const sku = String(row['Từ Khoá'] || '').toLowerCase().trim();
+    const name = String(row['Tên Hàng'] || '').toLowerCase().trim();
+    if (sku && rawName.includes(sku)) return true;
+    if (name && (rawName === name || rawName.includes(name))) return true;
+    return false;
   });
 
-  // 2. Match theo size cho Layout (sửa lại để khớp bảng mới)
-  if (!matchedRow) {
-    const sizeMatch = itemName.match(/(\d{2,3})[x×]/);
-    const size = sizeMatch ? parseInt(sizeMatch[1]) : 0;
+  if (!matchedRow && (rawName.includes('bể') || rawName.includes('terra')) && !isLayoutItem && !rawName.includes('combo') && !rawName.includes('setup')) {
+    let reward = 0;
+    let time = 30;
+    if (phase.includes('phase1') || phase.includes('cắt') || phase.includes('dán') || phase.includes('dựng') || phase.includes('khâu 1') || phase === 'v1') {
+      reward = 5000;
+    } else if (phase.includes('phase2') || phase.includes('gọt') || phase.includes('keo') || phase.includes('gia cố') || phase.includes('khâu 2') || phase === 'v2') {
+      reward = 2000;
+    } else if (phase.includes('đóng gói') || phase.includes('pack')) {
+      reward = 2000;
+    }
+    if (/SG|MY|TH|PH|MA|TW|Quốc Tế|Xuất Khẩu/i.test(channel)) reward *= 3;
+    return { time, reward };
+  }
+
+  if (!matchedRow && isLayoutItem) {
+    const sizeMatch = rawName.match(/size\s*(\d{2,3})|(\d{2,3})[x×]/);
+    const size = sizeMatch ? parseInt(sizeMatch[1] || sizeMatch[2]) : 0;
 
     if (size > 0) {
       matchedRow = kpiConfig.find(row => {
+        const rowGroup = String(row['Nhóm Hàng'] || '').toUpperCase().trim();
+        if (rowGroup && !rowGroup.includes('LAYOUT')) return false;
+
         const rowName = String(row['Tên Hàng'] || '').toLowerCase();
-
-        // Chỉ xét hàng Layout
-        if (!rowName.includes('layout') && !rowName.includes('lay-')) return false;
-
-        // Match linh hoạt hơn
-        if (size >= 130) return rowName.includes('130-150') || rowName.includes('130');
-        if (size >= 110) return rowName.includes('110-120') || rowName.includes('120');
-        if (size >= 70)  return rowName.includes('70-100');
-        if (size >= 50)  return rowName.includes('50-60');
-        if (size >= 40)  return rowName.includes('40cm') || rowName.includes('lay-40');
-        if (size >= 30)  return rowName.includes('30cm') || rowName.includes('lay-30');
-        if (size >= 20)  return rowName.includes('20cm') || rowName.includes('lay-20');
+        if (size >= 130) return rowName.includes('130');
+        if (size >= 110) return rowName.includes('110') || rowName.includes('120');
+        if (size >= 90) return rowName.includes('90') || rowName.includes('100');
+        if (size >= 70) return rowName.includes('70') || rowName.includes('80');
+        if (size >= 60) return rowName.includes('60');
+        if (size >= 50) return rowName.includes('50');
+        if (size >= 40) return rowName.includes('40');
+        if (size >= 30) return rowName.includes('30');
+        if (size > 0) return rowName.includes('20') || rowName.includes('15');
         return false;
       });
     }
   }
 
-  // 3. Match hàng Đặc biệt
   if (!matchedRow) {
-    const special = ['rồng', 'đại bàng', 'phượng hoàng', 'cá voi', 'khủng long', 'tê giác'];
-    if (special.some(kw => itemName.includes(kw))) {
+    const specialKeywords = ['rồng', 'đại bàng', 'phượng hoàng', 'cá voi', 'khủng long', 'tê giác'];
+    if (specialKeywords.some(kw => rawName.includes(kw))) {
       matchedRow = kpiConfig.find(row =>
-        String(row['Tên Hàng'] || '').toLowerCase().includes('đặc biệt') ||
-        String(row['Tên Hàng'] || '').toLowerCase().includes('special')
+        String(row['Tên Hàng'] || '').toLowerCase().includes('đặc biệt') || String(row['Tên Hàng'] || '').toLowerCase().includes('special')
       );
     }
   }
 
-  if (!matchedRow) {
-    return { time: 30, reward: 0 };
-  }
+  if (!matchedRow) return { time: 30, reward: 0 };
 
-  // Xác định thưởng theo phase
   let reward = 0;
   let time = 30;
 
-  if (phase.includes('cắt') || phase.includes('dán') || phase.includes('dựng') || phase === 'v1') {
+  if (phase.includes('phase1') || phase.includes('cắt') || phase.includes('dán') || phase.includes('dựng') || phase.includes('khâu 1') || phase === 'v1') {
     reward = Number(matchedRow['Tiền Khâu 1']) || 0;
     time = Number(matchedRow['Thời gian Khâu 1']) || 30;
   } 
-  else if (phase.includes('gọt') || phase.includes('keo') || phase.includes('gia cố') || phase === 'v2') {
+  else if (phase.includes('phase2') || phase.includes('gọt') || phase.includes('keo') || phase.includes('gia cố') || phase.includes('khâu 2') || phase === 'v2') {
     reward = Number(matchedRow['Tiền Khâu 2']) || 0;
     time = Number(matchedRow['Thời gian Khâu 2']) || 30;
-  } 
+  }
   else if (phase.includes('đóng gói') || phase.includes('pack')) {
-    reward = Number(matchedRow['Thưởng Đóng Gói']) || 0;
+    reward = Number(matchedRow['Tiền Đóng Gói']) || 0;
+    time = Number(matchedRow['Thời gian Đóng Gói']) || 15;
+  }
+  else if (phase.includes('bảo hành') || phase.includes('sửa')) {
+    reward = 5000; time = 60;
+  }
+
+  if (/SG|MY|TH|PH|MA|TW|Quốc Tế|Xuất Khẩu/i.test(channel)) {
+    reward *= 3;
   }
 
   return { time, reward };
 }
 
-function getPackingReward(itemName, kpiConfig) {
-  if (!itemName || !kpiConfig || kpiConfig.length === 0) return 1000;
+function getPackingReward(itemName, kpiConfig, channel = '') {
+  const mult = /SG|MY|TH|PH|MA|TW|Quốc Tế|Xuất Khẩu/i.test(channel) ? 3 : 1;
+  if (!itemName || !kpiConfig || kpiConfig.length === 0) return 1000 * mult;
   const rawName = String(itemName).toLowerCase().trim();
 
   const normalizeName = (name) => {
@@ -339,7 +375,9 @@ function getPackingReward(itemName, kpiConfig) {
         const rowName = String(row['Tên Hàng'] || '').toLowerCase();
         if (size >= 130) return rowName.includes('130');
         if (size >= 110) return rowName.includes('110') || rowName.includes('120');
-        if (size >= 70)  return rowName.includes('70');
+        if (size >= 90)  return rowName.includes('90') || rowName.includes('100');
+        if (size >= 70)  return rowName.includes('70') || rowName.includes('80');
+        if (size >= 60)  return rowName.includes('60');
         if (size >= 50)  return rowName.includes('50');
         if (size >= 40)  return rowName.includes('40');
         if (size >= 30)  return rowName.includes('30');
@@ -349,13 +387,11 @@ function getPackingReward(itemName, kpiConfig) {
     }
   }
 
-  if (!matchedRow) return 1000;
-  return Number(matchedRow['Thưởng Đóng Gói']) || 1000;
+  let reward = matchedRow ? (Number(matchedRow['Thưởng Đóng Gói']) || 1000) : 1000;
+  return reward * mult;
 }
 
-const runGAS = (func, ...args) => new Promise((resolve, reject) => { 
-    google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)[func](...args); 
-});
+
 
 const resizeImage = (file) => new Promise((resolve, reject) => { 
     const reader = new FileReader(); 
@@ -442,6 +478,17 @@ const deleteOrderHandler = async (order, prods, pack, erpData, erpProducts, push
   const relatedLogs = (erpData?.ImportExport || []).filter(log => log.note && log.note.includes(localCode));
   const logsToDelete = relatedLogs.map(l => l.id);
   
+  let relatedTransactions = (erpData?.Transactions || []).filter(tx => 
+      (tx.title && tx.title.includes(localCode)) || 
+      (tx.note && tx.note.includes(localCode))
+  );
+  
+  if (relatedTransactions.length > 0) {
+      if (!window.confirm(`Đơn hàng này có ${relatedTransactions.length} phiếu thu/chi kèm theo.\nBạn có muốn XÓA luôn các phiếu này không?\nChọn OK để Xóa, Cancel để Giữ lại.`)) {
+          relatedTransactions = [];
+      }
+  }
+  
   let updatedProducts = [];
   if (relatedLogs.length > 0) {
       let diffMap = new Map();
@@ -483,8 +530,29 @@ const deleteOrderHandler = async (order, prods, pack, erpData, erpProducts, push
       }
   };
   if (logsToDelete.length > 0) payload.deletes.ImportExport = logsToDelete;
+  if (relatedTransactions.length > 0) payload.deletes.Transactions = relatedTransactions.map(tx => tx.id);
   if (pack && pack.id) payload.deletes.Packings = [pack.id];
   if (updatedProducts.length > 0) payload.Products = updatedProducts; 
+
+  const relatedKPIs = (erpData?.BonusPenalty || []).filter(bp => 
+      bp.orderCode === order.orderCode || bp.orderCode === localCode || 
+      (bp.note && bp.note.includes(localCode))
+  );
+  if (relatedKPIs.length > 0) payload.deletes.BonusPenalty = relatedKPIs.map(bp => bp.id);
+
+  if (order.shippingCode && String(order.shippingCode).trim().length > 5 && !order.shippingCode.includes(' ')) {
+      try {
+          const TOKEN = "5c588da0-1d0a-11ef-b3d7-824e1db0c320";
+          let shopId = "";
+          const shopRes = await fetch("https:\/\/online-gateway.ghn.vn/shiip/public-api/v2/shop/all", { headers: { "Content-Type": "application/json", "Token": TOKEN } }).then(r=>r.json()).catch(()=>({}));
+          if (shopRes.code === 200 && shopRes.data?.shops?.length > 0) shopId = shopRes.data.shops[0]._id;
+          const h = { "Content-Type": "application/json", "Token": TOKEN };
+          if (shopId) h["ShopId"] = shopId;
+          await fetch("https:\/\/online-gateway.ghn.vn/shiip/public-api/v2/switch-status/cancel", {
+              method: "POST", headers: h, body: JSON.stringify({ order_codes: [String(order.shippingCode).trim()] })
+          }).catch(()=>{});
+      } catch(e){}
+  }
 
   try {
       await pushDeltas(payload, 'Đã xóa đơn và hoàn trả tồn kho!', 'fa-trash');

@@ -1,0 +1,304 @@
+<script type="text/babel">
+function TabAffiliate({ orders, ctvFinance, pushDeltas, currentUser, triggerToast, userRole, userConfigs }) {
+  const [selectedCTV, setSelectedCTV] = React.useState('');
+  const [selectedMonth, setSelectedMonth] = React.useState(new Date().toISOString().substring(0, 7));
+  const [showAddTx, setShowAddTx] = React.useState(false);
+  const [txType, setTxType] = React.useState('PHÍ VẬN CHUYỂN');
+  const [txAmount, setTxAmount] = React.useState('');
+  const [txNote, setTxNote] = React.useState('');
+  const [editingTxId, setEditingTxId] = React.useState(null);
+  const [isProcessing, setIsProcessing] = React.useState(false);
+
+  const isCTV = userRole === 'CTV' || userRole === 'CỘNG TÁC VIÊN';
+  const isAdminOrKetoan = userRole === 'TỐI CAO' || userRole === 'KẾ TOÁN' || userRole === 'QUẢN LÝ BÁN HÀNG';
+
+  const ctvList = React.useMemo(() => {
+      if (!userConfigs || !userConfigs.users || !userConfigs.roles) return [];
+      return userConfigs.users.filter(name => {
+          const r = String(userConfigs.roles[name] || '').toUpperCase();
+          return r === 'CTV' || r === 'CỘNG TÁC VIÊN';
+      });
+  }, [userConfigs]);
+
+  React.useEffect(() => {
+      if (isCTV) setSelectedCTV(currentUser);
+      else if (ctvList.length > 0 && !selectedCTV) setSelectedCTV(ctvList[0]);
+  }, [isCTV, currentUser, ctvList]);
+
+  // Lọc dữ liệu
+  const ctvOrders = React.useMemo(() => {
+      if (!selectedCTV) return [];
+      return orders.filter(o => {
+          const ch = String(o.channel || '').toUpperCase();
+          const isCtvChannel = ch.includes('CỘNG TÁC VIÊN') || ch === 'CTV';
+          const orderMonth = (o.date || o.createdAt || '').substring(0, 7);
+          const matchMonth = !selectedMonth || orderMonth === selectedMonth;
+          // CTV tạo đơn thì createdBy, updatedBy hoặc responsibleUser là tên CTV đó
+          return matchMonth && isCtvChannel && (o.updatedBy === selectedCTV || o.createdBy === selectedCTV || o.responsibleUser === selectedCTV || o.customer === selectedCTV);
+      }).sort((a, b) => new Date(b.date) - new Date(a.date));
+  }, [orders, selectedCTV, selectedMonth]);
+
+  const ctvTxs = React.useMemo(() => {
+      if (!selectedCTV) return [];
+      return ctvFinance.filter(t => {
+          const txMonth = (t.date || '').substring(0, 7);
+          const matchMonth = !selectedMonth || txMonth === selectedMonth;
+          return t.user === selectedCTV && matchMonth;
+      }).sort((a, b) => new Date(b.date) - new Date(a.date));
+  }, [ctvFinance, selectedCTV, selectedMonth]);
+
+  // Tính toán Dư Nợ
+  const debtStats = React.useMemo(() => {
+      let orderDebt = 0; // Đơn giá - Thu COD
+      let totalOrderRevenue = 0;
+      let totalOrderCOD = 0;
+      
+      ctvOrders.forEach(o => {
+          // Tính nợ từ đơn: Bán được 100k, thu COD 120k -> Nợ -20k (Shop nợ CTV)
+          // Bán được 100k, thu COD 0k -> Nợ +100k (CTV nợ Shop)
+          const rev = Number(o.revenue) || 0;
+          const cod = Number(o.cod) || 0;
+          orderDebt += (rev - cod);
+          totalOrderRevenue += rev;
+          totalOrderCOD += cod;
+      });
+
+      let extraDebt = 0;
+      let totalPaid = 0;
+      ctvTxs.forEach(t => {
+          const amt = Number(t.amount) || 0;
+          if (t.type === 'THANH TOÁN' || t.type === 'DƯ NỢ KỲ TRƯỚC (SHOP NỢ)') {
+              if (t.type === 'THANH TOÁN') totalPaid += amt;
+              extraDebt -= amt; // Giảm nợ
+          } else {
+              extraDebt += amt; // Phí ship, hoàn hàng... làm tăng nợ
+          }
+      });
+
+      const finalDebt = orderDebt + extraDebt;
+      return { finalDebt, orderDebt, extraDebt, totalOrderRevenue, totalOrderCOD, totalPaid };
+  }, [ctvOrders, ctvTxs]);
+
+  const handleAddTx = async () => {
+      if (!txAmount || Number(txAmount) === 0) return triggerToast('Số tiền không hợp lệ', 'fa-times', 'danger');
+      if (!selectedCTV) return triggerToast('Vui lòng chọn CTV', 'fa-times', 'danger');
+      setIsProcessing(true);
+      try {
+          const newTx = {
+              id: editingTxId || ('CTX_' + Date.now()),
+              date: new Date().toISOString().substring(0,10),
+              type: txType,
+              amount: Number(txAmount),
+              note: txNote || '',
+              user: selectedCTV,
+              status: 'Hoàn Thành'
+          };
+          await pushDeltas({ ctvTransactions: [newTx] }, editingTxId ? 'Đã cập nhật giao dịch!' : 'Đã ghi nhận giao dịch!', 'fa-check');
+          setShowAddTx(false);
+          setTxAmount('');
+          setTxNote('');
+          setEditingTxId(null);
+      } catch(e) {
+          triggerToast('Có lỗi xảy ra', 'fa-times', 'danger');
+      }
+      setIsProcessing(false);
+  };
+
+  const handleEditTx = (t) => {
+      setEditingTxId(t.id);
+      setTxType(t.type);
+      setTxAmount(t.amount.toString());
+      setTxNote(t.note || '');
+      setShowAddTx(true);
+  };
+
+  const handleDeleteTx = async (txId) => {
+      if (!confirm('Bạn có chắc chắn muốn xoá giao dịch này?')) return;
+      setIsProcessing(true);
+      try {
+          await pushDeltas({ deletes: { ctvTransactions: [txId] } }, 'Đã xoá giao dịch!', 'fa-trash');
+      } catch(e) {
+          triggerToast('Có lỗi xảy ra', 'fa-times', 'danger');
+      }
+      setIsProcessing(false);
+  };
+
+  const formatMoney = (n) => Number(n).toLocaleString('vi-VN');
+
+  return (
+    <div className="p-2 sm:p-4 space-y-4 sm:space-y-6 animate-fade-in custom-scrollbar overflow-x-hidden">
+      
+      {/* HEADER & LỌC */}
+      <div className="bg-[#141414] border border-[#2a2a2a] rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div>
+            <h2 className="text-[16px] sm:text-[18px] font-black text-[#d4af37] flex items-center tracking-wide uppercase"><i className="fas fa-handshake mr-2.5 opacity-80"></i> ĐỐI SOÁT CỘNG TÁC VIÊN</h2>
+            <p className="text-[11px] sm:text-[12px] text-gray-400 mt-1">Quản lý dòng tiền, công nợ và chiết khấu cho đối tác.</p>
+        </div>
+        
+        <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2 w-full sm:w-auto">
+            <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="w-full sm:w-auto bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-2.5 text-[13px] font-bold text-gray-300 outline-none focus:border-[#d4af37]" />
+            {isAdminOrKetoan ? (
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <i className="fas fa-filter text-gray-500 text-sm hidden sm:block"></i>
+                    <select value={selectedCTV} onChange={(e) => setSelectedCTV(e.target.value)} className="w-full sm:w-64 bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-2.5 text-[13px] font-bold text-[#d4af37] outline-none">
+                        {ctvList.length === 0 && <option value="">Không có CTV nào</option>}
+                        {ctvList.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                </div>
+            ) : (
+                <div className="px-4 py-2 bg-[#d4af37]/10 border border-[#d4af37]/20 rounded-xl text-[#d4af37] font-black text-sm">
+                    <i className="fas fa-user-tag mr-2"></i> CTV: {selectedCTV}
+                </div>
+            )}
+        </div>
+      </div>
+
+      {/* DASHBOARD DƯ NỢ */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+        <div className="bg-gradient-to-br from-[#0a0a0a] to-[#141414] border border-[#333] rounded-2xl p-4 shadow-sm relative overflow-hidden group">
+            <div className="absolute -right-4 -bottom-4 text-6xl text-emerald-500/5 group-hover:scale-110 transition-transform"><i className="fas fa-box-open"></i></div>
+            <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Dư nợ từ Đơn hàng</div>
+            <div className="text-[24px] font-black text-emerald-400 flex items-baseline gap-1">{formatMoney(debtStats.orderDebt)}<span className="text-[12px] text-emerald-400/50">đ</span></div>
+            <div className="mt-2 text-[10px] text-gray-500 flex justify-between border-t border-[#222] pt-2">
+                <span>Doanh thu: {formatMoney(debtStats.totalOrderRevenue)}</span>
+                <span>Thu COD: {formatMoney(debtStats.totalOrderCOD)}</span>
+            </div>
+        </div>
+        <div className="bg-gradient-to-br from-[#0a0a0a] to-[#141414] border border-[#333] rounded-2xl p-4 shadow-sm relative overflow-hidden group">
+            <div className="absolute -right-4 -bottom-4 text-6xl text-amber-500/5 group-hover:scale-110 transition-transform"><i className="fas fa-file-invoice-dollar"></i></div>
+            <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Phí phát sinh & Thanh toán</div>
+            <div className="text-[24px] font-black text-amber-400 flex items-baseline gap-1">{formatMoney(debtStats.extraDebt)}<span className="text-[12px] text-amber-400/50">đ</span></div>
+            <div className="mt-2 text-[10px] text-gray-500 flex justify-between border-t border-[#222] pt-2">
+                <span>Tổng phí: {formatMoney(debtStats.extraDebt + debtStats.totalPaid)}</span>
+                <span className="text-emerald-500">Đã TT: {formatMoney(debtStats.totalPaid)}</span>
+            </div>
+        </div>
+        <div className={`bg-gradient-to-br border rounded-2xl p-4 shadow-lg relative overflow-hidden group ${debtStats.finalDebt > 0 ? 'from-rose-950/40 to-[#0a0a0a] border-rose-500/30' : 'from-emerald-950/40 to-[#0a0a0a] border-emerald-500/30'}`}>
+            <div className="absolute -right-4 -bottom-4 text-6xl opacity-10 group-hover:scale-110 transition-transform"><i className="fas fa-balance-scale"></i></div>
+            <div className="text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-1">{debtStats.finalDebt > 0 ? 'TỔNG CTV NỢ SHOP' : 'TỔNG SHOP NỢ CTV'}</div>
+            <div className={`text-[32px] font-black flex items-baseline gap-1 ${debtStats.finalDebt > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                {formatMoney(Math.abs(debtStats.finalDebt))}<span className="text-[14px] opacity-50">đ</span>
+            </div>
+            <div className="mt-2 text-[10px] text-gray-400 flex items-center gap-1.5 opacity-80">
+                <i className="fas fa-info-circle"></i> Sẽ gộp chung vào kỳ đối soát tiếp theo
+            </div>
+        </div>
+      </div>
+
+      {/* DANH SÁCH & HÀNH ĐỘNG */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* CỘT 1: ĐƠN HÀNG */}
+        <div className="bg-[#141414] border border-[#2a2a2a] rounded-2xl p-4 sm:p-5 flex flex-col h-[500px]">
+            <h3 className="text-sm font-black text-gray-200 uppercase tracking-widest mb-4 flex items-center">
+                <i className="fas fa-box text-[#3b82f6] mr-2"></i> Lịch Sử Đơn Hàng ({ctvOrders.length})
+            </h3>
+            <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 -mr-1 space-y-2">
+                {ctvOrders.length === 0 ? (
+                    <div className="text-center text-gray-500 text-xs italic mt-10">Chưa có đơn hàng nào.</div>
+                ) : (
+                    ctvOrders.map(o => (
+                        <div key={o.id} className="bg-[#0a0a0a] border border-[#222] rounded-xl p-3 flex justify-between items-center hover:border-[#333] transition-colors">
+                            <div>
+                                <div className="text-[13px] font-bold text-gray-200 mb-0.5">{o.customer}</div>
+                                <div className="text-[10px] text-gray-500 font-mono">{o.orderCode} • {o.date?.substring(0,10)}</div>
+                                <div className="text-[10px] font-bold px-2 py-0.5 rounded-full inline-block mt-1 bg-[#222] text-gray-300">{o.status}</div>
+                            </div>
+                            <div className="text-right">
+                                <div className="text-[12px] font-bold text-emerald-400">Giá: {formatMoney(o.revenue)}đ</div>
+                                <div className="text-[12px] font-bold text-amber-400 mt-0.5">COD: {formatMoney(o.cod)}đ</div>
+                                <div className={`text-[12px] font-black mt-1 ${((Number(o.revenue)||0) - (Number(o.cod)||0)) > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                                    Nợ: {formatMoney((Number(o.revenue)||0) - (Number(o.cod)||0))}đ
+                                </div>
+                            </div>
+                        </div>
+                    ))
+                )}
+            </div>
+        </div>
+
+        {/* CỘT 2: GIAO DỊCH & PHỤ PHÍ */}
+        <div className="bg-[#141414] border border-[#2a2a2a] rounded-2xl p-4 sm:p-5 flex flex-col h-[500px]">
+            <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-black text-gray-200 uppercase tracking-widest flex items-center">
+                    <i className="fas fa-money-bill-transfer text-amber-400 mr-2"></i> Giao Dịch Phụ Phí ({ctvTxs.length})
+                </h3>
+                {isAdminOrKetoan && (
+                    <button onClick={() => { setShowAddTx(!showAddTx); setEditingTxId(null); setTxAmount(''); setTxNote(''); }} className="w-8 h-8 rounded-full bg-[#d4af37]/10 text-[#d4af37] border border-[#d4af37]/30 flex items-center justify-center hover:bg-[#d4af37] hover:text-black transition-all">
+                        <i className={`fas ${showAddTx ? 'fa-times' : 'fa-plus'} text-xs`}></i>
+                    </button>
+                )}
+            </div>
+            
+            {showAddTx && (
+                <div className="bg-[#0a0a0a] border border-[#d4af37]/30 rounded-xl p-3 mb-4 animate-fade-in shadow-[0_0_15px_rgba(212,175,55,0.05)]">
+                    <div className="grid grid-cols-2 gap-3 mb-3">
+                        <div>
+                            <label className="text-[10px] font-bold text-gray-500 uppercase mb-1 block">Loại Giao Dịch</label>
+                            <select value={txType} onChange={e=>setTxType(e.target.value)} className="w-full bg-[#141414] border border-[#333] rounded-lg px-2 py-2 text-[12px] font-bold text-gray-200 outline-none focus:border-[#d4af37]">
+                                <option value="PHÍ VẬN CHUYỂN">Phí Vận Chuyển</option>
+                                <option value="HOÀN HÀNG">Phí Hoàn Hàng</option>
+                                <option value="KHÁC">Khác (Tăng nợ CTV)</option>
+                                <option value="THANH TOÁN">CTV Thanh Toán (Giảm nợ CTV)</option>
+                                <option value="SHOP THANH TOÁN">Shop Thanh Toán (Tăng nợ CTV)</option>
+                                <option value="DƯ NỢ KỲ TRƯỚC (CTV NỢ)">Nợ kỳ trước (CTV nợ Shop)</option>
+                                <option value="DƯ NỢ KỲ TRƯỚC (SHOP NỢ)">Nợ kỳ trước (Shop nợ CTV)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="text-[10px] font-bold text-gray-500 uppercase mb-1 block">Số Tiền (VNĐ)</label>
+                            <input type="text" value={txAmount && txAmount !== '-' ? Number(txAmount).toLocaleString('vi-VN') : txAmount} onChange={e=>{
+                                const val = e.target.value.replace(/[^\d-]/g, '');
+                                const isNegative = val.startsWith('-');
+                                const cleanVal = val.replace(/-/g, '');
+                                setTxAmount(isNegative ? '-' + cleanVal : cleanVal);
+                            }} placeholder="0" className="w-full bg-[#141414] border border-[#333] rounded-lg px-2 py-2 text-[12px] font-bold text-amber-400 outline-none focus:border-[#d4af37]" />
+                        </div>
+                    </div>
+                    <div className="mb-3">
+                        <label className="text-[10px] font-bold text-gray-500 uppercase mb-1 block">Tên khách hàng / Mã đơn liên quan</label>
+                        <input type="text" list="ctv-order-hints" value={txNote} onChange={e=>setTxNote(e.target.value)} placeholder="Chọn đơn hoặc nhập ghi chú..." className="w-full bg-[#141414] border border-[#333] rounded-lg px-2 py-2 text-[12px] text-gray-300 outline-none focus:border-[#d4af37]" />
+                        <datalist id="ctv-order-hints">
+                            {ctvOrders.map(o => (
+                                <option key={o.id} value={`${o.customer || 'Khách'} - ${o.orderCode || ''}`} />
+                            ))}
+                        </datalist>
+                    </div>
+                    <button onClick={handleAddTx} disabled={isProcessing} className="w-full py-2.5 bg-gradient-to-r from-[#d4af37] to-[#b8972e] text-black text-[12px] font-black uppercase tracking-wider rounded-lg shadow-sm hover:brightness-110 disabled:opacity-50">
+                        {isProcessing ? <i className="fas fa-spinner fa-spin"></i> : (editingTxId ? 'Cập Nhật Giao Dịch' : 'Lưu Giao Dịch')}
+                    </button>
+                </div>
+            )}
+
+            <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 -mr-1 space-y-2">
+                {ctvTxs.length === 0 ? (
+                    <div className="text-center text-gray-500 text-xs italic mt-10">Chưa có giao dịch phụ phí nào.</div>
+                ) : (
+                    ctvTxs.map(t => (
+                        <div key={t.id} className="bg-[#0a0a0a] border border-[#222] rounded-xl p-3 flex justify-between items-center hover:border-[#333] transition-colors">
+                            <div>
+                                <div className="text-[13px] font-bold text-gray-200 mb-0.5">{t.type}</div>
+                                <div className="text-[11px] text-gray-400">{t.note || 'Không có ghi chú'}</div>
+                                <div className="text-[10px] text-gray-600 font-mono mt-1">{t.date}</div>
+                            </div>
+                            <div className="text-right flex flex-col items-end">
+                                <div className={`text-[14px] font-black ${t.type === 'THANH TOÁN' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                    {t.type === 'THANH TOÁN' ? '-' : '+'}{formatMoney(t.amount)}đ
+                                </div>
+                                {isAdminOrKetoan && (
+                                    <div className="flex gap-3 mt-2 opacity-50 hover:opacity-100 transition-opacity">
+                                        <button onClick={() => handleEditTx(t)} className="text-[12px] text-gray-400 hover:text-[#d4af37]"><i className="fas fa-edit"></i></button>
+                                        <button onClick={() => handleDeleteTx(t.id)} disabled={isProcessing} className="text-[12px] text-gray-400 hover:text-rose-500"><i className="fas fa-trash"></i></button>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    ))
+                )}
+            </div>
+        </div>
+      </div>
+      
+    </div>
+  );
+}
+</script>

@@ -1,0 +1,499 @@
+<script type="text/babel">
+const ServicesTab = React.memo(function ServicesTab({ erpData, pushDeltas, triggerToast, currentUser }) {
+    const [showModal, setShowModal] = React.useState(false);
+    const [searchTerm, setSearchTerm] = React.useState('');
+    const [isReconciliationMode, setIsReconciliationMode] = React.useState(false);
+
+    // Form states
+    const [formData, setFormData] = React.useState({
+        invoiceCode: '',
+        supplier: '',
+        taxCode: '',
+        category: 'Phần Mềm/Công Nghệ',
+        date: new Date().toISOString().slice(0, 16),
+        amount: '',
+        sourceAccount: '',
+        paymentMethod: 'Chuyển khoản',
+        expiryDate: '',
+        note: '',
+        fileLink: '',
+        selectedTxId: ''
+    });
+
+    const services = erpData?.PurchasedServices || [];
+    const accounts = erpData?.Accounts || [];
+    const suppliers = erpData?.Suppliers || [];
+    const transactions = erpData?.Transactions || [];
+
+    // Lọc Phiếu chi 7 ngày gần nhất chưa ghim hóa đơn
+    const recentTransactions = React.useMemo(() => {
+        const now = new Date();
+        const sevenDaysAgo = new Date(now.setDate(now.getDate() - 7)).toISOString().split('T')[0];
+        return transactions.filter(t => {
+            if (t.type !== 'Chi') return false;
+            const tDate = (t.date || '').split('T')[0];
+            if (tDate < sevenDaysAgo) return false;
+            const noteLower = String(t.note || '').toLowerCase();
+            if (noteLower.includes('hóa đơn:') || noteLower.includes('[hđ:')) return false;
+            return true;
+        }).sort((a,b) => new Date(b.date||0) - new Date(a.date||0));
+    }, [transactions]);
+
+    // Handle when selecting a transaction in reconciliation mode
+    const handleTxSelect = (txId) => {
+        const tx = recentTransactions.find(t => t.id === txId);
+        if (tx) {
+            setFormData({...formData, selectedTxId: txId, amount: tx.amount, sourceAccount: tx.fromAccount || ''});
+        } else {
+            setFormData({...formData, selectedTxId: '', amount: '', sourceAccount: ''});
+        }
+    };
+
+    // Filtered services
+    const filteredServices = services.filter(s => {
+        if (!s.id) return false;
+        if (searchTerm && !(s.invoiceCode||'').toLowerCase().includes(searchTerm.toLowerCase()) && !(s.supplier||'').toLowerCase().includes(searchTerm.toLowerCase())) return false;
+        return true;
+    }).sort((a,b) => new Date(b.date||0) - new Date(a.date||0));
+
+    // Calculate metrics
+    const totalAmount = filteredServices.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
+    const estimatedTaxShield = totalAmount * 0.08; 
+
+    const handleSave = () => {
+        if (!formData.invoiceCode) return triggerToast('Vui lòng nhập Số hóa đơn VAT', 'fa-exclamation-circle', 'error');
+        if (!formData.supplier) return triggerToast('Vui lòng nhập Tên Nhân Sự (NCC)', 'fa-exclamation-circle', 'error');
+        
+        if (isReconciliationMode) {
+            if (!formData.selectedTxId) return triggerToast('Vui lòng chọn Phiếu Chi để đối soát', 'fa-exclamation-circle', 'error');
+        } else {
+            if (!formData.amount || Number(formData.amount) <= 0) return triggerToast('Vui lòng nhập Tổng Tiền', 'fa-exclamation-circle', 'error');
+            if (!formData.sourceAccount) return triggerToast('Vui lòng chọn Nguồn tiền để thanh toán', 'fa-exclamation-circle', 'error');
+        }
+
+        const newServiceId = 'SRV_' + Date.now();
+        const newTxId = 'TX_SRV_' + Date.now();
+        const now = new Date().toISOString();
+
+        // 1. PurchasedServices
+        const newService = {
+            id: newServiceId,
+            invoiceCode: formData.invoiceCode.trim(),
+            supplier: formData.supplier.trim(),
+            taxCode: formData.taxCode.trim(),
+            category: formData.category,
+            date: formData.date,
+            amount: Number(formData.amount),
+            payer: currentUser,
+            paymentMethod: formData.paymentMethod,
+            note: formData.note,
+            expiryDate: formData.expiryDate || '',
+            fileLink: formData.fileLink || '',
+            createdAt: now,
+            createdBy: currentUser
+        };
+
+        const payload = {
+            PurchasedServices: [newService]
+        };
+
+        // 2. Transactions (Đối soát hoặc Tạo mới)
+        if (isReconciliationMode) {
+            const txToUpdate = recentTransactions.find(t => t.id === formData.selectedTxId);
+            if (txToUpdate) {
+                payload.Transactions = [{
+                    id: txToUpdate.id,
+                    note: `[HĐ: ${formData.invoiceCode.trim()}] ${txToUpdate.note || ''}`.trim()
+                }];
+            }
+        } else {
+            payload.Transactions = [{
+                id: newTxId,
+                type: 'Chi',
+                category: 'Chi Mua Dịch Vụ VAT',
+                amount: Number(formData.amount),
+                fromAccount: formData.sourceAccount,
+                toAccount: '',
+                title: `Thanh toán HĐ ${formData.invoiceCode.trim()} - ${formData.supplier.trim()}`,
+                date: formData.date.split('T')[0],
+                note: `[HĐ: ${formData.invoiceCode.trim()}] ${formData.note}`,
+                isAuto: true
+            }];
+            
+            const sourceAcc = accounts.find(a => a.id === formData.sourceAccount);
+            if (sourceAcc) {
+                payload.Accounts = [{
+                    ...sourceAcc,
+                    balance: Number(sourceAcc.balance || 0) - Number(formData.amount)
+                }];
+            }
+        }
+
+        const existingSupplier = suppliers.find(s => s.name.toLowerCase() === formData.supplier.trim().toLowerCase());
+        if (!existingSupplier) {
+            payload.Suppliers = [{
+                id: 'SUP_' + Date.now(),
+                name: formData.supplier.trim(),
+                phone: '',
+                totalDebt: 0,
+                category: 'Dịch vụ',
+                note: `Mã số thuế: ${formData.taxCode.trim()}`
+            }];
+        }
+
+        triggerToast('Hệ thống đang thiết lập chuỗi Domino...', 'fa-spinner fa-spin', 'primary');
+        
+        pushDeltas(payload, (res) => {
+            if (res && res.success) {
+                triggerToast('Hoàn tất! Đã tích lũy Khấu trừ & Cấn trừ Sổ Quỹ.', 'fa-shield-check', 'success');
+                setShowModal(false);
+                setFormData({
+                    invoiceCode: '', supplier: '', taxCode: '', category: 'Phần Mềm/Công Nghệ', date: new Date().toISOString().slice(0, 16),
+                    amount: '', sourceAccount: '', paymentMethod: 'Chuyển khoản', expiryDate: '', note: '', fileLink: ''
+                });
+            } else {
+                triggerToast('Lỗi khi lưu dữ liệu', 'fa-times-circle', 'error');
+            }
+        });
+    };
+
+    const formatMoney = (val) => (Number(val) || 0).toLocaleString('vi-VN') + 'đ';
+
+    const getExpiryStats = (expDate) => {
+        if (!expDate) return null;
+        const today = new Date();
+        const exp = new Date(expDate);
+        const diffTime = exp.getTime() - today.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        
+        let color = 'bg-[#10b981]';
+        let statusText = 'Hoạt động tốt';
+        let isUrgent = false;
+        
+        if (diffDays < 0) { color = 'bg-zinc-600'; statusText = 'Đã sa thải (Hết hạn)'; }
+        else if (diffDays <= 7) { color = 'bg-red-500 animate-pulse'; statusText = 'Sắp hết hạn'; isUrgent = true; }
+        else if (diffDays <= 30) { color = 'bg-amber-500'; statusText = 'Cần lưu ý'; }
+
+        // Assume standard 365 days max for progress bar width
+        const progressWidth = Math.max(0, Math.min(100, (diffDays / 365) * 100));
+
+        return { diffDays, color, statusText, isUrgent, progressWidth };
+    };
+
+    return (
+        <div className="space-y-5 animate-fade-in max-w-4xl mx-auto pb-20">
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mt-2">
+                <div>
+                    <h2 className="text-xl font-black text-white tracking-wide uppercase flex items-center gap-2">
+                        <i className="fas fa-microchip text-[#d4af37]"></i> Quản Trị Nhân Sự Digital
+                    </h2>
+                    <p className="text-zinc-500 text-xs mt-1 font-medium tracking-wide">TRUNG TÂM TỐI ƯU LỢI NHUẬN VÔ HÌNH & KHẤU TRỪ THUẾ</p>
+                </div>
+            </div>
+
+            {/* Khu vực Top Widgets (Trực quan hóa tài sản) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Thẻ 1: TỔNG LÁ CHẮN THUẾ */}
+                <div className="bg-[#09090b] border border-[#10b981]/20 rounded-2xl p-5 shadow-[0_4px_20px_rgba(16,185,129,0.05)] flex items-center justify-between relative overflow-hidden group">
+                    <div className="absolute inset-0 bg-gradient-to-r from-[#10b981]/0 via-[#10b981]/5 to-[#10b981]/0 transform -translate-x-full group-hover:animate-[shimmer_2s_infinite]"></div>
+                    <div className="relative z-10">
+                        <div className="text-zinc-500 text-[10px] font-black uppercase tracking-widest mb-1 flex items-center gap-1.5">
+                            <i className="fas fa-shield-alt text-[#10b981]"></i> TỔNG LÁ CHẮN THUẾ (VAT Tích lũy)
+                        </div>
+                        <div className="text-3xl font-extrabold text-[#10b981] drop-shadow-[0_0_10px_rgba(16,185,129,0.3)]">
+                            +{formatMoney(estimatedTaxShield)}
+                        </div>
+                    </div>
+                    <div className="w-12 h-12 rounded-full bg-[#10b981]/10 text-[#10b981] flex items-center justify-center text-xl relative z-10">
+                        <i className="fas fa-piggy-bank"></i>
+                    </div>
+                </div>
+
+                {/* Thẻ 2: TỔNG LƯƠNG NHÂN VIÊN DIGITAL */}
+                <div className="bg-[#09090b] border border-white/5 rounded-2xl p-5 shadow-sm flex items-center justify-between">
+                    <div>
+                        <div className="text-zinc-500 text-[10px] font-black uppercase tracking-widest mb-1 flex items-center gap-1.5">
+                            <i className="fas fa-file-invoice-dollar text-[#d4af37]"></i> TỔNG LƯƠNG NHÂN VIÊN DIGITAL
+                        </div>
+                        <div className="text-2xl font-extrabold text-white">
+                            {formatMoney(totalAmount)}
+                        </div>
+                        <p className="text-[9px] text-zinc-600 mt-1 italic">Tổng chi phí dịch vụ phần mềm & nền tảng</p>
+                    </div>
+                    <div className="w-12 h-12 rounded-full bg-zinc-800 text-zinc-400 flex items-center justify-center text-xl">
+                        <i className="fas fa-server"></i>
+                    </div>
+                </div>
+            </div>
+
+            {/* Toolbar */}
+            <div className="flex gap-2">
+                <div className="relative flex-1">
+                    <i className="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-zinc-500"></i>
+                    <input 
+                        type="text" 
+                        placeholder="Tìm theo Mã HĐ hoặc Tên Nhân Sự (VNG, Shopee)..." 
+                        className="w-full pl-9 pr-4 py-3 bg-[#09090b] border border-white/5 focus:border-[#d4af37]/50 text-white placeholder-zinc-600 rounded-xl outline-none transition-colors"
+                        value={searchTerm}
+                        onChange={e => setSearchTerm(e.target.value)}
+                    />
+                </div>
+                <button 
+                    onClick={() => setShowModal(true)}
+                    className="bg-[#d4af37] hover:bg-[#c2a030] text-black font-extrabold px-5 py-3 rounded-xl shadow-[0_0_15px_rgba(212,175,55,0.2)] flex items-center gap-2 transition-all active:scale-95 whitespace-nowrap"
+                >
+                    <i className="fas fa-plus"></i> Thuê Mới / Lưu Hóa Đơn
+                </button>
+            </div>
+
+            {/* Khu vực Giữa (Quản trị Vòng đời) */}
+            <div className="space-y-4">
+                <h3 className="text-xs font-black text-zinc-500 uppercase tracking-widest pl-1"><i className="fas fa-users-cog mr-1"></i> Hồ Sơ Nhân Sự Digital</h3>
+                
+                {filteredServices.length === 0 ? (
+                    <div className="text-center py-12 bg-[#09090b] border border-white/5 rounded-2xl">
+                        <i className="fas fa-ghost text-4xl mb-3 text-zinc-800"></i>
+                        <p className="text-sm text-zinc-500">Chưa có dữ liệu nhân sự nào</p>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {filteredServices.map(s => {
+                            const stats = getExpiryStats(s.expiryDate);
+                            return (
+                                <div key={s.id} className="bg-[#09090b] border border-white/5 hover:border-white/10 transition-colors rounded-2xl p-4 flex flex-col gap-3 relative overflow-hidden group">
+                                    {/* Indicator Line */}
+                                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-[#d4af37] opacity-20 group-hover:opacity-100 transition-opacity"></div>
+                                    
+                                    <div className="flex justify-between items-start">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-300 shadow-inner">
+                                                <i className={`fas ${s.category.includes('Phần Mềm') ? 'fa-code' : (s.category.includes('Vận Chuyển') ? 'fa-truck' : 'fa-robot')} text-lg`}></i>
+                                            </div>
+                                            <div>
+                                                <div className="font-extrabold text-white text-base tracking-wide uppercase">{s.supplier}</div>
+                                                <div className="text-zinc-500 text-[10px] font-mono mt-0.5">Mã HĐ: <span className="text-zinc-400">{s.invoiceCode}</span></div>
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <div className="text-white font-bold text-sm bg-zinc-900 px-2 py-1 rounded-lg border border-zinc-800">{formatMoney(s.amount)}</div>
+                                        </div>
+                                    </div>
+
+                                    {/* Progress Bar Vòng Đời */}
+                                    {stats ? (
+                                        <div className={`mt-2 rounded-xl p-3 border ${stats.isUrgent ? 'bg-red-500/5 border-red-500/20' : 'bg-zinc-900/50 border-white/5'}`}>
+                                            <div className="flex justify-between items-end mb-2">
+                                                <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                                                    Vòng đời hoạt động <span className={`ml-2 px-1.5 py-0.5 rounded text-[8px] ${stats.isUrgent ? 'bg-red-500/20 text-red-400' : 'bg-zinc-800 text-zinc-300'}`}>{stats.statusText}</span>
+                                                </div>
+                                                <div className={`text-xs font-black ${stats.isUrgent ? 'text-red-500' : 'text-zinc-300'}`}>
+                                                    {stats.diffDays < 0 ? 'Quá hạn' : `Còn ${stats.diffDays} ngày`}
+                                                </div>
+                                            </div>
+                                            <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
+                                                <div className={`h-full rounded-full ${stats.color}`} style={{ width: `${stats.progressWidth}%` }}></div>
+                                            </div>
+                                            
+                                            {/* Nút Gia Hạn nếu < 7 ngày */}
+                                            {stats.isUrgent && (
+                                                <button onClick={() => setShowModal(true)} className="mt-3 w-full bg-red-500 hover:bg-red-600 text-white font-bold text-xs py-2 rounded-lg transition-colors flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(239,68,68,0.3)]">
+                                                    <i className="fas fa-sync-alt"></i> ĐÁNH GIÁ & GIA HẠN NGAY
+                                                </button>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="mt-2 text-[10px] text-zinc-600 italic px-1">Dịch vụ thanh toán một lần (Không có vòng đời)</div>
+                                    )}
+
+                                    {/* Footer Info */}
+                                    <div className="flex items-center justify-between mt-1 pt-3 border-t border-white/5">
+                                        <div className="text-[10px] text-zinc-500">
+                                            <i className="fas fa-wallet mr-1"></i> {s.paymentMethod}
+                                        </div>
+                                        {s.fileLink ? (
+                                            <a href={s.fileLink} target="_blank" rel="noopener noreferrer" className="text-[#d4af37] text-[10px] font-bold hover:underline">
+                                                <i className="fas fa-external-link-alt mr-1"></i> Xem hóa đơn
+                                            </a>
+                                        ) : (
+                                            <div className="text-zinc-600 text-[10px]"><i className="fas fa-unlink mr-1"></i> Không đính kèm</div>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+
+            {/* Modal Nhập Hóa Đơn Tối Giản (Nút kích hoạt Domino) */}
+            {showModal && (
+                <div className="fixed inset-0 z-[100] flex items-end justify-center sm:items-center">
+                    <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowModal(false)}></div>
+                    <div className="relative bg-[#09090b] border border-white/10 w-full sm:max-w-md h-[90vh] sm:h-[85vh] rounded-t-3xl sm:rounded-3xl flex flex-col shadow-2xl animate-slide-up">
+                        
+                        <div className="flex items-center justify-between p-5 border-b border-white/5">
+                            <h3 className="font-extrabold text-white text-lg flex items-center gap-2 tracking-wide">
+                                <i className="fas fa-bolt text-[#d4af37]"></i> KÍCH HOẠT DOMINO
+                            </h3>
+                            <button onClick={() => setShowModal(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 text-zinc-400 transition-colors">
+                                <i className="fas fa-times"></i>
+                            </button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-5 space-y-5 custom-scrollbar">
+                            
+                            {/* Cảnh báo kiến trúc */}
+                            <div className="bg-[#d4af37]/10 border border-[#d4af37]/20 p-3 rounded-xl flex items-start gap-3">
+                                <i className="fas fa-lock text-[#d4af37] mt-0.5"></i>
+                                <p className="text-[10px] text-[#d4af37]/90 leading-relaxed font-medium">
+                                    <strong className="block text-xs mb-1">Ràng Buộc Kiến Trúc:</strong>
+                                    Hóa đơn này sẽ tự động sinh một Transaction (Phiếu Chi) vào Sổ Quỹ để khớp dòng tiền. Bắt buộc chọn đúng Nguồn Tiền.
+                                </p>
+                            </div>
+
+                            {/* Form Nhập */}
+                            <div className="space-y-4">
+                                {/* Toggle Mode */}
+                                <div className="flex bg-zinc-900/80 p-1 rounded-xl border border-zinc-800">
+                                    <button 
+                                        onClick={() => setIsReconciliationMode(false)}
+                                        className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition-all ${!isReconciliationMode ? 'bg-[#d4af37] text-black shadow-md' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                    >
+                                        <i className="fas fa-plus-circle mr-1.5"></i> Tạo Phiếu Chi Mới
+                                    </button>
+                                    <button 
+                                        onClick={() => setIsReconciliationMode(true)}
+                                        className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition-all ${isReconciliationMode ? 'bg-[#d4af37] text-black shadow-md' : 'text-zinc-500 hover:text-zinc-300'}`}
+                                    >
+                                        <i className="fas fa-link mr-1.5"></i> Đối Soát Tự Động
+                                    </button>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    {isReconciliationMode && (
+                                        <div className="col-span-2 border border-[#d4af37]/30 rounded-xl bg-[#18181b] p-3">
+                                            <div className="flex justify-between items-center mb-3 border-b border-white/5 pb-2">
+                                                <label className="block text-[10px] font-black uppercase tracking-widest text-[#d4af37]">
+                                                    Chọn Phiếu Chi Ngân Hàng <span className="text-red-500">*</span>
+                                                </label>
+                                                <span className="text-xs text-zinc-400 font-bold bg-zinc-900 px-2 py-0.5 rounded">{formData.selectedTxId ? 'Đã chọn 1' : 'Chưa chọn'}</span>
+                                            </div>
+                                            
+                                            <div className="max-h-48 overflow-y-auto custom-scrollbar space-y-2 pr-1">
+                                                {recentTransactions.length === 0 ? (
+                                                    <div className="text-center text-zinc-500 text-xs py-4 italic">Không có Phiếu Chi nào trong 7 ngày qua</div>
+                                                ) : (
+                                                    recentTransactions.map(tx => {
+                                                        const isChecked = formData.selectedTxId === tx.id;
+                                                        return (
+                                                            <div 
+                                                                key={tx.id} 
+                                                                onClick={() => handleTxSelect(tx.id)}
+                                                                className={`p-3 rounded-lg border cursor-pointer flex items-start gap-3 transition-colors ${isChecked ? 'bg-[#d4af37]/10 border-[#d4af37]/50' : 'bg-zinc-900 border-white/5 hover:border-white/10'}`}
+                                                            >
+                                                                <div className={`w-4 h-4 rounded-full mt-0.5 flex items-center justify-center border ${isChecked ? 'bg-[#d4af37] border-[#d4af37]' : 'border-zinc-600'}`}>
+                                                                    {isChecked && <div className="w-2 h-2 rounded-full bg-black"></div>}
+                                                                </div>
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className="flex justify-between">
+                                                                        <span className="text-white font-bold text-sm">{formatMoney(tx.amount)}</span>
+                                                                        <span className="text-zinc-500 text-xs">{(tx.date||'').split('T')[0].split('-').reverse().join('/')}</span>
+                                                                    </div>
+                                                                    <div className="text-zinc-400 text-xs truncate mt-1">{tx.note || tx.title}</div>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="col-span-2">
+                                        <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1.5">Tên Nhân Sự (Nhà Cung Cấp) <span className="text-red-500">*</span></label>
+                                        <input 
+                                            type="text"
+                                            list="suppliers-list"
+                                            placeholder="VNG, Shopee, KiotViet..."
+                                            value={formData.supplier}
+                                            onChange={e => setFormData({...formData, supplier: e.target.value.toUpperCase()})}
+                                            className="w-full bg-zinc-900/50 border border-zinc-800 focus:border-[#d4af37] text-white rounded-xl px-4 py-3 outline-none font-bold placeholder-zinc-700"
+                                        />
+                                        <datalist id="suppliers-list">
+                                            {suppliers.map(s => <option key={s.id} value={s.name} />)}
+                                        </datalist>
+                                    </div>
+                                    <div className="col-span-2">
+                                        <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1.5">Mã Hóa Đơn VAT <span className="text-red-500">*</span></label>
+                                        <input 
+                                            type="text"
+                                            placeholder="Nhập mã Hóa đơn..."
+                                            value={formData.invoiceCode}
+                                            onChange={e => setFormData({...formData, invoiceCode: e.target.value.toUpperCase()})}
+                                            className="w-full bg-zinc-900/50 border border-zinc-800 focus:border-[#d4af37] text-white font-mono rounded-xl px-4 py-3 outline-none"
+                                        />
+                                    </div>
+                                    <div className="col-span-2">
+                                        <label className="block text-[10px] font-black uppercase tracking-widest text-[#d4af37] mb-1.5">Tổng Tiền Hóa Đơn (VNĐ) <span className="text-red-500">*</span></label>
+                                        <input 
+                                            type="number"
+                                            placeholder="VD: 190000"
+                                            value={formData.amount}
+                                            onChange={e => setFormData({...formData, amount: e.target.value})}
+                                            className="w-full bg-[#18181b] border-2 border-[#d4af37]/30 focus:border-[#d4af37] text-[#d4af37] text-xl font-black rounded-xl px-4 py-4 outline-none"
+                                        />
+                                    </div>
+
+                                    <div className={`col-span-2 ${isReconciliationMode ? 'opacity-50 pointer-events-none' : ''}`}>
+                                        <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1.5">Nguồn Trừ Sổ Quỹ <span className="text-red-500">*</span></label>
+                                        <select 
+                                            value={formData.sourceAccount}
+                                            onChange={e => setFormData({...formData, sourceAccount: e.target.value})}
+                                            className="w-full bg-zinc-900/50 border border-zinc-800 focus:border-[#d4af37] text-white rounded-xl px-4 py-3 outline-none font-bold"
+                                            disabled={isReconciliationMode}
+                                        >
+                                            <option value="">-- Chọn Sổ Quỹ --</option>
+                                            {accounts.map(acc => {
+                                                const raw = acc.accountName || acc.name || '';
+                                                let display = raw;
+                                                if (raw.includes('|')) display = raw.split('|')[0].trim();
+                                                return <option key={acc.id} value={acc.id}>{display}</option>;
+                                            })}
+                                        </select>
+                                    </div>
+                                    
+                                    <div>
+                                        <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1.5">Ngày Hết Hạn</label>
+                                        <input 
+                                            type="date"
+                                            value={formData.expiryDate}
+                                            onChange={e => setFormData({...formData, expiryDate: e.target.value})}
+                                            className="w-full bg-zinc-900/50 border border-zinc-800 focus:border-[#d4af37] text-white rounded-xl px-3 py-3 outline-none"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-1.5">Mã Số Thuế NCC</label>
+                                        <input 
+                                            type="text"
+                                            value={formData.taxCode}
+                                            onChange={e => setFormData({...formData, taxCode: e.target.value})}
+                                            className="w-full bg-zinc-900/50 border border-zinc-800 focus:border-[#d4af37] text-white rounded-xl px-3 py-3 outline-none font-mono"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div className="p-5 border-t border-white/5 bg-[#000]">
+                            <button onClick={handleSave} className="w-full bg-[#d4af37] hover:bg-[#c2a030] text-black font-black text-sm uppercase tracking-widest px-4 py-4 rounded-xl shadow-[0_0_20px_rgba(212,175,55,0.2)] flex items-center justify-center gap-2 transition-all active:scale-[0.98]">
+                                <i className="fas fa-bolt"></i> LƯU & TỰ ĐỘNG CẤN TRỪ SỔ QUỸ
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+});
+</script>

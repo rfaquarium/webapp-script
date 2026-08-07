@@ -27,22 +27,35 @@ const parseAccountInfo = (acc) => {
 };
 
 const getBankVisuals = (accName, type) => {
-    if (type === 'Tiền mặt') return { icon: 'fa-wallet', color: 'text-[#10b981]', bg: 'bg-[#10b981]/10', border: 'border-[#10b981]/30' };
+    const str = String(accName || '').toLowerCase();
     
+    if (str.includes('công ty') || str.includes('cong ty')) {
+        return { icon: 'fa-building', color: 'text-blue-500', bg: 'bg-blue-500/10', border: 'border-blue-500/30' };
+    }
+    if (str.includes('giám đốc') || str.includes('giam doc')) {
+        return { icon: 'fa-user-tie', color: 'text-[#8B4513]', bg: 'bg-[#8B4513]/10', border: 'border-[#8B4513]/30' };
+    }
+    if (str.includes('kế toán') || str.includes('ke toan')) {
+        return { icon: 'fa-piggy-bank', color: 'text-pink-500', bg: 'bg-pink-500/10', border: 'border-pink-500/30' };
+    }
+    if (str.includes('đầu tư') || str.includes('dau tu')) {
+        return { icon: 'fa-chart-line', color: 'text-yellow-500', bg: 'bg-yellow-500/10', border: 'border-yellow-500/30' };
+    }
+    if (str.includes('tiền mặt') || str.includes('tien mat') || type === 'Tiền mặt') {
+        return { icon: 'fa-wallet', color: 'text-sky-500', bg: 'bg-sky-500/10', border: 'border-sky-500/30' };
+    }
+    if (str.includes('shopee')) {
+        return { icon: 'fa-shopping-bag', color: 'text-orange-500', bg: 'bg-orange-500/10', border: 'border-orange-500/30' };
+    }
+
     const THEMES = [
-        { icon: 'fa-university', color: 'text-[#3b82f6]', bg: 'bg-[#3b82f6]/10', border: 'border-[#3b82f6]/30' },
-        { icon: 'fa-landmark', color: 'text-[#f43f5e]', bg: 'bg-[#f43f5e]/10', border: 'border-[#f43f5e]/30' },
-        { icon: 'fa-piggy-bank', color: 'text-[#8b5cf6]', bg: 'bg-[#8b5cf6]/10', border: 'border-[#8b5cf6]/30' },
-        { icon: 'fa-vault', color: 'text-[#f59e0b]', bg: 'bg-[#f59e0b]/10', border: 'border-[#f59e0b]/30' },
-        { icon: 'fa-credit-card', color: 'text-[#06b6d4]', bg: 'bg-[#06b6d4]/10', border: 'border-[#06b6d4]/30' },
-        { icon: 'fa-coins', color: 'text-[#ec4899]', bg: 'bg-[#ec4899]/10', border: 'border-[#ec4899]/30' },
-        { icon: 'fa-building', color: 'text-[#14b8a6]', bg: 'bg-[#14b8a6]/10', border: 'border-[#14b8a6]/30' },
-        { icon: 'fa-sack-dollar', color: 'text-[#eab308]', bg: 'bg-[#eab308]/10', border: 'border-[#eab308]/30' },
-        { icon: 'fa-money-bill-wave', color: 'text-[#f97316]', bg: 'bg-[#f97316]/10', border: 'border-[#f97316]/30' },
-        { icon: 'fa-shield-alt', color: 'text-[#6366f1]', bg: 'bg-[#6366f1]/10', border: 'border-[#6366f1]/30' }
+        { icon: 'fa-university', color: 'text-blue-500', bg: 'bg-blue-500/10', border: 'border-blue-500/30' },
+        { icon: 'fa-landmark', color: 'text-rose-500', bg: 'bg-rose-500/10', border: 'border-rose-500/30' },
+        { icon: 'fa-piggy-bank', color: 'text-pink-500', bg: 'bg-pink-500/10', border: 'border-pink-500/30' },
+        { icon: 'fa-vault', color: 'text-amber-500', bg: 'bg-amber-500/10', border: 'border-amber-500/30' },
+        { icon: 'fa-credit-card', color: 'text-cyan-500', bg: 'bg-cyan-500/10', border: 'border-cyan-500/30' }
     ];
 
-    const str = String(accName || 'Unknown');
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
         hash = str.charCodeAt(i) + ((hash << 5) - hash);
@@ -51,13 +64,13 @@ const getBankVisuals = (accName, type) => {
     return THEMES[index];
 };
 
-const MetricField = React.memo(({ label, field, value, isEditing, onChange, color, canView = true }) => {
+const MetricField = React.memo(({ label, field, value, isEditing, onChange, color, canView = true, disabled = false }) => {
     const formatMoney = (val) => Number(val || 0).toLocaleString('vi-VN');
     return (
-        <div className="bg-[#0a0a0a] border border-[#222] p-2.5 rounded-xl flex flex-col justify-center">
+        <div className={`bg-[#0a0a0a] border border-[#222] p-2.5 rounded-xl flex flex-col justify-center ${disabled ? 'opacity-70' : ''}`}>
             <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">{label}</span>
             {isEditing ? (
-                <input type="number" value={value === 0 ? '' : value} onChange={(e) => onChange(field, Number(e.target.value))} className={`w-full bg-[#1a1a1a] border border-[#444] rounded-lg px-2.5 py-1.5 text-[13px] font-black outline-none focus:border-[#d4af37] ${color} transition-colors`} placeholder="0" />
+                <input type="number" disabled={disabled} value={value === 0 ? '' : value} onChange={(e) => onChange(field, Number(e.target.value))} className={`w-full bg-[#1a1a1a] border border-[#444] rounded-lg px-2.5 py-1.5 text-[13px] font-black outline-none focus:border-[#d4af37] ${color} transition-colors ${disabled ? 'cursor-not-allowed' : ''}`} placeholder="0" />
             ) : (
                 <span className={`text-[13px] font-black ${color}`}>
                     {field === 'orderCount' ? (value || 0) : (canView ? formatMoney(value) + 'đ' : '******* đ')}
@@ -104,7 +117,25 @@ function AccountModal({ onClose, onSubmit, initialData }) {
         
         const combinedName = `${cleanName} | ${cleanType} | ${cleanNumber} | ${cleanOwner}`;
         
-        let payload = { Accounts: [{ id: initialData?.id || 'ACC_' + Date.now(), accountName: combinedName, balance: Number(form.balance) || 0 }] };
+        const targetId = initialData?.id || 'ACC_' + Date.now();
+        let payload = { Accounts: [{ id: targetId, accountName: combinedName, balance: Number(form.balance) || 0 }] };
+        
+        if (initialData && Number(form.balance) !== Number(initialData.balance || 0)) {
+            const diff = Number(form.balance) - Number(initialData.balance || 0);
+            payload.Transactions = [{
+                id: 'TX_ADJ_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+                type: diff > 0 ? 'Thu' : 'Chi',
+                category: 'Chi phí khác', // Fallback to a general category
+                amount: Math.abs(diff),
+                title: 'Điều chỉnh cân bằng quỹ',
+                fromAccount: diff < 0 ? targetId : '',
+                toAccount: diff > 0 ? targetId : '',
+                date: new Date().toISOString().replace('T', ' ').slice(0, 19),
+                note: `Hệ thống sinh phiếu điều chỉnh số dư từ ${typeof formatMoney === 'function' ? formatMoney(initialData.balance) : initialData.balance} thành ${typeof formatMoney === 'function' ? formatMoney(form.balance) : form.balance}`,
+                isAuto: true
+            }];
+        }
+
         onSubmit(payload);
     };
 
@@ -143,8 +174,9 @@ function AccountModal({ onClose, onSubmit, initialData }) {
     );
 }
 
-function AccountHistoryModal({ account, allTxs, onClose, secureMoney, pushDeltas, canManageFinance }) {
+function AccountHistoryModal({ account, allTxs, onClose, secureMoney, pushDeltas, canManageFinance, onDeleteTx }) {
     const [viewingProof, setViewingProof] = React.useState(null);
+    const [displayLimit, setDisplayLimit] = React.useState(50);
     const parsed = parseAccountInfo(account);
 
     const historyTxs = React.useMemo(() => {
@@ -217,7 +249,7 @@ function AccountHistoryModal({ account, allTxs, onClose, secureMoney, pushDeltas
                             <div className="text-[12px] font-bold">Chưa có giao dịch nào liên quan đến quỹ này.</div>
                         </div>
                     ) : (
-                        historyTxs.map(t => {
+                        historyTxs.slice(0, displayLimit).map(t => {
                             let displayType = t.type;
                             let displayAmt = t.amount;
                             let colorClass = ''; let sign = '';
@@ -240,6 +272,7 @@ function AccountHistoryModal({ account, allTxs, onClose, secureMoney, pushDeltas
                                             <span className="font-black text-[12px] text-white truncate">{t.title}</span>
                                             <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase border ${displayType.includes('Chuyển') || displayType.includes('Nhận') ? 'bg-[#3b82f6]/20 text-[#3b82f6] border-[#3b82f6]/30' : t.type === 'Thu' ? 'bg-[#10b981]/20 text-[#10b981] border-[#10b981]/30' : 'bg-[#f43f5e]/20 text-[#f43f5e] border-[#f43f5e]/30'}`}>{displayType}</span>
                                             {t.isAuto && <span className="bg-gray-800 text-gray-400 text-[8px] font-black px-1.5 py-0.5 rounded border border-gray-700 uppercase tracking-wider shrink-0">Auto</span>}
+                                            {t.isCleared && <span className="bg-[#10b981]/20 text-[#10b981] border border-[#10b981]/40 text-[8px] font-black px-1.5 py-0.5 rounded shadow-[0_0_8px_rgba(16,185,129,0.3)] tracking-wider shrink-0">✔ ĐÃ ĐỐI SOÁT</span>}
                                             {t.proofImage && (
                                                 <button onClick={() => setViewingProof(t.proofImage)} className="text-[#eab308] hover:text-[#d4af37] text-[10px] bg-[#eab308]/10 px-1.5 py-0.5 rounded border border-[#eab308]/30 flex items-center gap-1 transition-all active:scale-95" title="Xem ảnh chứng từ"><i className="fas fa-image"></i> Ảnh</button>
                                             )}
@@ -256,13 +289,22 @@ function AccountHistoryModal({ account, allTxs, onClose, secureMoney, pushDeltas
                                         </div>
                                         {canManageFinance && (
                                             <div className="flex justify-end gap-2 mt-1">
-                                                <button onClick={(e) => { e.stopPropagation(); if(window.confirm('Xoá giao dịch này? Hệ thống sẽ cập nhật lại số dư quỹ!')) pushDeltas({deletes:{Transactions:[t.id]}}); }} className="text-[10px] text-gray-500 hover:text-rose-500 underline decoration-gray-600 underline-offset-2 opacity-0 group-hover:opacity-100 transition-opacity">Xoá</button>
+                                                {t.isCleared && localStorage.getItem('rf_boss') !== 'true' ? (
+                                                    <span className="text-[9px] text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity" title="Đã đối soát, không thể xoá"><i className="fas fa-lock mr-1"></i>Đã Khóa</span>
+                                                ) : (
+                                                    <button onClick={(e) => { e.stopPropagation(); if (onDeleteTx) onDeleteTx(t); }} className="text-[10px] text-gray-500 hover:text-rose-500 underline decoration-gray-600 underline-offset-2 opacity-0 group-hover:opacity-100 transition-opacity">Xoá</button>
+                                                )}
                                             </div>
                                         )}
                                     </div>
                                 </div>
                             );
                         })
+                    )}
+                    {historyTxs.length > displayLimit && (
+                        <button onClick={() => setDisplayLimit(prev => prev + 50)} className="w-full py-3 mt-2 bg-[#222] text-gray-400 text-[11px] font-bold uppercase rounded-xl hover:bg-[#333] hover:text-white transition-colors border border-[#333] shrink-0">
+                            Xem thêm ({displayLimit} / {historyTxs.length}) <i className="fas fa-chevron-down ml-1"></i>
+                        </button>
                     )}
                 </div>
             </div>
@@ -286,7 +328,7 @@ function ImportStatementModal({ onClose, pushDeltas, triggerToast, erpData, cate
         
         if (typeof window.XLSX === 'undefined') {
             const script = document.createElement('script');
-            script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+            script.src = "https:\/\/cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
             document.body.appendChild(script);
         }
     }, [erpData]);
@@ -380,31 +422,89 @@ function ImportStatementModal({ onClose, pushDeltas, triggerToast, erpData, cate
                 }
             } catch(e) {}
 
-            let type = ''; let amount = 0; let category = 'Khác';
+            let type = ''; let amount = 0; let category = 'Chờ Xử Lý';
             
             if (credit > 0) {
                 type = 'Thu'; amount = credit;
                 const thuVals = (categories?.THU || []).map(c => c.value);
                 if (rawDesc.toUpperCase().includes('SHOPEE') || rawDesc.toUpperCase().includes('TIKTOK')) {
-                    category = thuVals.includes('Doanh Thu Bán Hàng') ? 'Doanh Thu Bán Hàng' : (thuVals[0] || 'Khác');
-                } else category = thuVals.includes('Thu Khác') ? 'Thu Khác' : (thuVals[0] || 'Khác');
+                    category = thuVals.includes('Thu Tiền Bán Hàng') ? 'Thu Tiền Bán Hàng' : 'Chờ Xử Lý';
+                }
             } else if (debit > 0) {
                 type = 'Chi'; amount = debit;
                 const chiVals = (categories?.CHI || []).map(c => c.value);
                 if (rawDesc.toUpperCase().includes('LUONG') || rawDesc.toUpperCase().includes('THUONG')) {
-                    category = chiVals.includes('Trả Lương') ? 'Trả Lương' : (chiVals[0] || 'Khác');
+                    category = chiVals.includes('Trả Lương') ? 'Trả Lương' : 'Chờ Xử Lý';
                 } else if (rawDesc.toUpperCase().includes('CHUYEN TIEN') || rawDesc.toUpperCase().includes('CHUYEN KHOAN')) {
-                    category = chiVals.includes('Thanh Toán Hoá Đơn') ? 'Thanh Toán Hoá Đơn' : (chiVals[0] || 'Khác');
-                } else category = chiVals.includes('Chi Phí Khác') ? 'Chi Phí Khác' : (chiVals[0] || 'Khác');
+                    category = chiVals.includes('Thanh Toán NCC') ? 'Thanh Toán NCC' : 'Chờ Xử Lý';
+                }
             }
 
-            const isDup = existingTxs.some(t => Number(t.amount) === amount && t.type === type && String(t.date).substring(0, 10) === formattedDate.substring(0, 10));
+            const cleanText = (str) => {
+                if (!str) return '';
+                return String(str).toLowerCase().replace(/[^a-z0-9]/g, '');
+            };
 
-            parsedTransactions.push({ _id: 'TEMP_' + Date.now() + i, date: formattedDate, type: type, amount: amount, category: category, note: rawDesc, title: `${type} Sao Kê`, isDuplicate: isDup });
+            let dupLevel = 0; // 0: Xanh, 1: Vàng (Nghi ngờ), 2: Đỏ (Chắc chắn trùng), 3: Xanh lá ngọc (Khớp lệnh)
+            let matchedTxId = null;
+
+            const extractOrderId = (text) => {
+                const match = String(text || '').match(/(DH|RF|SO|HD|DH-)\s*([0-9]{4,8})/i);
+                return match ? match[0].replace(/\s+/g, '').toUpperCase() : null;
+            };
+
+            const noteImportClean = cleanText(rawDesc);
+            const orderIdImport = extractOrderId(rawDesc);
+
+            existingTxs.forEach(t => {
+                if (dupLevel === 2) return;
+                
+                const sameAmount = Number(t.amount) === amount;
+                const sameType = t.type === type;
+                if (!sameAmount || !sameType) return;
+                
+                const noteDBClean = cleanText(t.note);
+                const orderIdDB = extractOrderId(t.note);
+                
+                // Tier 1: Khớp tuyệt đối (Order ID)
+                if (orderIdImport && orderIdDB && orderIdImport === orderIdDB) {
+                    if (t.isCleared || t.isAuto) {
+                        dupLevel = 2; // Đã đối soát hoặc đã import trước đó -> Trùng lặp
+                    } else {
+                        dupLevel = 3; // Khớp lệnh
+                        matchedTxId = t.id;
+                    }
+                    return;
+                }
+                
+                // Tier 2: Khớp tương đối (+- 5 ngày)
+                const tDate = new Date(t.date);
+                const importDate = new Date(formattedDate);
+                const diffDays = Math.abs(tDate - importDate) / (1000 * 60 * 60 * 24);
+                
+                if (diffDays <= 5) {
+                    const isSameDesc = (noteDBClean && noteImportClean && (noteDBClean.includes(noteImportClean) || noteImportClean.includes(noteDBClean)));
+                    if (isSameDesc) {
+                        if (t.isCleared || t.isAuto) {
+                            dupLevel = 2; // Trùng
+                        } else {
+                            dupLevel = 3; // Khớp lệnh
+                            matchedTxId = t.id;
+                        }
+                    } else if (dupLevel < 2 && diffDays === 0) {
+                        dupLevel = 1; // Vàng: Trùng ngày & số tiền nhưng khác nội dung
+                    }
+                }
+            });
+            
+            if (dupLevel === 3 && type === 'Thu') category = 'Bán Hàng';
+
+            parsedTransactions.push({ _id: 'TEMP_' + Date.now() + i, date: formattedDate, type: type, amount: amount, category: category, note: rawDesc, title: `${type} Sao Kê`, dupLevel: dupLevel, matchedTxId: matchedTxId });
         }
 
         setScannedData(parsedTransactions);
-        setSelectedRows(new Set(parsedTransactions.filter(t => !t.isDuplicate).map(t => t._id)));
+        // Mặc định CHỈ TỰ ĐỘNG CHỌN các giao dịch màu Xanh (Hợp lệ) hoặc Xanh Ngọc (Khớp lệnh)
+        setSelectedRows(new Set(parsedTransactions.filter(t => t.dupLevel === 0 || t.dupLevel === 3).map(t => t._id)));
         setIsProcessing(false);
         triggerToast(`Đã quét xong ${parsedTransactions.length} giao dịch!`, 'fa-check', 'success');
     };
@@ -431,14 +531,31 @@ function ImportStatementModal({ onClose, pushDeltas, triggerToast, erpData, cate
         let totalNet = 0;
 
         transactionsToImport.forEach((t, i) => {
-            const finalId = 'TX_SK_' + Date.now() + i;
-            payload.Transactions.push({
-                id: finalId, type: t.type, category: t.category, amount: t.amount, date: t.date, title: t.title, note: t.note,
-                fromAccount: t.type === 'Chi' ? selectedBankId : '',
-                toAccount: t.type === 'Thu' ? selectedBankId : '',
-                isAuto: true
-            });
-            totalNet += t.type === 'Thu' ? t.amount : -t.amount;
+            if (t.dupLevel === 3 && t.matchedTxId) {
+                // UPDATE EXISITNG TRANSACTION -> Cập nhật isCleared = true, và ghi nhận bankRef
+                payload.Transactions.push({
+                    id: t.matchedTxId,
+                    isCleared: true,
+                    bankRef: 'BNK_' + Date.now() + '_' + i
+                });
+                // Nếu đối soát thu thì có thể là không cộng tiền vào quỹ nữa vì quỹ có thể đã cộng lúc thủ quỹ cầm tiền mặt
+                // Tuy nhiên, bank đã nhận tiền, tức là quỹ Bank tăng. Tuỳ thuộc hệ thống có tách quỹ Bank riêng không.
+                // Nếu Bank Account là quỹ đích, thì vẫn phải cộng cho nó, trừ khi Quỹ Bán Hàng chuyển sang.
+                // Tạm thời vẫn cộng trừ theo logic cũ để đảm bảo quỹ Bank đúng với sao kê.
+                totalNet += t.type === 'Thu' ? t.amount : -t.amount;
+            } else {
+                // TẠO MỚI GIAO DỊCH SAO KÊ
+                const finalId = 'TX_SK_' + Date.now() + i;
+                payload.Transactions.push({
+                    id: finalId, type: t.type, category: t.category, amount: t.amount, date: t.date, title: t.title, note: t.note,
+                    fromAccount: t.type === 'Chi' ? selectedBankId : '',
+                    toAccount: t.type === 'Thu' ? selectedBankId : '',
+                    isAuto: true,
+                    isCleared: true,
+                    bankRef: 'BNK_' + Date.now() + '_' + i
+                });
+                totalNet += t.type === 'Thu' ? t.amount : -t.amount;
+            }
         });
 
         const acc = bankAccounts.find(a => a.id === selectedBankId);
@@ -509,18 +626,42 @@ function ImportStatementModal({ onClose, pushDeltas, triggerToast, erpData, cate
                                 <tbody>
                                     {scannedData.map(t => {
                                         const isSelected = selectedRows.has(t._id);
+                                        
+                                        let rowClass = 'hover:bg-[#1a1a1a] cursor-pointer';
+                                        let textClass = 'text-gray-300';
+                                        let tagHtml = null;
+                                        let chkClass = isSelected ? 'bg-[#3b82f6] border-[#3b82f6] text-white' : 'border-[#444] text-transparent';
+
+                                        if (t.dupLevel === 2) {
+                                            rowClass = 'opacity-40 cursor-not-allowed bg-[#1a1a1a]';
+                                            textClass = 'text-gray-500 line-through';
+                                            tagHtml = <div className="text-[8px] text-rose-500 font-black bg-rose-500/10 px-1 py-0.5 rounded mt-1 inline-block border border-rose-500/30 tracking-widest uppercase">Trùng Lặp</div>;
+                                        } else if (t.dupLevel === 3) {
+                                            rowClass = 'hover:bg-[#10b981]/20 cursor-pointer bg-[#10b981]/10 border-[#10b981]/50';
+                                            textClass = 'text-[#10b981]';
+                                            tagHtml = <div className="text-[8px] text-[#10b981] font-black bg-[#10b981]/20 px-1.5 py-0.5 rounded mt-1 inline-block border border-[#10b981]/40 tracking-widest uppercase shadow-[0_0_10px_rgba(16,185,129,0.3)]"><i className="fas fa-check-double mr-1"></i> Đối Soát</div>;
+                                            if (isSelected) chkClass = 'bg-[#10b981] border-[#10b981] text-white';
+                                        } else if (t.dupLevel === 1) {
+                                            rowClass = 'hover:bg-amber-900/20 cursor-pointer bg-amber-900/10 border-amber-900/50';
+                                            textClass = 'text-amber-200';
+                                            tagHtml = <div className="text-[8px] text-amber-500 font-black bg-amber-500/10 px-1 py-0.5 rounded mt-1 inline-block border border-amber-500/30 tracking-widest uppercase" title="Trùng ngày & số tiền nhưng khác nội dung">Nghi Ngờ</div>;
+                                            if (isSelected) rowClass = t.type === 'Thu' ? 'bg-[#10b981]/10' : 'bg-rose-500/10';
+                                        } else {
+                                            if (isSelected) rowClass = t.type === 'Thu' ? 'bg-[#10b981]/10' : 'bg-rose-500/10';
+                                        }
+
                                         return (
-                                            <tr key={t._id} onClick={() => !t.isDuplicate && toggleRow(t._id)} className={`border-b border-[#222] transition-colors ${t.isDuplicate ? 'opacity-40 cursor-not-allowed bg-[#1a1a1a]' : 'cursor-pointer'} ${isSelected ? (t.type === 'Thu' ? 'bg-[#10b981]/10' : 'bg-rose-500/10') : 'hover:bg-[#1a1a1a]'}`}>
-                                                <td className="p-2 text-center"><div className={`w-4 h-4 rounded border flex items-center justify-center mx-auto ${isSelected ? 'bg-[#3b82f6] border-[#3b82f6] text-white' : 'border-[#444] text-transparent'}`}><i className="fas fa-check text-[8px]"></i></div></td>
-                                                <td className="p-2 font-mono"><div className={t.isDuplicate ? "text-gray-500 line-through" : "text-gray-300"}>{t.date}</div>{t.isDuplicate && <div className="text-[8px] text-rose-500 font-black bg-rose-500/10 px-1 py-0.5 rounded mt-1 inline-block border border-rose-500/30 tracking-widest uppercase">Đã có trên hệ thống</div>}</td>
-                                                <td className="p-2"><span className={`px-1.5 py-0.5 rounded font-black text-[9px] uppercase ${t.isDuplicate ? 'bg-[#333] text-gray-500' : (t.type === 'Thu' ? 'bg-[#10b981]/20 text-[#10b981]' : 'bg-rose-500/20 text-rose-500')}`}>{t.type}</span></td>
-                                                <td className={`p-2 text-right font-black ${t.isDuplicate ? 'text-gray-500 line-through' : (t.type === 'Thu' ? 'text-[#10b981]' : 'text-rose-500')}`}>{Number(t.amount).toLocaleString('vi-VN')}đ</td>
+                                            <tr key={t._id} onClick={() => t.dupLevel !== 2 && toggleRow(t._id)} className={`border-b border-[#222] transition-colors ${rowClass}`}>
+                                                <td className="p-2 text-center"><div className={`w-4 h-4 rounded border flex items-center justify-center mx-auto ${chkClass}`}><i className="fas fa-check text-[8px]"></i></div></td>
+                                                <td className="p-2 font-mono"><div className={textClass}>{t.date}</div>{tagHtml}</td>
+                                                <td className="p-2"><span className={`px-1.5 py-0.5 rounded font-black text-[9px] uppercase ${t.dupLevel === 2 ? 'bg-[#333] text-gray-500' : (t.type === 'Thu' ? 'bg-[#10b981]/20 text-[#10b981]' : 'bg-rose-500/20 text-rose-500')}`}>{t.type}</span></td>
+                                                <td className={`p-2 text-right font-black ${t.dupLevel === 2 ? 'text-gray-500 line-through' : (t.type === 'Thu' ? 'text-[#10b981]' : 'text-rose-500')}`}>{Number(t.amount).toLocaleString('vi-VN')}đ</td>
                                                 <td className="p-2">
-                                                    <select value={t.category} disabled={t.isDuplicate} onClick={e => e.stopPropagation()} onChange={(e) => { const newData = [...scannedData]; const idx = newData.findIndex(x => x._id === t._id); newData[idx].category = e.target.value; setScannedData(newData); }} className={`w-full bg-[#111] border border-[#333] rounded text-[10px] p-1.5 outline-none font-bold ${t.isDuplicate ? 'text-gray-600' : 'text-white focus:border-[#3b82f6]'}`}>
+                                                    <select value={t.category} disabled={t.dupLevel === 2} onClick={e => e.stopPropagation()} onChange={(e) => { const newData = [...scannedData]; const idx = newData.findIndex(x => x._id === t._id); newData[idx].category = e.target.value; setScannedData(newData); }} className={`w-full bg-[#111] border border-[#333] rounded text-[10px] p-1.5 outline-none font-bold ${t.dupLevel === 2 ? 'text-gray-600' : 'text-white focus:border-[#3b82f6]'}`}>
                                                         {(t.type === 'Thu' ? (categories?.THU || []) : (categories?.CHI || [])).map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                                                     </select>
                                                 </td>
-                                                <td className={`p-2 font-medium line-clamp-2 leading-snug ${t.isDuplicate ? 'text-gray-600' : 'text-gray-300'}`} title={t.note}>{t.note}</td>
+                                                <td className={`p-2 font-medium line-clamp-2 leading-snug ${t.dupLevel === 2 ? 'text-gray-600' : (t.dupLevel === 1 ? 'text-amber-200/80' : 'text-gray-300')}`} title={t.note}>{t.note}</td>
                                             </tr>
                                         );
                                     })}
@@ -539,6 +680,393 @@ function ImportStatementModal({ onClose, pushDeltas, triggerToast, erpData, cate
     );
 }
 
+function ShopeeWalletScannerModal({ categories, erpData, onClose, pushDeltas, triggerToast, accountsData }) {
+    const [isProcessing, setIsProcessing] = React.useState(false);
+    const [scannedData, setScannedData] = React.useState([]);
+    const [selectedRows, setSelectedRows] = React.useState(new Set());
+    const [selectedWalletId, setSelectedWalletId] = React.useState('');
+    const fileInputRef = React.useRef(null);
+
+    const shopeeAccounts = React.useMemo(() => {
+        return (accountsData || []).filter(a => {
+            const p = parseAccountInfo(a);
+            return p.name.toLowerCase().includes('shopee') || p.name.toLowerCase().includes('ví');
+        });
+    }, [accountsData]);
+
+    React.useEffect(() => {
+        if (shopeeAccounts.length > 0) {
+            setSelectedWalletId(shopeeAccounts[0].id);
+        } else if (accountsData && accountsData.length > 0) {
+            setSelectedWalletId(accountsData[0].id);
+        }
+    }, [shopeeAccounts, accountsData]);
+
+    const existingTxs = erpData?.Transactions || [];
+
+    const handleFileUpload = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setIsProcessing(true);
+        const reader = new FileReader();
+
+        reader.onload = (evt) => {
+            try {
+                const data = new Uint8Array(evt.target.result);
+                const wb = window.XLSX.read(data, { type: 'array' });
+                let bestSheet = wb.Sheets[wb.SheetNames[0]];
+                let rows = window.XLSX.utils.sheet_to_json(bestSheet, { header: 1, defval: '' });
+
+                if (rows.length < 2) {
+                    triggerToast('File rỗng hoặc không đúng định dạng!', 'fa-exclamation', 'warning');
+                    setIsProcessing(false);
+                    return;
+                }
+
+                let headerIdx = 0;
+                for (let i = 0; i < Math.min(15, rows.length); i++) {
+                    const rowStr = (rows[i] || []).join(' ').toLowerCase();
+                    if (rowStr.includes('loại giao dịch') || rowStr.includes('số tiền') || rowStr.includes('mô tả') || rowStr.includes('mã đơn hàng') || rowStr.includes('transaction type') || rowStr.includes('amount')) {
+                        headerIdx = i;
+                        break;
+                    }
+                }
+
+                const headers = (rows[headerIdx] || []).map(h => String(h).toLowerCase().trim());
+                const findCol = (keys) => headers.findIndex(h => keys.some(k => String(h).includes(k)));
+
+                let iDate = findCol(['ngày', 'thời gian', 'date', 'created at', 'thời gian tạo']);
+                let iType = findCol(['loại giao dịch', 'transaction type', 'loại']);
+                let iAmount = findCol(['số tiền (vnd)', 'số tiền', 'amount', 'tiền']);
+                let iDesc = findCol(['mô tả', 'description', 'mã đơn hàng/mã hoàn tiền', 'mã đơn hàng', 'order id', 'mã giao dịch']);
+
+                if (iAmount === -1) {
+                    alert('Không tìm thấy cột Số tiền trong file này! Các cột hiện có: ' + headers.join(', '));
+                    setIsProcessing(false);
+                    return;
+                }
+
+                let parsedTransactions = [];
+                const parseAmt = (val) => parseFloat(String(val || '0').replace(/[^0-9.-]/g, '')) || 0;
+
+                for (let i = headerIdx + 1; i < rows.length; i++) {
+                    const cols = rows[i];
+                    if (!cols || cols.length === 0) continue;
+
+                    let amount = parseAmt(cols[iAmount]);
+                    if (amount === 0) continue;
+
+                    let rawDate = iDate >= 0 && cols[iDate] ? String(cols[iDate]).trim() : new Date().toISOString().slice(0, 10);
+                    let formattedDate = rawDate;
+                    if (rawDate.includes('/')) {
+                        const parts = rawDate.split(' ')[0].split('/');
+                        if (parts.length === 3) {
+                            if (parts[2].length === 4) formattedDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+                        }
+                    }
+
+                    let rawType = iType >= 0 && cols[iType] ? String(cols[iType]).trim() : '';
+                    let rawDesc = iDesc >= 0 && cols[iDesc] ? String(cols[iDesc]).trim() : '';
+                    
+                    let type = amount > 0 ? 'Thu' : 'Chi';
+                    if (rawType.toLowerCase().includes('rút tiền') || rawDesc.toLowerCase().includes('rút tiền')) {
+                        type = 'Chuyển';
+                    }
+
+                    let category = 'Giao Dịch Shopee';
+                    if (type === 'Chuyển') {
+                        category = 'Rút Tiền Shopee';
+                    } else if (type === 'Thu') {
+                        category = 'Bán Hàng';
+                    } else {
+                        category = 'Chi Phí Bán Hàng';
+                    }
+
+                    let fullNote = (rawType ? `[${rawType}] ` : '') + rawDesc;
+
+                    const cleanText = (str) => String(str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                    const extractOrderId = (text) => {
+                        const match = String(text || '').match(/(DH|RF|SO|HD|DH-)\s*([0-9]{4,8})/i);
+                        return match ? match[0].replace(/\s+/g, '').toUpperCase() : null;
+                    };
+                    
+                    let dupLevel = 0; // 0: Xanh, 1: Vàng (Nghi ngờ), 2: Đỏ (Chắc chắn trùng), 3: Khớp lệnh
+                    let matchedTxId = null;
+                    const noteImportClean = cleanText(fullNote);
+                    const orderIdImport = extractOrderId(fullNote);
+
+                    existingTxs.forEach(t => {
+                        if (dupLevel === 2) return;
+                        
+                        const sameAmount = Math.abs(Number(t.amount)) === Math.abs(amount);
+                        if (!sameAmount) return;
+                        
+                        const noteDBClean = cleanText(t.note);
+                        const orderIdDB = extractOrderId(t.note);
+                        
+                        // Tier 1: Khớp tuyệt đối (Order ID)
+                        if (orderIdImport && orderIdDB && orderIdImport === orderIdDB) {
+                            if (t.isCleared || t.isAuto) {
+                                dupLevel = 2; // Đã đối soát hoặc đã import trước đó -> Trùng lặp
+                            } else {
+                                dupLevel = 3; // Khớp lệnh
+                                matchedTxId = t.id;
+                            }
+                            return;
+                        }
+                        
+                        // Tier 2: Khớp tương đối (+- 5 ngày)
+                        const tDate = new Date(t.date);
+                        const importDate = new Date(formattedDate);
+                        const diffDays = Math.abs(tDate - importDate) / (1000 * 60 * 60 * 24);
+                        
+                        if (diffDays <= 5) {
+                            const isSameDesc = (noteDBClean && noteImportClean && (noteDBClean.includes(noteImportClean) || noteImportClean.includes(noteDBClean)));
+                            if (isSameDesc) {
+                                if (t.isCleared || t.isAuto) {
+                                    dupLevel = 2; // Trùng
+                                } else {
+                                    dupLevel = 3; // Khớp lệnh
+                                    matchedTxId = t.id;
+                                }
+                            } else if (dupLevel < 2 && diffDays === 0) {
+                                dupLevel = 1; // Vàng: Trùng ngày & số tiền nhưng khác nội dung
+                            }
+                        }
+                    });
+
+                    parsedTransactions.push({
+                        _id: 'TEMP_SHP_' + Date.now() + i,
+                        date: formattedDate,
+                        type: type,
+                        amount: Math.abs(amount),
+                        rawAmount: amount,
+                        category: category,
+                        note: fullNote,
+                        title: rawType || `Giao Dịch Ví Shopee`,
+                        dupLevel: dupLevel,
+                        matchedTxId: matchedTxId
+                    });
+                }
+
+                setScannedData(parsedTransactions);
+                setSelectedRows(new Set(parsedTransactions.filter(t => t.dupLevel === 0 || t.dupLevel === 3).map(t => t._id)));
+                setIsProcessing(false);
+                triggerToast(`Đã bóc tách thành công ${parsedTransactions.length} giao dịch Ví Shopee!`, 'fa-check', 'success');
+            } catch (err) {
+                alert("Lỗi phân tích file Excel Ví Shopee!");
+                setIsProcessing(false);
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    };
+
+    const toggleRow = (id) => {
+        const newSet = new Set(selectedRows);
+        if (newSet.has(id)) newSet.delete(id); else newSet.add(id);
+        setSelectedRows(newSet);
+    };
+
+    const toggleAll = () => {
+        if (selectedRows.size === scannedData.length) setSelectedRows(new Set());
+        else setSelectedRows(new Set(scannedData.map(t => t._id)));
+    };
+
+    const handleImport = async () => {
+        if (selectedRows.size === 0) return triggerToast('Vui lòng chọn ít nhất 1 giao dịch!', 'fa-exclamation', 'warning');
+        
+        let walletAccId = selectedWalletId;
+        let newAccounts = [];
+
+        if (!walletAccId) {
+            const shopeeAcc = (accountsData || []).find(a => String(a.accountName).toLowerCase().includes('shopee'));
+            if (shopeeAcc) {
+                walletAccId = shopeeAcc.id;
+            } else {
+                walletAccId = 'ACC_SHOPEE_' + Date.now();
+                newAccounts.push({ id: walletAccId, accountName: 'Ví Shopee - 0945445497 | Ngân hàng | --- | ---', balance: 0 });
+            }
+        }
+
+        setIsProcessing(true);
+        const transactionsToImport = scannedData.filter(t => selectedRows.has(t._id));
+        
+        let payload = { Transactions: [], Accounts: [...newAccounts] };
+        let walletBalanceDelta = 0;
+
+        transactionsToImport.forEach((t, i) => {
+            let isThu = t.type === 'Thu';
+            let isChi = t.type === 'Chi';
+            let isChuyen = t.type === 'Chuyển';
+            
+            if (t.dupLevel === 3 && t.matchedTxId) {
+                payload.Transactions.push({
+                    id: t.matchedTxId,
+                    isCleared: true,
+                    bankRef: 'SHP_' + Date.now() + '_' + i
+                });
+            } else {
+                const finalId = 'TX_SHP_' + Date.now() + i;
+                payload.Transactions.push({
+                    id: finalId,
+                    type: t.type,
+                    category: t.category,
+                    amount: t.amount,
+                    date: t.date,
+                    title: t.title,
+                    note: t.note,
+                    fromAccount: isChi || isChuyen ? walletAccId : '',
+                    toAccount: isThu ? walletAccId : '',
+                    isAuto: true,
+                    isCleared: true,
+                    bankRef: 'SHP_' + Date.now() + '_' + i
+                });
+            }
+
+            if (isThu) walletBalanceDelta += t.amount;
+            if (isChi || isChuyen) walletBalanceDelta -= t.amount;
+        });
+
+        const targetAcc = (accountsData || []).find(a => a.id === walletAccId) || newAccounts[0];
+        if (targetAcc) {
+            payload.Accounts.push({ ...targetAcc, balance: Number(targetAcc.balance || 0) + walletBalanceDelta });
+        }
+
+        try {
+            await pushDeltas(payload, `Đã cập nhật ${transactionsToImport.length} giao dịch vào Ví Shopee!`, 'fa-wallet');
+            onClose();
+        } catch (e) {
+            triggerToast('Lỗi khi lưu giao dịch Ví Shopee!', 'fa-times', 'danger');
+            setIsProcessing(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/90 flex flex-col items-center justify-center z-[9999] p-4 backdrop-blur-sm animate-fade-in" onClick={onClose}>
+            <div className="bg-[#141414] border border-orange-500/50 w-full max-w-4xl rounded-3xl p-5 shadow-[0_0_40px_rgba(249,115,22,0.2)] flex flex-col h-[90vh] relative animate-slide-up" onClick={e => e.stopPropagation()}>
+                <button onClick={onClose} className="absolute top-4 right-4 w-8 h-8 rounded-full bg-[#222] text-gray-500 hover:text-white hover:bg-rose-500 flex items-center justify-center transition-all z-20"><i className="fas fa-times text-sm"></i></button>
+                
+                <div className="flex items-center gap-3 mb-4 border-b border-[#222] pb-3 shrink-0">
+                    <div className="w-10 h-10 rounded-full bg-orange-500/20 text-orange-500 flex items-center justify-center text-xl"><i className="fas fa-wallet"></i></div>
+                    <div>
+                        <h3 className="font-black text-white text-[16px] uppercase tracking-widest leading-none">Máy Quét Giao Dịch Ví Shopee</h3>
+                        <p className="text-orange-400 text-[11px] mt-1">Đọc file báo cáo Ví Shopee (my_balance_transaction_report...)</p>
+                    </div>
+                </div>
+
+                <div className="flex gap-3 mb-4 shrink-0">
+                    <div className="flex-1">
+                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1">1. Tải lên File Báo Cáo Ví Shopee</label>
+                        <div className="relative">
+                            <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx, .xls, .csv" className="hidden" />
+                            <button onClick={() => fileInputRef.current?.click()} disabled={isProcessing} className="w-full bg-[#0a0a0a] border-2 border-dashed border-[#333] hover:border-orange-500 text-gray-400 hover:text-white rounded-xl py-4 flex flex-col items-center justify-center transition-all cursor-pointer">
+                                {isProcessing ? <i className="fas fa-spinner fa-spin text-2xl text-orange-500 mb-2"></i> : <i className="fas fa-file-excel text-2xl text-orange-500 mb-2"></i>}
+                                <span className="font-bold text-[12px]">{isProcessing ? 'Đang phân tích...' : 'Bấm để chọn File Excel (my_balance_transaction_report...)'}</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="flex-[0.5]">
+                        <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest block mb-1">2. Chọn Quỹ Ví Shopee</label>
+                        <select value={selectedWalletId} onChange={(e) => setSelectedWalletId(e.target.value)} className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl p-3 text-orange-400 font-bold outline-none focus:border-orange-500 h-[78px]">
+                            {(accountsData || []).length === 0 ? <option value="">-- Tự động tạo Ví Shopee --</option> : null}
+                            {(accountsData || []).map(a => {
+                                const p = parseAccountInfo(a);
+                                return <option key={a.id} value={a.id}>{p.name} {p.number ? `- ${p.number}` : ''}</option>;
+                            })}
+                        </select>
+                    </div>
+                </div>
+
+                <div className="flex-1 overflow-hidden flex flex-col bg-[#0a0a0a] border border-[#222] rounded-xl">
+                    <div className="flex items-center justify-between p-2 bg-[#1a1a1a] border-b border-[#333] shrink-0">
+                        <div className="text-[11px] font-black text-white ml-2">KẾT QUẢ BÓC TÁCH VÍ SHOPEE ({scannedData.length} Giao dịch)</div>
+                        <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-gray-400 font-bold">Hợp lệ để Import: <b className="text-orange-400">{selectedRows.size}</b></span>
+                            <button onClick={toggleAll} className="px-3 py-1.5 bg-[#222] text-[10px] font-bold text-white rounded hover:bg-[#333]">Chọn / Bỏ chọn tất cả</button>
+                        </div>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto custom-scrollbar p-2">
+                        {scannedData.length === 0 ? (
+                            <div className="h-full flex flex-col items-center justify-center text-gray-500 opacity-50">
+                                <i className="fas fa-wallet text-4xl mb-3 text-orange-500"></i>
+                                <div className="text-[12px] font-bold">Chưa có dữ liệu. Vui lòng chọn file báo cáo Ví Shopee.</div>
+                            </div>
+                        ) : (
+                            <table className="w-full text-left border-collapse text-[11px]">
+                                <thead>
+                                    <tr className="text-gray-500 font-black tracking-wider uppercase border-b border-[#333] sticky top-0 bg-[#0a0a0a] z-10">
+                                        <th className="p-2 w-10 text-center">X</th>
+                                        <th className="p-2 w-[120px]">Thời gian</th>
+                                        <th className="p-2 w-[70px]">Loại</th>
+                                        <th className="p-2 w-[110px] text-right">Số tiền</th>
+                                        <th className="p-2 w-[140px]">Danh mục</th>
+                                        <th className="p-2">Diễn giải giao dịch</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {scannedData.map(t => {
+                                        const isSelected = selectedRows.has(t._id);
+                                        let rowClass = 'hover:bg-[#1a1a1a] cursor-pointer';
+                                        let textClass = 'text-gray-300';
+                                        let tagHtml = null;
+                                        let chkClass = isSelected ? 'bg-orange-500 border-orange-500 text-white' : 'border-[#444] text-transparent';
+
+                                        if (t.dupLevel === 2) {
+                                            rowClass = 'opacity-40 cursor-not-allowed bg-[#1a1a1a]';
+                                            textClass = 'text-gray-500 line-through';
+                                            tagHtml = <div className="text-[8px] text-rose-500 font-black bg-rose-500/10 px-1 py-0.5 rounded mt-1 inline-block border border-rose-500/30 tracking-widest uppercase">Trùng Lặp</div>;
+                                        } else if (t.dupLevel === 3) {
+                                            rowClass = 'hover:bg-[#10b981]/20 cursor-pointer bg-[#10b981]/10 border-[#10b981]/50';
+                                            textClass = 'text-[#10b981]';
+                                            tagHtml = <div className="text-[8px] text-[#10b981] font-black bg-[#10b981]/20 px-1.5 py-0.5 rounded mt-1 inline-block border border-[#10b981]/40 tracking-widest uppercase shadow-[0_0_10px_rgba(16,185,129,0.3)]"><i className="fas fa-check-double mr-1"></i> Đối Soát</div>;
+                                            if (isSelected) chkClass = 'bg-[#10b981] border-[#10b981] text-white';
+                                        } else if (t.dupLevel === 1) {
+                                            rowClass = 'hover:bg-amber-900/20 cursor-pointer bg-amber-900/10 border-amber-900/50';
+                                            textClass = 'text-amber-200';
+                                            tagHtml = <div className="text-[8px] text-amber-500 font-black bg-amber-500/10 px-1 py-0.5 rounded mt-1 inline-block border border-amber-500/30 uppercase tracking-widest" title="Trùng ngày & số tiền nhưng khác nội dung">Nghi Ngờ</div>;
+                                            if (isSelected) rowClass = t.type === 'Thu' ? 'bg-[#10b981]/10' : 'bg-orange-500/10';
+                                        } else {
+                                            if (isSelected) rowClass = t.type === 'Thu' ? 'bg-[#10b981]/10' : 'bg-orange-500/10';
+                                        }
+
+                                        return (
+                                            <tr key={t._id} onClick={() => t.dupLevel !== 2 && toggleRow(t._id)} className={`border-b border-[#222] transition-colors ${rowClass}`}>
+                                                <td className="p-2 text-center"><div className={`w-4 h-4 rounded border flex items-center justify-center mx-auto ${chkClass}`}><i className="fas fa-check text-[8px]"></i></div></td>
+                                                <td className="p-2 font-mono"><div className={textClass}>{t.date}</div>{tagHtml}</td>
+                                                <td className="p-2"><span className={`px-1.5 py-0.5 rounded font-black text-[9px] uppercase ${t.type === 'Thu' ? 'bg-[#10b981]/20 text-[#10b981]' : t.type === 'Chuyển' ? 'bg-blue-500/20 text-blue-400' : 'bg-rose-500/20 text-rose-500'}`}>{t.type}</span></td>
+                                                <td className={`p-2 text-right font-black ${t.type === 'Thu' ? 'text-[#10b981]' : t.type === 'Chuyển' ? 'text-blue-400' : 'text-rose-500'}`}>{Number(t.amount).toLocaleString('vi-VN')}đ</td>
+                                                <td className="p-2">
+                                                    <select value={t.category} disabled={t.dupLevel === 2} onClick={e => e.stopPropagation()} onChange={(e) => { const newData = [...scannedData]; const idx = newData.findIndex(x => x._id === t._id); newData[idx].category = e.target.value; setScannedData(newData); }} className="w-full bg-[#111] border border-[#333] rounded text-[10px] p-1.5 outline-none font-bold text-white focus:border-orange-500">
+                                                        <option value="Bán Hàng">Bán Hàng</option>
+                                                        <option value="Chi Phí Bán Hàng">Chi Phí Bán Hàng</option>
+                                                        <option value="Rút Tiền Shopee">Rút Tiền Shopee</option>
+                                                        <option value="Hoàn Tiền Khách">Hoàn Tiền Khách</option>
+                                                        <option value="Chi Phí Khác">Chi Phí Khác</option>
+                                                    </select>
+                                                </td>
+                                                <td className="p-2 font-medium line-clamp-2 leading-snug text-gray-300" title={t.note}>{t.note}</td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
+                        )}
+                    </div>
+                </div>
+
+                <div className="mt-4 pt-4 border-t border-[#333] shrink-0">
+                    <button onClick={handleImport} disabled={isProcessing || selectedRows.size === 0} className={`w-full py-4 font-black rounded-xl text-[13px] uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${isProcessing || selectedRows.size === 0 ? 'bg-[#222] text-gray-500 cursor-not-allowed' : 'bg-gradient-to-r from-orange-600 to-amber-500 hover:opacity-90 text-white shadow-[0_0_20px_rgba(249,115,22,0.3)] active:scale-95'}`}>
+                        {isProcessing ? <><i className="fas fa-spinner fa-spin"></i> ĐANG CẬP NHẬT...</> : <><i className="fas fa-wallet text-lg"></i> CẬP NHẬT {selectedRows.size} GIAO DỊCH VÀO VÍ SHOPEE</>}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function ReceiptScannerModal({ onClose, onComplete, triggerToast, accountsData }) {
     const [isProcessing, setIsProcessing] = React.useState(false);
     const [previewImage, setPreviewImage] = React.useState(null);
@@ -548,7 +1076,7 @@ function ReceiptScannerModal({ onClose, onComplete, triggerToast, accountsData }
     React.useEffect(() => {
         if (typeof window.Tesseract === 'undefined') {
             const script = document.createElement('script');
-            script.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
+            script.src = "https:\/\/cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js";
             document.head.appendChild(script);
         }
     }, []);
@@ -592,27 +1120,117 @@ function ReceiptScannerModal({ onClose, onComplete, triggerToast, accountsData }
             await worker.terminate();
 
             setOcrStatus('Đang phân tích thông tin giao dịch...');
+            
+            // 1. Tìm số tiền thông minh (Ưu tiên dạng: X,XXX,XXX VND hoặc X.XXX.XXX VNĐ hoặc đ/d)
+            const amountWithCurrencyMatch = text.match(/([\d\.,\s]+)\s*(?:VND|VNĐ|đ|d|Vnđ|Vnd)\b/i);
             let maxAmt = 0;
-            const matches = text.match(/[\d][\d\.,\s]+[\d]/g);
-            if (matches) {
-                matches.forEach(m => {
-                    const cleanNum = Number(m.replace(/[^\d]/g, ''));
-                    if (cleanNum > maxAmt && cleanNum < 10000000000) maxAmt = cleanNum;
-                });
+            if (amountWithCurrencyMatch) {
+                maxAmt = Number(amountWithCurrencyMatch[1].replace(/[^\d]/g, ''));
             }
 
+            // Fallback: Tìm số lớn nhất dưới 10 tỷ
+            if (!maxAmt) {
+                const matches = text.match(/[\d][\d\.,\s]+[\d]/g);
+                if (matches) {
+                    matches.forEach(m => {
+                        const cleanNum = Number(m.replace(/[^\d]/g, ''));
+                        if (cleanNum > maxAmt && cleanNum < 10000000000) maxAmt = cleanNum;
+                    });
+                }
+            }
+
+            // 2. Tìm ngân hàng nguồn (tài khoản nguồn LP hoặc BIDV)
             let detectedAccId = accountsData[0]?.id;
             const textUpper = text.toUpperCase();
             if (textUpper.includes('BIDV')) {
                 const bidv = accountsData.find(a => String(parseAccountInfo(a).name).toUpperCase().includes('BIDV'));
                 if (bidv) detectedAccId = bidv.id;
-            } else if (textUpper.includes('LP') || textUpper.includes('LIEN VIET')) {
+            } else if (textUpper.includes('LP') || textUpper.includes('LIEN VIET') || textUpper.includes('LƯU NGƯỜI THỤ HƯỞNG') || textUpper.includes('LPBANK')) {
                 const lp = accountsData.find(a => String(parseAccountInfo(a).name).toUpperCase().includes('LP'));
                 if (lp) detectedAccId = lp.id;
             }
 
+            // 3. Bóc tách người thụ hưởng (Người nhận)
+            const payeeMatch = text.match(/(?:Người thụ hưởng|Nguoi thu huong|Đến|Den|Tới|To|Người nhận)[:\s\n\r]*([^\n\r]+)/i);
+            let detectedPayee = "";
+            if (payeeMatch) {
+                detectedPayee = payeeMatch[1].replace(/^[:\s\-*]+/g, '').trim().toUpperCase();
+                // Loại bỏ phần thừa (ví dụ tài khoản hoặc tên ngân hàng trên cùng dòng)
+                detectedPayee = detectedPayee.split(/(?:MB Bank|Tài khoản|Số tài khoản|Tại|[\d]{5,})/i)[0].trim();
+            }
+
+            // 4. Bóc tách nội dung giao dịch (Lời nhắn)
+            const noteMatch = text.match(/(?:Nội dung|Noi dung|Lời nhắn|Ghi chú)[:\s\n\r]*([^\n\r]+)/i);
+            let detectedNote = "";
+            if (noteMatch) {
+                detectedNote = noteMatch[1].replace(/^[:\s\-]+/g, '').trim();
+            }
+
+            // 5. Bóc tách Phân loại thông minh dựa trên nội dung
+            let detectedCategory = "Chi Phí Khác";
+            if (detectedNote) {
+                const noteLower = detectedNote.toLowerCase();
+                if (noteLower.includes('luong') || noteLower.includes('lương') || noteLower.includes('salary') || noteLower.includes('thưởng') || noteLower.includes('thuong')) {
+                    detectedCategory = 'Trả Lương';
+                } else if (noteLower.includes('kinh') || noteLower.includes('kính') || noteLower.includes('nguyen lieu') || noteLower.includes('nguyên liệu') || noteLower.includes('đá') || noteLower.includes('lũa') || noteLower.includes('gỗ') || noteLower.includes('cat') || noteLower.includes('cát')) {
+                    detectedCategory = 'Mua Nguyên Liệu';
+                } else if (noteLower.includes('gang tay') || noteLower.includes('găng tay') || noteLower.includes('vật tư') || noteLower.includes('vat tu') || noteLower.includes('băng keo') || noteLower.includes('bang keo') || noteLower.includes('thùng') || noteLower.includes('bao bì') || noteLower.includes('hop') || noteLower.includes('hộp')) {
+                    detectedCategory = 'Mua Vật Tư';
+                } else if (noteLower.includes('hoá đơn') || noteLower.includes('hoa don') || noteLower.includes('điện') || noteLower.includes('nước') || noteLower.includes('internet') || noteLower.includes('bill')) {
+                    detectedCategory = 'Thanh Toán Hoá Đơn';
+                } else if (noteLower.includes('phần mềm') || noteLower.includes('phan mem') || noteLower.includes('software') || noteLower.includes('zoom') || noteLower.includes('host') || noteLower.includes('cloud')) {
+                    detectedCategory = 'Dịch Vụ Phần Mềm';
+                } else if (noteLower.includes('ads') || noteLower.includes('facebook') || noteLower.includes('quảng cáo') || noteLower.includes('quang cao') || noteLower.includes('marketing') || noteLower.includes('tiktok ads')) {
+                    detectedCategory = 'Quảng Cáo & Marketing';
+                } else if (noteLower.includes('thiết bị') || noteLower.includes('thiet bi') || noteLower.includes('điện thoại') || noteLower.includes('máy tính') || noteLower.includes('laptop')) {
+                    detectedCategory = 'Trang Thiết Bị';
+                } else if (noteLower.includes('máy móc') || noteLower.includes('may moc') || noteLower.includes('công cụ') || noteLower.includes('cong cu') || noteLower.includes('khoan') || noteLower.includes('mài') || noteLower.includes('cắt')) {
+                    detectedCategory = 'Máy Móc & Công Cụ';
+                } else if (noteLower.includes('sự kiện') || noteLower.includes('su kien') || noteLower.includes('hoạt động') || noteLower.includes('sinh nhật') || noteLower.includes('tiệc')) {
+                    detectedCategory = 'Hoạt Động & Sự Kiện';
+                }
+            }
+
+            // 6. Xây dựng Tiêu đề tự động
+            let detectedTitle = "Chi chuyển khoản";
+            if (detectedPayee) {
+                detectedTitle = `Chi cho ${detectedPayee}`;
+                if (detectedNote) {
+                    detectedTitle += ` - ${detectedNote}`;
+                }
+            } else if (detectedNote) {
+                detectedTitle = detectedNote;
+            }
+            if (detectedTitle.length > 80) {
+                detectedTitle = detectedTitle.slice(0, 77) + "...";
+            }
+
+            // 7. Bóc tách Ngày giao dịch (YYYY-MM-DD)
+            const dateMatch = text.match(/\b(\d{2})[\/\-](\d{2})[\/\-](\d{4})\b/);
+            let detectedDate = new Date().toISOString().slice(0, 10);
+            if (dateMatch) {
+                detectedDate = `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`;
+            }
+
+            // 8. Bóc tách Giờ giao dịch (HH:MM)
+            const timeMatch = text.match(/\b(\d{2}):(\d{2}):(\d{2})\b/) || text.match(/\b(\d{2}):(\d{2})\b/);
+            let detectedTime = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false });
+            if (timeMatch) {
+                detectedTime = `${timeMatch[1]}:${timeMatch[2]}`;
+            }
+
             triggerToast('Bóc tách ảnh chứng từ thành công!', 'fa-magic', 'success');
-            onComplete({ amount: maxAmt, accId: detectedAccId, proofImage: base64Image, rawText: text });
+            onComplete({ 
+                amount: maxAmt, 
+                accId: detectedAccId, 
+                proofImage: base64Image, 
+                rawText: text,
+                category: detectedCategory,
+                title: detectedTitle,
+                note: detectedNote,
+                date: detectedDate,
+                time: detectedTime
+            });
         } catch (error) {
             triggerToast('Ảnh mờ hoặc lỗi AI không đọc được!', 'fa-times', 'danger');
             setIsProcessing(false);
@@ -633,7 +1251,7 @@ function ReceiptScannerModal({ onClose, onComplete, triggerToast, accountsData }
                     </div>
                 ) : (
                     <div className="relative mb-4">
-                        <input type="file" ref={fileInputRef} onChange={processReceipt} accept="image/*" className="hidden" />
+                        <input type="file" ref={fileInputRef} onChange={processReceipt} accept="image/png, image/jpeg, image/jpg, image/webp" className="hidden" />
                         <button onClick={() => fileInputRef.current?.click()} disabled={isProcessing} className="w-full bg-[#0a0a0a] border-2 border-dashed border-[#333] hover:border-[#d4af37] text-gray-400 hover:text-white rounded-xl py-8 flex flex-col items-center justify-center transition-all cursor-pointer shadow-inner">
                             <i className="fas fa-images text-4xl text-[#d4af37] mb-3 opacity-80"></i><span className="font-black text-[12px] uppercase tracking-wider text-[#d4af37]">Bấm để chọn Ảnh Bill</span>
                         </button>
@@ -647,7 +1265,7 @@ function ReceiptScannerModal({ onClose, onComplete, triggerToast, accountsData }
 // -------------------------------------------------------------------------
 // 3. MAIN TAB: FinanceTab (SỔ QUỸ THU CHI TỔNG)
 // -------------------------------------------------------------------------
-function FinanceTab({ orders, erpData, pushDeltas, triggerToast, isAdmin }) {
+const FinanceTab = React.memo(function FinanceTab({ orders, erpData, pushDeltas, triggerToast, isAdmin }) {
   const isBoss = localStorage.getItem('rf_boss') === 'true';
   const currentRole = localStorage.getItem('rf_role') || '';
   const canManageFinance = isBoss || currentRole === 'TỐI CAO' || currentRole === 'KẾ TOÁN';
@@ -684,6 +1302,10 @@ function FinanceTab({ orders, erpData, pushDeltas, triggerToast, isAdmin }) {
 
   const [activeSubTab, setActiveSubTab] = React.useState('CASHBOOK');
   const [filterTime, setFilterTime] = React.useState('Tháng Này'); 
+  const [filterStart, setFilterStart] = React.useState('');
+  const [filterEnd, setFilterEnd] = React.useState('');
+  const [filterAccount, setFilterAccount] = React.useState('ALL');
+  const [displayLimit, setDisplayLimit] = React.useState(50);
   const [localAccounts, setLocalAccounts] = React.useState({}); 
   const [localTxs, setLocalTxs] = React.useState([]); 
 
@@ -695,6 +1317,12 @@ function FinanceTab({ orders, erpData, pushDeltas, triggerToast, isAdmin }) {
     if (filterTime === 'Tháng Này') return d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
     if (filterTime === 'Tháng Trước') { const m = new Date(today); m.setMonth(m.getMonth() - 1); return d.getMonth() === m.getMonth() && d.getFullYear() === m.getFullYear(); }
     if (filterTime.startsWith('Tháng ')) { const m = parseInt(filterTime.replace('Tháng ', ''), 10); return d.getMonth() + 1 === m && d.getFullYear() === today.getFullYear(); }
+    if (filterTime === 'Tuỳ Chọn') {
+        if (!filterStart || !filterEnd) return true;
+        const start = new Date(filterStart + 'T00:00:00');
+        const end = new Date(filterEnd + 'T23:59:59');
+        return d >= start && d <= end;
+    }
     return false;
   };
 
@@ -712,10 +1340,53 @@ function FinanceTab({ orders, erpData, pushDeltas, triggerToast, isAdmin }) {
   const allTxs = React.useMemo(() => {
       const serverTxs = erpData?.Transactions || []; const merged = [...serverTxs];
       localTxs.forEach(ltx => { if (!merged.find(s => s.id === ltx.id)) merged.push(ltx); });
-      return merged.sort((a, b) => new Date(`${b.date}T${b.time || '00:00'}`) - new Date(`${a.date}T${a.time || '00:00'}`));
+      
+      const parseTimestamp = (t) => {
+          let dateStr = t.date || '';
+          let timeStr = t.time || '';
+          if (dateStr.includes(' ')) {
+              const parts = dateStr.split(' ');
+              dateStr = parts[0];
+              if (!timeStr) timeStr = parts[1];
+          }
+          if (!timeStr) timeStr = '00:00:00';
+          if (timeStr.split(':').length === 2) timeStr += ':00';
+          const dt = new Date(`${dateStr}T${timeStr}`);
+          return isNaN(dt.getTime()) ? 0 : dt.getTime();
+      };
+
+      return merged.sort((a, b) => parseTimestamp(b) - parseTimestamp(a));
   }, [erpData?.Transactions, localTxs]);
 
-  const filteredTxs = allTxs.filter(t => isDateInRange(t.date));
+  const filteredTxs = allTxs.filter(t => {
+      if (!isDateInRange(t.date)) return false;
+      if (filterAccount !== 'ALL') {
+          return t.fromAccount === filterAccount || t.toAccount === filterAccount;
+      }
+      return true;
+  });
+
+  const txBalances = React.useMemo(() => {
+      let runningBalances = {};
+      accountsData.forEach(a => runningBalances[a.id] = Number(a.balance) || 0);
+      const balances = {};
+      allTxs.forEach(t => {
+          balances[t.id] = {
+              from: t.fromAccount ? (runningBalances[t.fromAccount] || 0) : null,
+              to: t.toAccount ? (runningBalances[t.toAccount] || 0) : null
+          };
+          if (t.type === 'Thu') {
+              if (t.toAccount) runningBalances[t.toAccount] -= Number(t.amount || 0);
+          } else if (t.type === 'Chi') {
+              if (t.fromAccount) runningBalances[t.fromAccount] += Number(t.amount || 0);
+          } else if (t.type === 'Chuyển') {
+              if (t.fromAccount) runningBalances[t.fromAccount] += Number(t.amount || 0);
+              if (t.toAccount) runningBalances[t.toAccount] -= Number(t.amount || 0);
+          }
+      });
+      return balances;
+  }, [allTxs, accountsData]);
+
   const thu = filteredTxs.filter(t => t.type === 'Thu').reduce((s, t) => s + Number(t.amount || 0), 0);
   const chi = filteredTxs.filter(t => t.type === 'Chi').reduce((s, t) => s + Number(t.amount || 0), 0);
   const totalCurrentBalance = accountsData.reduce((sum, acc) => sum + (Number(acc.balance) || 0), 0);
@@ -752,9 +1423,54 @@ function FinanceTab({ orders, erpData, pushDeltas, triggerToast, isAdmin }) {
   const [showAddTx, setShowAddTx] = React.useState(false);
   const [isSavingTx, setIsSavingTx] = React.useState(false);
   const [txForm, setTxForm] = React.useState({});
+
+  const [savedContacts, setSavedContacts] = React.useState(() => {
+      try { return JSON.parse(localStorage.getItem('financeContacts')) || []; }
+      catch(e) { return []; }
+  });
+
+  const handleSaveContact = () => {
+      if (!txForm.title || txForm.title.trim() === '') return triggerToast('Vui lòng nhập tên để lưu!', 'fa-info-circle', 'warning');
+      const name = txForm.title.trim();
+      if (!savedContacts.includes(name)) {
+          const newContacts = [...savedContacts, name];
+          setSavedContacts(newContacts);
+          localStorage.setItem('financeContacts', JSON.stringify(newContacts));
+          triggerToast('Đã lưu vào danh bạ!', 'fa-check', 'success');
+      } else {
+          triggerToast('Tên này đã có trong danh bạ!', 'fa-info-circle', 'warning');
+      }
+  };
+
+  React.useEffect(() => {
+      const handler = (e) => {
+          let initData = { type: 'Chi', category: categories.CHI[0]?.value || '', title: '', note: '', amount: '', date: new Date().toISOString().slice(0, 10), time: new Date().toTimeString().slice(0, 5), fromAccount: '', toAccount: '', proofImage: null };
+          
+          if (e && e.detail) {
+              if (e.detail.amount) initData.amount = e.detail.amount;
+              if (e.detail.title) initData.title = e.detail.title;
+              if (e.detail.note) initData.note = e.detail.note;
+          } else if (window.pendingData) {
+              if (window.pendingData.amount) initData.amount = window.pendingData.amount;
+              if (window.pendingData.title) initData.title = window.pendingData.title;
+              if (window.pendingData.note) initData.note = window.pendingData.note;
+              window.pendingData = null;
+          }
+
+          setTxForm(initData);
+          setShowAddTx(true);
+      };
+      if (window.pendingAction === 'createTransaction') {
+          window.pendingAction = null;
+          handler();
+      }
+      window.addEventListener('triggerCreateTransaction', handler);
+      return () => window.removeEventListener('triggerCreateTransaction', handler);
+  }, [categories]);
   
   const [showImportScanner, setShowImportScanner] = React.useState(false);
   const [showReceiptScanner, setShowReceiptScanner] = React.useState(false);
+  const [showShopeeWalletScanner, setShowShopeeWalletScanner] = React.useState(false);
   const [viewingProofImage, setViewingProofImage] = React.useState(null);
 
   const [showAccountModal, setShowAccountModal] = React.useState(false);
@@ -775,11 +1491,13 @@ function FinanceTab({ orders, erpData, pushDeltas, triggerToast, isAdmin }) {
 
   const handleReceiptScanned = (data) => {
     setTxForm({ 
-        id: '', type: 'Chi', category: 'Chi Phí Vận Hành', 
-        amount: data.amount ? String(data.amount) : '', title: 'Chuyển khoản (Đọc từ Ảnh)', note: '', 
+        id: '', type: 'Chi', category: data.category || 'Chi Phí Khác', 
+        amount: data.amount ? String(data.amount) : '', 
+        title: data.title || 'Chuyển khoản (Đọc từ Ảnh)', 
+        note: data.note || '', 
         fromAccount: data.accId || '', toAccount: '', 
-        date: new Date().toISOString().slice(0, 10), 
-        time: new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false }),
+        date: data.date || new Date().toISOString().slice(0, 10), 
+        time: data.time || new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', hour12: false }),
         proofImage: data.proofImage
     });
     setShowReceiptScanner(false);
@@ -844,6 +1562,30 @@ function FinanceTab({ orders, erpData, pushDeltas, triggerToast, isAdmin }) {
 
   const handleOpenAccountModal = (acc = null) => { setEditingAccount(acc); setShowAccountModal(true); };
 
+  const handleDeleteTx = (t) => {
+      if(window.confirm('Xoá giao dịch này? Hệ thống sẽ tự động hoàn lại số dư quỹ!')) {
+          let payload = { deletes: { Transactions: [t.id] }, Accounts: [] };
+          let updatedAccsMap = {};
+          const getAcc = (id) => {
+              if(!id) return null;
+              let found = updatedAccsMap[id] || accountsData.find(a => a.id === id);
+              return found ? { ...found } : null;
+          };
+          if (t.fromAccount) { let acc = getAcc(t.fromAccount); if(acc) { acc.balance = Number(acc.balance) + Number(t.amount); updatedAccsMap[acc.id] = acc; } }
+          if (t.toAccount) { let acc = getAcc(t.toAccount); if(acc) { acc.balance = Number(acc.balance) - Number(t.amount); updatedAccsMap[acc.id] = acc; } }
+          payload.Accounts = Object.values(updatedAccsMap);
+          
+          if (payload.Accounts.length > 0) {
+              const newLocal = { ...localAccounts };
+              payload.Accounts.forEach(u => newLocal[u.id] = u);
+              setLocalAccounts(newLocal);
+          }
+          setLocalTxs(prev => prev.filter(tx => tx.id !== t.id));
+          
+          pushDeltas(payload, 'Đã xoá giao dịch và hoàn tiền!', 'fa-trash');
+      }
+  };
+
   const handleSaveAccount = async (payload) => {
       try { 
           const newAcc = payload.Accounts[0];
@@ -865,138 +1607,445 @@ function FinanceTab({ orders, erpData, pushDeltas, triggerToast, isAdmin }) {
   };
   const charts = getPieChart();
 
+  const handlePrintK58 = (tx) => {
+        const isThu = tx.type === 'Thu';
+        const fAcc = accountsData.find(a => a.id === tx.fromAccount);
+        const tAcc = accountsData.find(a => a.id === tx.toAccount);
+        let accDisplay = '';
+        if (tx.type === 'Thu') accDisplay = tAcc ? parseAccountInfo(tAcc).name : (tx.account || tx.toAccount || 'N/A');
+        else if (tx.type === 'Chi') accDisplay = fAcc ? parseAccountInfo(fAcc).name : (tx.account || tx.fromAccount || 'N/A');
+        else accDisplay = `${fAcc ? parseAccountInfo(fAcc).name : (tx.account || 'N/A')} ➔ ${tAcc ? parseAccountInfo(tAcc).name : (tx.toAccount || 'N/A')}`;
+
+        const printContent = `
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>In Phiếu ${tx.type}</title>
+                <style>
+                    @page { margin: 0; size: 58mm auto; }
+                    body { font-family: 'Courier New', Courier, monospace; width: 58mm; margin: 0; padding: 10px 5px; font-size: 11px; color: #000; line-height: 1.4; box-sizing: border-box; }
+                    .text-center { text-align: center; }
+                    .text-right { text-align: right; }
+                    .bold { font-weight: bold; }
+                    .border-bottom { border-bottom: 1px dashed #000; margin: 6px 0; padding-bottom: 6px; }
+                    .title { font-size: 14px; margin-bottom: 4px; }
+                    .row { display: flex; justify-content: space-between; }
+                </style>
+            </head>
+            <body>
+                <div class="text-center bold title">RICH FISH AQUARIUM</div>
+                <div class="text-center" style="font-size: 10px;">Cá Cảnh & Phụ Kiện Thủy Sinh</div>
+                <div class="border-bottom"></div>
+                <div class="text-center bold" style="font-size: 15px; margin: 5px 0;">PHIẾU ${tx.type.toUpperCase()}</div>
+                <div class="border-bottom"></div>
+                <div><span class="bold">Mã phiếu:</span> ${tx.id}</div>
+                <div><span class="bold">Ngày lập:</span> ${new Date().toLocaleString('vi-VN')}</div>
+                <div><span class="bold">Ngày GD:</span> ${tx.date} ${tx.time || ''}</div>
+                <div><span class="bold">Tài khoản:</span> ${accDisplay}</div>
+                <div><span class="bold">${isThu ? 'Khách hàng' : (tx.type === 'Chi' ? 'Người nhận' : 'Người giao dịch')}:</span> ${tx.title}</div>
+                <div class="border-bottom"></div>
+                <div class="bold">Diễn giải:</div>
+                <div style="font-size: 10px;">[${tx.category}] - ${tx.note || 'Không có ghi chú'}</div>
+                <div class="border-bottom"></div>
+                <div class="row bold" style="font-size: 13px;">
+                    <span>SỐ TIỀN:</span>
+                    <span>${Number(tx.amount).toLocaleString('vi-VN')}đ</span>
+                </div>
+                <div class="border-bottom"></div>
+                <div class="row" style="margin-top: 15px; font-size: 10px; font-weight: bold;">
+                    <div class="text-center" style="width: 50%;">Người Lập<br><br><br>Ký tên</div>
+                    <div class="text-center" style="width: 50%;">${isThu ? 'Khách Hàng' : 'Người Nhận'}<br><br><br>Ký tên</div>
+                </div>
+                <div style="margin-top: 40px; text-align: center; font-size: 10px; border-top: 1px solid #000; padding-top: 5px;">
+                    Cảm ơn quý khách!
+                </div>
+            </body>
+            </html>
+        `;
+        const win = window.open('', '_blank');
+        win.document.write(printContent);
+        win.document.close();
+        win.focus();
+        setTimeout(() => { win.print(); win.close(); }, 800);
+  };
+
+  const handleSyncBIDV = async () => {
+      try {
+          triggerToast('Đang quét Email BIDV...', 'fa-sync fa-spin', 'info');
+          const res = await runGAS('syncBIDVEmails');
+          if (res && res.success) {
+              triggerToast(res.message, 'fa-check', 'success');
+              window.dispatchEvent(new CustomEvent('triggerReloadData'));
+          } else {
+              triggerToast(res?.message || 'Lỗi đồng bộ', 'fa-times', 'danger');
+          }
+      } catch (err) {
+          triggerToast('Lỗi kết nối máy chủ', 'fa-wifi', 'danger');
+      }
+  };
+
+    const shopeeIncomeInputRef = React.useRef(null);
+    const [isImportingIncome, setIsImportingIncome] = React.useState(false);
+
+    const handleImportShopeeIncome = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        setIsImportingIncome(true);
+        triggerToast('Đang phân tích báo cáo doanh thu Shopee...', 'fa-spinner fa-spin', 'info');
+
+        try {
+            const reader = new FileReader();
+            reader.onload = async (evt) => {
+                try {
+                    const data = evt.target.result;
+                    const workbook = window.XLSX.read(data, { type: 'binary' });
+                    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                    // Data usually starts at row 1 is header
+                    // Tweak to skip initial blank lines if any
+                    const json = window.XLSX.utils.sheet_to_json(sheet, { defval: 0 });
+                    
+                    let newTransactions = [];
+                    let walletAccId = 'ACC_SHOPEE_' + Date.now();
+                    let shopeeAcc = null;
+                    if (accountsData) {
+                        shopeeAcc = accountsData.find(a => String(a.accountName).toLowerCase().includes('shopee'));
+                        if (shopeeAcc) walletAccId = shopeeAcc.id;
+                    }
+
+                    for(let i = 0; i < json.length; i++) {
+                        const row = json[i];
+                        const orderCode = String(row['Mã đơn hàng'] || '').trim();
+                        if(!orderCode || orderCode === 'undefined' || orderCode === '0') continue;
+                        
+                        const dateRaw = row['Ngày hoàn thành'] || new Date().toISOString().slice(0, 10);
+                        const dateStr = String(dateRaw).includes(' ') ? String(dateRaw).split(' ')[0] : String(dateRaw);
+                        
+                        const price = Number(row['Giá sản phẩm'] || 0);
+                        const sellerVoucher = Number(row['Mã ưu đãi do Người Bán chiu'] || row['Mã ưu đãi do Người Bán chịu'] || 0);
+                        
+                        // Phí sàn
+                        const paymentFee = Number(row['Phí xử lý giao dịch'] || 0);
+                        const serviceFee = Number(row['Phí Dịch Vụ'] || 0);
+                        const commissionFee = Number(row['Phí hoa hồng Tiếp thị liên kết'] || row['Phí hoa hồng'] || 0);
+                        const transFee = Number(row['Phí giao dịch'] || 0);
+                        const otherFee = Number(row['Phí dịch vụ hiển thị'] || 0);
+                        const totalPlatformFee = Math.abs(paymentFee + serviceFee + commissionFee + transFee + otherFee);
+                        
+                        // Thuế
+                        const taxVAT = Number(row['Thuế GTGT'] || 0);
+                        const taxPersonal = Number(row['Thuế TNCN'] || 0);
+                        const totalTax = Math.abs(taxVAT + taxPersonal);
+                        
+                        // Ship Discrepancy
+                        const shipBuyer = Number(row['Phí vận chuyển Người mua trả'] || 0);
+                        const shipActual = Number(row['Phí vận chuyển thực tế'] || 0);
+                        const shipDiff = shipBuyer - Math.abs(shipActual);
+                        
+                        const totalNet = Number(row['Tổng tiền đã thanh toán'] || row['Tổng số tiền được thanh toán'] || 0);
+                        if(totalNet <= 0) continue;
+                        
+                        const existingTx = (transactionsData || []).find(t => String(t.note).includes(orderCode) && String(t.note).includes('Nhóm 1'));
+                        if(existingTx) continue;
+
+                        const baseTxId = 'TX_SHPINC_' + Date.now() + '_' + i;
+                        const dStr = new Date(dateStr).toISOString().slice(0, 16).replace('T', ' ');
+
+                        const noteLines = [
+                            `[SHOPEE] Doanh thu đơn: ${orderCode}`,
+                            `Nhóm 1 (Giá gốc): ${price.toLocaleString('vi-VN')}đ`,
+                            `Nhóm 2 (Mã ưu đãi tự giảm): ${sellerVoucher.toLocaleString('vi-VN')}đ`,
+                            `Nhóm 3 (Tổng phí sàn): -${totalPlatformFee.toLocaleString('vi-VN')}đ`,
+                            `Nhóm 4 (Thuế): -${totalTax.toLocaleString('vi-VN')}đ`,
+                            `Nhóm 5 (Chênh lệch Ship): ${shipDiff.toLocaleString('vi-VN')}đ`,
+                            `=> THỰC NHẬN: ${totalNet.toLocaleString('vi-VN')}đ`
+                        ].join('\n');
+
+                        newTransactions.push({
+                            id: baseTxId,
+                            type: 'Thu',
+                            category: 'Bán hàng (Nền tảng)',
+                            amount: totalNet,
+                            date: dStr,
+                            title: `Doanh thu Shopee: ${orderCode}`,
+                            note: noteLines,
+                            fromAccount: '',
+                            toAccount: walletAccId,
+                            isAuto: true
+                        });
+                    }
+
+                    if(newTransactions.length > 0) {
+                        let payload = { Transactions: newTransactions };
+                        if(!shopeeAcc) {
+                            payload.Accounts = [{ id: walletAccId, accountName: 'Ví Shopee - Tự Động | Ngân hàng | --- | ---', balance: 0 }];
+                        }
+                        await pushDeltas(payload, `Đã import thành công doanh thu của ${newTransactions.length} đơn hàng!`, 'fa-check');
+                    } else {
+                        triggerToast('Không có dữ liệu mới để import (đã tồn tại hoặc file trống)', 'fa-info-circle', 'info');
+                    }
+
+                } catch (err) {
+                    triggerToast('File không đúng định dạng Shopee Income', 'fa-exclamation-triangle', 'danger');
+                }
+                setIsImportingIncome(false);
+                if(shopeeIncomeInputRef.current) shopeeIncomeInputRef.current.value = '';
+            };
+            reader.readAsBinaryString(file);
+        } catch(err) {
+            triggerToast('Lỗi đọc file', 'fa-times', 'danger');
+            setIsImportingIncome(false);
+        }
+    };
+
   return (
     <div className="space-y-4 pb-12 overflow-x-hidden w-full">
       
-      <div className="flex gap-2 w-full">
+      {/* --- HERO METRICS (CHỈ SỐ TÀI CHÍNH) --- */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* Card 1: Tổng Quỹ Tồn */}
+          <div className="bg-[#141414]/90 backdrop-blur-md border border-[#d4af37]/30 p-4 rounded-2xl flex items-center justify-between shadow-[0_4px_20px_rgba(212,175,55,0.05)] relative overflow-hidden group">
+               <div className="absolute inset-0 bg-gradient-to-br from-[#d4af37]/10 to-transparent opacity-50"></div>
+               <div className="absolute -right-4 -top-4 w-24 h-24 bg-[#d4af37]/20 rounded-full blur-2xl group-hover:bg-[#d4af37]/30 transition-all"></div>
+               <div className="relative z-10">
+                   <span className="text-[9px] font-black text-[#d4af37] uppercase tracking-widest block mb-1.5 opacity-80">Tổng quỹ hiện hữu</span>
+                   <span className="text-[20px] font-black text-[#f5f5f5] leading-none drop-shadow-md">{secureMoney(totalCurrentBalance)}đ</span>
+               </div>
+               <div className="relative z-10 w-10 h-10 rounded-xl bg-[#d4af37]/10 border border-[#d4af37]/20 flex items-center justify-center text-lg text-[#d4af37] shadow-inner"><i className="fas fa-university"></i></div>
+          </div>
+
+          {/* Card 2: Nợ NCC */}
+          <div className="bg-[#141414]/90 backdrop-blur-md border border-zinc-800/60 p-4 rounded-2xl flex items-center justify-between shadow-sm relative overflow-hidden group">
+               <div className="absolute -right-4 -top-4 w-20 h-20 bg-rose-500/10 rounded-full blur-2xl group-hover:bg-rose-500/20 transition-all"></div>
+               <div className="relative z-10">
+                   <span className="text-[9px] font-black text-gray-500 uppercase tracking-widest block mb-1.5">Nợ nhà cung cấp</span>
+                   <span className="text-[17px] font-black text-rose-500 leading-none">{secureMoney(totalDebtSuppliers)}đ</span>
+               </div>
+               <div className="relative z-10 w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-lg text-rose-500"><i className="fas fa-hand-holding-usd"></i></div>
+          </div>
+
+          {/* Card 3: Tổng Thu */}
+          <div className="bg-[#141414]/90 backdrop-blur-md border border-zinc-800/60 p-4 rounded-2xl flex items-center justify-between shadow-sm relative overflow-hidden group">
+               <div className="absolute -right-4 -top-4 w-20 h-20 bg-emerald-500/10 rounded-full blur-2xl group-hover:bg-emerald-500/20 transition-all"></div>
+               <div className="relative z-10">
+                   <span className="text-[9px] font-black text-gray-500 uppercase tracking-widest block mb-1.5">Tổng tiền thu</span>
+                   <span className="text-[17px] font-black text-[#10b981] leading-none">+{secureMoney(thu)}đ</span>
+               </div>
+               <div className="relative z-10 w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-lg text-[#10b981]"><i className="fas fa-arrow-trend-up"></i></div>
+          </div>
+
+          {/* Card 4: Tổng Chi */}
+          <div className="bg-[#141414]/90 backdrop-blur-md border border-zinc-800/60 p-4 rounded-2xl flex items-center justify-between shadow-sm relative overflow-hidden group">
+               <div className="absolute -right-4 -top-4 w-20 h-20 bg-rose-500/10 rounded-full blur-2xl group-hover:bg-rose-500/20 transition-all"></div>
+               <div className="relative z-10">
+                   <span className="text-[9px] font-black text-gray-500 uppercase tracking-widest block mb-1.5">Tổng tiền chi</span>
+                   <span className="text-[17px] font-black text-[#f43f5e] leading-none">-{secureMoney(chi)}đ</span>
+               </div>
+               <div className="relative z-10 w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-lg text-[#f43f5e]"><i className="fas fa-arrow-trend-down"></i></div>
+          </div>
+      </div>
+
+      {/* --- QUICK ACTIONS & FILTERS --- */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-[#0a0a0a] border border-[#222] p-2 rounded-2xl shadow-sm">
           {canManageFinance && (
-              <>
-                  <button onClick={() => setShowImportScanner(true)} className="flex-1 bg-gradient-to-r from-[#1e3a8a] to-[#3b82f6] text-white p-3 rounded-2xl flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(59,130,246,0.3)] active:scale-95 transition-transform border border-[#3b82f6]/50">
-                      <i className="fas fa-file-excel text-xl"></i>
-                      <span className="font-black text-[11px] uppercase tracking-wide hidden sm:inline">Quét Sao Kê</span>
+              <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar px-1">
+                  <div className="text-[9px] font-black text-gray-600 uppercase tracking-widest mr-2 flex items-center shrink-0">
+                      <i className="fas fa-bolt text-[#d4af37] mr-1"></i> Actions
+                  </div>
+                  
+                  <button onClick={handleOpenAddTx} className="w-10 h-10 shrink-0 bg-[#3b82f6] hover:bg-[#2563eb] text-white shadow-[0_0_15px_rgba(59,130,246,0.5)] border border-[#60a5fa] rounded-xl flex items-center justify-center transition-all hover:scale-105 active:scale-95 animate-pulse" title="Tạo Phiếu Mới">
+                      <i className="fas fa-plus text-[16px]"></i>
+                  </button>
+
+                  <button onClick={() => setShowImportScanner(true)} className="w-10 h-10 shrink-0 bg-[#1a1a1a] hover:bg-[#2563eb]/20 text-gray-400 hover:text-[#3b82f6] border border-[#333] hover:border-[#3b82f6]/50 rounded-xl flex items-center justify-center transition-all" title="Quét Sao Kê Bank">
+                      <i className="fas fa-file-invoice-dollar text-[15px]"></i>
                   </button>
                   
-                  <button onClick={() => setShowReceiptScanner(true)} className="flex-1 bg-gradient-to-r from-[#ca8a04] to-[#eab308] text-black p-3 rounded-2xl flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(234,179,8,0.3)] active:scale-95 transition-transform border border-[#eab308]/50">
-                      <i className="fas fa-camera text-xl"></i>
-                      <span className="font-black text-[11px] uppercase tracking-wide hidden sm:inline">Quét Ảnh Bill</span>
+                  <button onClick={() => setShowShopeeWalletScanner(true)} className="w-10 h-10 shrink-0 bg-[#1a1a1a] hover:bg-rose-500/20 text-gray-400 hover:text-rose-500 border border-[#333] hover:border-rose-500/50 rounded-xl flex items-center justify-center transition-all" title="Cập nhật tự động giao dịch Ví Shopee từ file my_balance">
+                      <i className="fas fa-wallet text-[15px]"></i>
                   </button>
-              </>
+
+                  <button onClick={() => shopeeIncomeInputRef.current?.click()} disabled={isImportingIncome} className="w-10 h-10 shrink-0 bg-[#1a1a1a] hover:bg-orange-500/20 text-gray-400 hover:text-orange-500 border border-[#333] hover:border-orange-500/50 rounded-xl flex items-center justify-center transition-all" title="Tải file Doanh Thu (Income) từ Shopee">
+                      {isImportingIncome ? <i className="fas fa-spinner fa-spin text-[15px]"></i> : <i className="fas fa-file-excel text-[15px]"></i>}
+                  </button>
+                  <input type="file" ref={shopeeIncomeInputRef} accept=".xlsx, .xls" className="hidden" onChange={handleImportShopeeIncome} />
+
+                  <button onClick={async () => {
+                      triggerToast('Đang kết nối API GHN...', 'fa-spinner fa-spin', 'info');
+                      try {
+                          const res = await runGAS('syncGHNViaAPI');
+                          if (res.success) {
+                              triggerToast(res.message, 'fa-check', 'success');
+                              if (res.count > 0) window.dispatchEvent(new CustomEvent('triggerReloadData'));
+                          } else {
+                              triggerToast(res.message, 'fa-times', 'danger');
+                          }
+                      } catch(e) { triggerToast('Lỗi server', 'fa-times', 'danger'); }
+                  }} className="w-10 h-10 shrink-0 bg-[#1a1a1a] hover:bg-orange-500/20 text-gray-400 hover:text-orange-500 border border-[#333] hover:border-orange-500/50 rounded-xl flex items-center justify-center transition-all" title="Đồng bộ doanh thu COD từ GHN qua API">
+                      <i className="fas fa-sync text-[15px]"></i>
+                  </button>
+
+                  <button onClick={() => setShowReceiptScanner(true)} className="w-10 h-10 shrink-0 bg-[#1a1a1a] hover:bg-yellow-500/20 text-gray-400 hover:text-yellow-500 border border-[#333] hover:border-yellow-500/50 rounded-xl flex items-center justify-center transition-all" title="Quét Ảnh Bill">
+                      <i className="fas fa-camera text-[15px]"></i>
+                  </button>
+
+                  <button onClick={handleSyncBIDV} className="w-10 h-10 shrink-0 bg-[#1a1a1a] hover:bg-emerald-500/20 text-gray-400 hover:text-emerald-500 border border-[#333] hover:border-emerald-500/50 rounded-xl flex items-center justify-center transition-all" title="Đồng bộ BIDV">
+                      <i className="fas fa-university text-[15px]"></i>
+                  </button>
+              </div>
           )}
 
-          <div className="w-[100px] bg-[#141414] rounded-2xl border border-[#333] p-1.5 flex flex-col justify-center items-center shrink-0 ml-auto">
-              <label className="text-[8px] font-black text-gray-500 uppercase tracking-widest mb-1">Thời gian</label>
-              <select value={filterTime} onChange={e => setFilterTime(e.target.value)} className="w-full bg-[#0a0a0a] border border-[#222] text-[#d4af37] text-[9px] font-black px-1 py-1 rounded-lg outline-none text-center">
-                  <option>Hôm Nay</option><option>Tháng Này</option><option>Tháng Trước</option><option>Tất Cả</option>
+          <div className="flex gap-2 items-center ml-auto">
+              {filterTime === 'Tuỳ Chọn' && (
+                  <div className="flex gap-1">
+                      <input type="date" value={filterStart} onChange={e => setFilterStart(e.target.value)} className="bg-[#141414] border border-[#333] text-[#d4af37] text-[10px] font-black px-2 py-1.5 rounded-lg outline-none" />
+                      <input type="date" value={filterEnd} onChange={e => setFilterEnd(e.target.value)} className="bg-[#141414] border border-[#333] text-[#d4af37] text-[10px] font-black px-2 py-1.5 rounded-lg outline-none" />
+                  </div>
+              )}
+              {activeSubTab === 'CASHBOOK' && (
+                  <select value={filterAccount} onChange={e => setFilterAccount(e.target.value)} className="bg-[#141414] border border-[#333] hover:border-[#444] text-[#3b82f6] text-[10px] font-black px-3 py-2 rounded-lg outline-none max-w-[120px] truncate transition-colors">
+                      <option value="ALL">Tất Cả TK</option>
+                      {accountsData.map(a => <option key={a.id} value={a.id}>{parseAccountInfo(a).name}</option>)}
+                  </select>
+              )}
+              <select value={filterTime} onChange={e => setFilterTime(e.target.value)} className="bg-[#141414] border border-[#333] hover:border-[#444] text-[#d4af37] text-[10px] font-black px-3 py-2 rounded-lg outline-none transition-colors">
+                  <option>Hôm Nay</option><option>Tháng Này</option><option>Tháng Trước</option><option>Tuỳ Chọn</option><option>Tất Cả</option>
               </select>
           </div>
       </div>
 
-      {/* PREMIUM EXECUTIVE STATISTICS GRID */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          {/* Card 1: Tổng Quỹ Tồn */}
-          <div className="bg-[#141414] border border-zinc-800/60 p-3.5 rounded-2xl flex items-center justify-between shadow-sm relative overflow-hidden">
-               <div className="absolute top-0 right-0 w-16 h-16 bg-[#d4af37]/5 rounded-full blur-xl -mr-4 -mt-4"></div>
-               <div>
-                   <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">Tổng quỹ hiện hữu</span>
-                   <span className="text-[17px] font-black text-[#d4af37] leading-none">{secureMoney(totalCurrentBalance)}đ</span>
-               </div>
-               <div className="w-8 h-8 rounded-xl bg-yellow-500/10 flex items-center justify-center text-sm text-[#d4af37]"><i className="fas fa-university"></i></div>
-          </div>
-
-          {/* Card 2: Nợ NCC */}
-          <div className="bg-[#141414] border border-zinc-800/60 p-3.5 rounded-2xl flex items-center justify-between shadow-sm relative overflow-hidden">
-               <div className="absolute top-0 right-0 w-16 h-16 bg-rose-500/5 rounded-full blur-xl -mr-4 -mt-4"></div>
-               <div>
-                   <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">Nợ nhà cung cấp</span>
-                   <span className="text-[17px] font-black text-rose-500 leading-none">{secureMoney(totalDebtSuppliers)}đ</span>
-               </div>
-               <div className="w-8 h-8 rounded-xl bg-rose-500/10 flex items-center justify-center text-sm text-rose-500"><i className="fas fa-hand-holding-usd"></i></div>
-          </div>
-
-          {/* Card 3: Tổng Thu */}
-          <div className="bg-[#141414] border border-zinc-800/60 p-3.5 rounded-2xl flex items-center justify-between shadow-sm relative overflow-hidden">
-               <div className="absolute top-0 right-0 w-16 h-16 bg-emerald-500/5 rounded-full blur-xl -mr-4 -mt-4"></div>
-               <div>
-                   <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">Tổng tiền thu</span>
-                   <span className="text-[17px] font-black text-[#10b981] leading-none">+{secureMoney(thu)}đ</span>
-               </div>
-               <div className="w-8 h-8 rounded-xl bg-emerald-500/10 flex items-center justify-center text-sm text-[#10b981]"><i className="fas fa-arrow-trend-up"></i></div>
-          </div>
-
-          {/* Card 4: Tổng Chi */}
-          <div className="bg-[#141414] border border-zinc-800/60 p-3.5 rounded-2xl flex items-center justify-between shadow-sm relative overflow-hidden">
-               <div className="absolute top-0 right-0 w-16 h-16 bg-red-500/5 rounded-full blur-xl -mr-4 -mt-4"></div>
-               <div>
-                   <span className="text-[8px] font-black text-gray-500 uppercase tracking-widest block mb-1">Tổng tiền chi</span>
-                   <span className="text-[17px] font-black text-[#f43f5e] leading-none">-{secureMoney(chi)}đ</span>
-               </div>
-               <div className="w-8 h-8 rounded-xl bg-red-500/10 flex items-center justify-center text-sm text-[#f43f5e]"><i className="fas fa-arrow-trend-down"></i></div>
-          </div>
-      </div>
-
-      <div className="flex bg-[#141414] p-1.5 rounded-2xl border border-[#333] shadow-sm">
-        <button onClick={() => setActiveSubTab('CASHBOOK')} className={`flex-1 py-2.5 text-[11px] sm:text-[12px] font-black uppercase rounded-[12px] transition-all ${activeSubTab === 'CASHBOOK' ? 'bg-[#3b82f6] text-white shadow-[0_4px_15px_rgba(59,130,246,0.3)]' : 'text-gray-500 hover:text-white'}`}><i className="fas fa-wallet mr-1.5"></i> Sổ Quỹ Thu Chi</button>
-        <button onClick={() => setActiveSubTab('SO_QUY')} className={`flex-1 py-2.5 text-[11px] sm:text-[12px] font-black uppercase rounded-[12px] transition-all ${activeSubTab === 'SO_QUY' ? 'bg-[#d4af37] text-black shadow-[0_4px_15px_rgba(212,175,55,0.3)]' : 'text-gray-500 hover:text-white'}`}><i className="fas fa-university mr-1.5"></i> Quản Lý Quỹ</button>
-        <button onClick={() => setActiveSubTab('THONG_KE')} className={`flex-1 py-2.5 text-[11px] sm:text-[12px] font-black uppercase rounded-[12px] transition-all ${activeSubTab === 'THONG_KE' ? 'bg-[#10b981] text-white shadow-[0_4px_15px_rgba(16,185,129,0.3)]' : 'text-gray-500 hover:text-white'}`}><i className="fas fa-chart-pie mr-1.5"></i> Thống Kê</button>
+      <div className="flex bg-[#0a0a0a] p-1 rounded-xl border border-[#222] shadow-sm relative z-20 sticky top-0">
+        <button onClick={() => setActiveSubTab('CASHBOOK')} className={`flex-1 py-2 text-[11px] font-black uppercase rounded-lg transition-all ${activeSubTab === 'CASHBOOK' ? 'bg-[#3b82f6] text-white shadow-sm' : 'text-gray-500 hover:text-white hover:bg-[#1a1a1a]'}`}><i className="fas fa-wallet mr-1.5"></i> Sổ Quỹ Thu Chi</button>
+        <button onClick={() => setActiveSubTab('SO_QUY')} className={`flex-1 py-2 text-[11px] font-black uppercase rounded-lg transition-all ${activeSubTab === 'SO_QUY' ? 'bg-[#d4af37] text-black shadow-sm' : 'text-gray-500 hover:text-white hover:bg-[#1a1a1a]'}`}><i className="fas fa-university mr-1.5"></i> Quản Lý Quỹ</button>
+        <button onClick={() => setActiveSubTab('THONG_KE')} className={`flex-1 py-2 text-[11px] font-black uppercase rounded-lg transition-all ${activeSubTab === 'THONG_KE' ? 'bg-[#10b981] text-white shadow-sm' : 'text-gray-500 hover:text-white hover:bg-[#1a1a1a]'}`}><i className="fas fa-chart-pie mr-1.5"></i> Thống Kê</button>
       </div>
 
       {activeSubTab === 'CASHBOOK' && (
-        <div className="space-y-4 animate-fade-in w-full">
+        <div className="space-y-4 animate-fade-in w-full relative">
           {canManageFinance && (
-            <div className="flex gap-2 w-full">
-              <button onClick={handleOpenAddTx} className="flex-[3] py-3.5 bg-[#3b82f6] text-white font-black text-[12px] uppercase rounded-xl shadow-[0_0_15px_rgba(59,130,246,0.3)] active:scale-95 transition-all flex items-center justify-center gap-2">
-                <i className="fas fa-plus-circle text-base"></i> TẠO PHIẾU THU / CHI / CHUYỂN KHOẢN
-              </button>
-              <button onClick={handleExportExcel} className="flex-1 py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-[12px] uppercase rounded-xl shadow-[0_0_15px_rgba(16,185,129,0.3)] active:scale-95 transition-all flex items-center justify-center gap-1.5 transition-colors">
-                <i className="fas fa-download text-base"></i> XUẤT EXCEL
-              </button>
+            <div className="flex justify-between items-center bg-[#141414] border border-[#222] p-2 rounded-xl shadow-sm">
+              <div className="text-[10px] font-black text-gray-400 uppercase px-1">Lịch Sử Giao Dịch ({filterTime})</div>
+              <div className="flex gap-2">
+                  <button onClick={async () => {
+                      if(!window.confirm('Hệ thống sẽ tự động xoá toàn bộ các giao dịch đối soát rác và doanh thu ảo cũ. Bạn có chắc chắn không?')) return;
+                      triggerToast('Đang quét và dọn rác...', 'fa-spinner fa-spin', 'info');
+                      try {
+                          const res = await runGAS('cleanUpOldReconciliationJunk');
+                          if(res.success) {
+                              triggerToast(res.message, 'fa-check', 'success');
+                              window.dispatchEvent(new CustomEvent('triggerReloadData'));
+                          } else {
+                              triggerToast(res.message, 'fa-times', 'danger');
+                          }
+                      } catch(e) { triggerToast('Lỗi kết nối Server', 'fa-times', 'danger'); }
+                  }} className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white font-black text-[10px] uppercase rounded-lg transition-colors flex items-center gap-1.5">
+                    <i className="fas fa-trash-alt text-[12px]"></i> Dọn Rác
+                  </button>
+                  <button onClick={handleExportExcel} className="px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500 text-emerald-500 hover:text-white font-black text-[10px] uppercase rounded-lg transition-colors flex items-center gap-1.5">
+                    <i className="fas fa-download text-[12px]"></i> Excel
+                  </button>
+              </div>
             </div>
           )}
 
           <div>
-            <div className="text-[10px] font-black text-gray-400 uppercase mb-2 px-1">Lịch Sử Giao Dịch ({filterTime})</div>
-            <div className="space-y-2.5 max-h-[480px] overflow-y-auto custom-scrollbar pr-1 pb-4">
+            <div className="space-y-2 max-h-[600px] overflow-y-auto custom-scrollbar pr-1 pb-24">
               {filteredTxs.length === 0 ? (<div className="bg-[#141414] border border-dashed border-[#333] p-8 text-center rounded-2xl text-[#666] text-[11px] font-bold">Chưa có giao dịch nào</div>) : (
-                filteredTxs.map(t => {
+                filteredTxs.slice(0, displayLimit).map((t, index) => {
                   const isThu = t.type === 'Thu';
                   const isAuto = t.isAuto;
                   
                   const fAcc = accountsData.find(a => a.id === t.fromAccount);
                   const tAcc = accountsData.find(a => a.id === t.toAccount);
                   let accDisplay = '';
-                  if (t.type === 'Thu') accDisplay = tAcc ? parseAccountInfo(tAcc).name : (t.account || t.toAccount || 'N/A');
-                  else if (t.type === 'Chi') accDisplay = fAcc ? parseAccountInfo(fAcc).name : (t.account || t.fromAccount || 'N/A');
-                  else accDisplay = `${fAcc ? parseAccountInfo(fAcc).name : (t.account || 'N/A')} ➔ ${tAcc ? parseAccountInfo(tAcc).name : (t.toAccount || 'N/A')}`;
+                  let iconClass = "fas fa-university";
+                  let textColor = "text-[#3b82f6]";
+
+                  const pFAcc = fAcc ? parseAccountInfo(fAcc) : null;
+                  const pTAcc = tAcc ? parseAccountInfo(tAcc) : null;
+
+                  if (t.type === 'Thu') {
+                      accDisplay = pTAcc ? pTAcc.name : (t.account || t.toAccount || 'N/A');
+                      if (pTAcc) {
+                          const vis = getBankVisuals(pTAcc.name, pTAcc.type);
+                          iconClass = "fas " + vis.icon;
+                          textColor = vis.color;
+                      }
+                  } else if (t.type === 'Chi') {
+                      accDisplay = pFAcc ? pFAcc.name : (t.account || t.fromAccount || 'N/A');
+                      if (pFAcc) {
+                          const vis = getBankVisuals(pFAcc.name, pFAcc.type);
+                          iconClass = "fas " + vis.icon;
+                          textColor = vis.color;
+                      }
+                  } else {
+                      accDisplay = `${pFAcc ? pFAcc.name : (t.account || 'N/A')} ➔ ${pTAcc ? pTAcc.name : (t.toAccount || 'N/A')}`;
+                      if (pFAcc) {
+                          const vis = getBankVisuals(pFAcc.name, pFAcc.type);
+                          iconClass = "fas " + vis.icon;
+                          textColor = vis.color;
+                      }
+                  }
 
                   return (
-                      <div key={t.id} className="bg-[#141414] border border-[#2a2a2a] p-3 rounded-2xl flex justify-between items-center shadow-sm relative overflow-hidden group hover:border-[#444] transition-colors">
-                          <div className={`absolute top-0 left-0 w-1.5 h-full ${isThu ? 'bg-[#10b981]' : t.type === 'Chuyển' ? 'bg-blue-400' : 'bg-[#f43f5e]'}`}></div>
-                          <div className="pl-2 flex-1 min-w-0 pr-3">
-                              <div className="flex items-center gap-2 mb-1">
-                                  <span className="font-black text-[12px] text-white truncate">{t.title}</span>
-                                  {isAuto && <span className="bg-[#3b82f6]/20 text-[#3b82f6] text-[8px] font-black px-1.5 py-0.5 rounded border border-[#3b82f6]/30 uppercase tracking-wider shrink-0" title="Tạo bởi hệ thống">Auto</span>}
-                                  {t.proofImage && (
-                                      <button onClick={() => setViewingProofImage(t.proofImage)} className="text-[#eab308] hover:text-[#d4af37] text-[10px] bg-[#eab308]/10 px-1.5 py-0.5 rounded border border-[#eab308]/30 flex items-center gap-1 transition-all active:scale-95" title="Xem ảnh chứng từ"><i className="fas fa-image"></i> Ảnh</button>
-                                  )}
+                      <div key={t.id} className="bg-[#141414] border border-[#222] p-2.5 rounded-xl flex flex-col sm:flex-row justify-between sm:items-center shadow-sm relative overflow-hidden group hover:border-[#333] transition-colors gap-2">
+                          <div className={`absolute top-0 left-0 w-1 h-full ${isThu ? 'bg-[#10b981]' : t.type === 'Chuyển' ? 'bg-blue-400' : 'bg-[#f43f5e]'}`}></div>
+                          <div className="absolute top-0 right-0 bg-[#0a0a0a] text-[8px] text-gray-600 px-1.5 py-0.5 rounded-bl-lg font-bold border-l border-b border-[#222] z-10">#{index + 1}</div>
+                          
+                          {canManageFinance && (
+                              <div className="absolute top-1 right-8 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-[#141414] pl-2 z-10 rounded-bl-lg">
+                                  <button onClick={() => handlePrintK58(t)} className="w-6 h-6 rounded-md bg-[#222] text-gray-400 hover:text-white hover:bg-emerald-500 flex items-center justify-center transition-all" title="In phiếu"><i className="fas fa-print text-[9px]"></i></button>
+                                  <button onClick={() => { 
+                                      setTxForm({ id: t.id, type: t.type, category: t.category, amount: String(t.amount), title: t.title, note: t.note, fromAccount: t.fromAccount || '', toAccount: t.toAccount || '', date: t.date, time: t.time || '00:00', proofImage: t.proofImage, isAuto: t.isAuto }); 
+                                      setShowAddTx(true); 
+                                  }} className="w-6 h-6 rounded-md bg-[#222] text-gray-400 hover:text-white hover:bg-[#3b82f6] flex items-center justify-center transition-all" title="Sửa"><i className="fas fa-pen text-[9px]"></i></button>
+                                  <button onClick={() => handleDeleteTx(t)} className="w-6 h-6 rounded-md bg-[#222] text-gray-400 hover:text-white hover:bg-rose-500 flex items-center justify-center transition-all" title="Xóa"><i className="fas fa-trash text-[9px]"></i></button>
                               </div>
-                              <div className="text-[10px] text-gray-400 font-medium truncate mb-1.5">{t.note}</div>
-                              <div className="flex items-center gap-2 text-[9px] text-gray-500 font-bold">
-                                  <span className="bg-[#0a0a0a] px-1.5 py-0.5 rounded border border-[#222]"><i className="far fa-calendar-alt mr-1"></i>{String(t.date).slice(0, 16)}</span>
-                                  <span className="bg-[#0a0a0a] px-1.5 py-0.5 rounded border border-[#222] truncate max-w-[150px] text-[#3b82f6]"><i className="fas fa-university mr-1"></i>{accDisplay}</span>
-                                  <span className="bg-[#0a0a0a] px-1.5 py-0.5 rounded border border-[#222] truncate max-w-[100px]"><i className="fas fa-folder-open mr-1"></i>{t.category}</span>
+                          )}
+
+                          <div className="flex gap-2.5 items-start flex-1 min-w-0 pl-1.5">
+                              {t.proofImage ? (
+                                  <div onClick={() => setViewingProofImage(t.proofImage)} className="w-10 h-10 rounded-lg overflow-hidden border border-[#333] shrink-0 cursor-pointer hover:border-[#3b82f6] transition-colors relative group/img">
+                                      <img src={t.proofImage} className="w-full h-full object-cover opacity-80 group-hover/img:opacity-100 transition-opacity" />
+                                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity"><i className="fas fa-search-plus text-white text-[8px]"></i></div>
+                                  </div>
+                              ) : (
+                                  <div className="w-10 h-10 rounded-lg bg-[#0a0a0a] border border-[#222] shrink-0 flex items-center justify-center">
+                                      <i className="fas fa-file-invoice-dollar text-[16px] text-gray-600 opacity-30"></i>
+                                  </div>
+                              )}
+                              
+                              <div className="flex-1 min-w-0 pr-6 sm:pr-0">
+                                  <div className="flex items-center gap-1.5 flex-wrap leading-tight">
+                                      {t.category === 'Chờ Xử Lý' ? (
+                                          <span className="font-black text-[11px] text-rose-500 bg-rose-500/10 border border-rose-500/30 px-1.5 py-0.5 rounded animate-pulse tracking-wider uppercase truncate max-w-[120px] flex items-center gap-1"><i className="fas fa-exclamation-triangle"></i> {t.category}</span>
+                                      ) : (
+                                          <span className="font-black text-[11px] text-[#e5e5e5] tracking-wider uppercase truncate max-w-[120px]">{t.category}</span>
+                                      )}
+                                      <span className="text-[8px] text-gray-500 font-bold bg-[#0a0a0a] px-1 rounded-sm"><i className="far fa-clock mr-0.5"></i>{String(t.date).slice(5, 10)} {t.time || ''}</span>
+                                      {isAuto && <span className="bg-[#3b82f6]/20 text-[#3b82f6] text-[7px] font-black px-1 rounded-sm border border-[#3b82f6]/30 uppercase" title="Tự động">Auto</span>}
+                                  </div>
+                                  <div className="text-[10px] text-gray-400 font-bold truncate leading-tight mt-0.5">{t.title}</div>
+                                  <div className="flex items-center gap-1.5 mt-0.5 text-[9px]">
+                                      <span className={`${textColor} font-bold truncate`}><i className={`${iconClass} mr-1`}></i>{accDisplay}</span>
+                                      {t.note && <span className="text-gray-500 truncate min-w-0" title={t.note}>- {t.note}</span>}
+                                  </div>
                               </div>
                           </div>
-                          <div className="text-right shrink-0">
-                              <div className={`text-[15px] font-black ${isThu ? 'text-[#10b981]' : t.type === 'Chuyển' ? 'text-blue-400' : 'text-[#f43f5e]'}`}>
+                          
+                          <div className="text-left sm:text-right shrink-0 pl-1.5 sm:pl-0 pt-1.5 sm:pt-0 border-t sm:border-t-0 border-[#222]">
+                              <div className={`text-[15px] font-black leading-none ${isThu ? 'text-[#10b981]' : t.type === 'Chuyển' ? 'text-blue-400' : 'text-[#f43f5e]'}`}>
                                 {isThu ? '+' : t.type === 'Chuyển' ? '↔' : '-'}{secureMoney(t.amount)}
                               </div>
-                              {canManageFinance && (
-                                  <div className="flex justify-end gap-2 mt-1">
-                                      <button onClick={() => { 
-                                          setTxForm({ id: t.id, type: t.type, category: t.category, amount: String(t.amount), title: t.title, note: t.note, fromAccount: t.fromAccount || '', toAccount: t.toAccount || '', date: t.date, time: t.time || '00:00', proofImage: t.proofImage, isAuto: t.isAuto }); 
-                                          setShowAddTx(true); 
-                                      }} className="text-[10px] text-gray-500 hover:text-[#3b82f6] underline decoration-gray-600 underline-offset-2 opacity-0 group-hover:opacity-100 transition-opacity">Sửa</button>
-                                      <button onClick={() => { if(window.confirm('Xoá giao dịch này?')) pushDeltas({deletes:{Transactions:[t.id]}}); }} className="text-[10px] text-gray-500 hover:text-rose-500 underline decoration-gray-600 underline-offset-2 opacity-0 group-hover:opacity-100 transition-opacity">Xoá</button>
+                              {txBalances[t.id] && (
+                                  <div className="text-[8px] text-gray-500 font-bold mt-1 text-left sm:text-right flex sm:block gap-2">
+                                      {t.type === 'Thu' && t.toAccount && <div>SD: <span className="text-[#d4af37]">{secureMoney(txBalances[t.id].to)}</span></div>}
+                                      {t.type === 'Chi' && t.fromAccount && <div>SD: <span className="text-[#d4af37]">{secureMoney(txBalances[t.id].from)}</span></div>}
+                                      {t.type === 'Chuyển' && (
+                                          <>
+                                              {t.fromAccount && <div className="text-rose-500/70">N: <span>{secureMoney(txBalances[t.id].from)}</span></div>}
+                                              {t.toAccount && <div className="text-emerald-500/70">Đ: <span>{secureMoney(txBalances[t.id].to)}</span></div>}
+                                          </>
+                                      )}
                                   </div>
                               )}
                           </div>
@@ -1004,56 +2053,62 @@ function FinanceTab({ orders, erpData, pushDeltas, triggerToast, isAdmin }) {
                   );
                 })
               )}
+              {filteredTxs.length > displayLimit && (
+                  <button onClick={() => setDisplayLimit(prev => prev + 50)} className="w-full py-2 mt-2 bg-[#1a1a1a] text-gray-400 text-[10px] font-bold uppercase rounded-lg hover:bg-[#333] hover:text-white transition-colors border border-[#222]">
+                      Xem thêm ({displayLimit} / {filteredTxs.length}) <i className="fas fa-chevron-down ml-1"></i>
+                  </button>
+              )}
             </div>
           </div>
         </div>
       )}
 
       {activeSubTab === 'SO_QUY' && (
-          <div className="space-y-3 animate-fade-in">
-              <div className="flex justify-between items-center px-1 mb-2">
+          <div className="animate-fade-in w-full">
+              <div className="flex justify-between items-center px-1 mb-3">
                   <h3 className="font-black text-[13px] text-gray-200">Danh Sách Quỹ</h3>
                   {canManageFinance && <button onClick={() => handleOpenAccountModal(null)} className="bg-[#3b82f6] text-white text-[10px] font-black px-3 py-1.5 rounded-lg shadow-sm active:scale-95 transition-all"><i className="fas fa-plus mr-1"></i> TẠO QUỸ</button>}
               </div>
               {accountsData.length === 0 ? <div className="text-center py-10 text-gray-500 font-bold text-[11px] bg-[#141414] rounded-2xl border-2 border-dashed border-[#333]">Chưa có quỹ nào</div> : 
-                  accountsData.map(a => {
-                      const parsed = parseAccountInfo(a);
-                      const visuals = getBankVisuals(parsed.name, parsed.type);
-                      return (
-                          <div key={a.id} className="bg-[#141414] border border-[#2a2a2a] p-4 rounded-2xl flex justify-between items-center shadow-sm hover:border-[#333] transition-colors group">
-                              <div className="flex items-center gap-3 min-w-0">
-                                  <div className={`w-11 h-11 rounded-full ${visuals.bg} border ${visuals.border} flex items-center justify-center ${visuals.color} text-xl shadow-inner shrink-0`}>
-                                      <i className={`fas ${visuals.icon}`}></i>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {accountsData.map(a => {
+                          const parsed = parseAccountInfo(a);
+                          const visuals = getBankVisuals(parsed.name, parsed.type);
+                          return (
+                              <div key={a.id} className="bg-[#141414] border border-[#2a2a2a] p-4 rounded-2xl flex flex-col justify-between shadow-sm hover:border-[#444] transition-colors group relative overflow-hidden">
+                                  <div className={`absolute top-0 right-0 w-20 h-20 ${visuals.bg} rounded-full blur-2xl -mr-6 -mt-6 opacity-30 group-hover:opacity-60 transition-opacity`}></div>
+                                  <div className="relative z-10 flex items-start justify-between mb-3">
+                                      <div className={`w-12 h-12 rounded-full ${visuals.bg} border ${visuals.border} flex items-center justify-center ${visuals.color} text-xl shadow-inner shrink-0`}>
+                                          <i className={`fas ${visuals.icon}`}></i>
+                                      </div>
+                                      <div className="text-right">
+                                          <div className="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-1">SỐ DƯ</div>
+                                          <div className="text-[17px] font-black text-[#d4af37] leading-none">{secureMoney(a.balance)}</div>
+                                      </div>
                                   </div>
-                                  <div className="min-w-0 pr-2">
-                                      <div className="font-black text-[14px] text-white leading-tight truncate">{parsed.name}</div>
-                                      
+                                  <div className="relative z-10 mb-3">
+                                      <div className="font-black text-[14px] text-white leading-tight truncate mb-1">{parsed.name}</div>
                                       {parsed.type !== 'Tiền mặt' && (
                                           <>
-                                              <div className="text-[11px] text-[#3b82f6] font-bold mt-1 font-mono tracking-wider">STK: {parsed.number || '---'}</div>
-                                              <div className="text-[10px] text-gray-400 font-bold font-mono tracking-wider mt-0.5 truncate">Chủ TK: {parsed.owner || '---'}</div>
+                                              <div className="text-[11px] text-[#3b82f6] font-bold font-mono tracking-wider">STK: {parsed.number || '---'}</div>
+                                              <div className="text-[10px] text-gray-400 font-bold font-mono tracking-wider truncate">Chủ: {parsed.owner || '---'}</div>
                                           </>
                                       )}
                                       {parsed.type === 'Tiền mặt' && <div className="text-[10px] text-gray-500 mt-1">Quỹ Tiền Mặt (Két sắt)</div>}
-                                      
-                                      <div className="flex gap-2 mt-2 items-center">
-                                          <button onClick={() => setViewingAccountTxs(a)} className={`text-[10px] font-bold ${visuals.color} ${visuals.bg} px-2.5 py-1 rounded-lg border ${visuals.border} hover:bg-opacity-20 active:scale-95 transition-all whitespace-nowrap`}><i className="fas fa-history mr-1"></i>Xem lịch sử</button>
-                                          {canManageFinance && (
-                                              <>
-                                                 <button onClick={() => handleOpenAccountModal(a)} className="text-[10px] text-gray-400 hover:text-[#3b82f6] underline decoration-gray-600 underline-offset-2 opacity-0 group-hover:opacity-100 transition-opacity">Sửa</button>
-                                                 {isAdmin && <button onClick={() => { if(window.confirm('Xoá quỹ này?')) pushDeltas({deletes:{Accounts:[a.id]}}); }} className="text-[10px] text-gray-400 hover:text-rose-500 underline decoration-gray-600 underline-offset-2 opacity-0 group-hover:opacity-100 transition-opacity">Xoá</button>}
-                                              </>
-                                          )}
-                                      </div>
+                                  </div>
+                                  <div className="relative z-10 flex gap-2 items-center pt-3 border-t border-[#222]">
+                                      <button onClick={() => setViewingAccountTxs(a)} className={`flex-1 text-[10px] font-bold ${visuals.color} ${visuals.bg} px-2 py-1.5 rounded-lg border ${visuals.border} hover:bg-opacity-20 active:scale-95 transition-all text-center`}><i className="fas fa-history mr-1"></i>Lịch sử</button>
+                                      {canManageFinance && (
+                                          <>
+                                             <button onClick={() => handleOpenAccountModal(a)} className="w-8 h-8 rounded-lg bg-[#222] text-gray-400 hover:text-[#3b82f6] hover:bg-[#3b82f6]/10 transition-colors flex items-center justify-center"><i className="fas fa-edit"></i></button>
+                                             {isAdmin && <button onClick={() => { if(window.confirm('Xoá quỹ này?')) pushDeltas({deletes:{Accounts:[a.id]}}); }} className="w-8 h-8 rounded-lg bg-[#222] text-gray-400 hover:text-rose-500 hover:bg-rose-500/10 transition-colors flex items-center justify-center"><i className="fas fa-trash"></i></button>}
+                                          </>
+                                      )}
                                   </div>
                               </div>
-                              <div className="text-right flex flex-col items-end shrink-0 pl-2">
-                                  <div className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-0.5">SỐ DƯ</div>
-                                  <div className="text-[18px] font-black text-[#d4af37]">{secureMoney(a.balance)}</div>
-                              </div>
-                          </div>
-                      );
-                  })
+                          );
+                      })}
+                  </div>
               }
           </div>
       )}
@@ -1100,27 +2155,41 @@ function FinanceTab({ orders, erpData, pushDeltas, triggerToast, isAdmin }) {
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[999] p-4 backdrop-blur-sm animate-fade-in">
           <div className="bg-[#141414] border border-[#333] w-full max-w-md rounded-[24px] p-5 shadow-2xl flex flex-col max-h-[90vh]">
             <div className="flex justify-between items-center mb-5">
-              <input type="text" value={txForm.amount ? Number(String(txForm.amount).replace(/[^0-9]/g, '')).toLocaleString('vi-VN') : ''} onChange={e => setTxForm({...txForm, amount: e.target.value.replace(/[^0-9]/g, '')})} className="w-full bg-transparent outline-none font-black text-[24px] text-white placeholder-gray-600" placeholder="0" autoFocus />
-              <button onClick={() => setShowAddTx(false)} className="w-8 h-8 rounded-full bg-[#222] text-gray-400 hover:text-rose-500 flex items-center justify-center"><i className="fas fa-times"></i></button>
+              <h2 className="text-white font-black text-[16px] uppercase tracking-widest"><i className="fas fa-file-invoice-dollar mr-2 text-[#3b82f6]"></i>TẠO GIAO DỊCH</h2>
+              <button onClick={() => setShowAddTx(false)} className="w-8 h-8 rounded-full bg-[#222] text-gray-400 hover:text-rose-500 flex items-center justify-center shrink-0"><i className="fas fa-times"></i></button>
             </div>
             
             <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-4">
               <div className="flex bg-[#0a0a0a] p-1 rounded-xl border border-[#333]">
                   {['Thu', 'Chi', 'Chuyển'].map(t => (
-                      <button key={t} onClick={() => setTxForm({...txForm, type: t, category: t==='Chuyển'?'Chuyển Quỹ':categories[t.toUpperCase()][0]?.value||''})} className={`flex-1 py-2 rounded-lg text-[11px] font-black transition-all ${txForm.type === t ? (t==='Thu'?'bg-[#10b981] text-[#0a0a0a]':t==='Chi'?'bg-[#e11d48] text-white':'bg-[#3b82f6] text-white') : 'text-gray-500'}`}>{t.toUpperCase()}</button>
+                      <button key={t} onClick={() => setTxForm({...txForm, type: t, category: t==='Chuyển'?'Chuyển Quỹ':categories[t.toUpperCase()][0]?.value||''})} className={`flex-1 py-2.5 rounded-lg text-[12px] font-black transition-all shadow-sm ${txForm.type === t ? (t==='Thu'?'bg-[#10b981] text-[#0a0a0a]':t==='Chi'?'bg-[#e11d48] text-white':'bg-[#3b82f6] text-white') : 'text-gray-500 hover:bg-[#222]'}`}>{t.toUpperCase()}</button>
                   ))}
               </div>
 
-              <div><input type="text" value={txForm.title} onChange={e => setTxForm({...txForm, title: e.target.value})} className="w-full bg-[#1a1a1a] border border-[#333] rounded-xl px-4 py-3.5 text-[13px] font-bold text-white outline-none focus:border-[#3b82f6] transition-colors" placeholder="Tên giao dịch..." /></div>
+              <div className="bg-[#1a1a1a] border border-[#333] rounded-2xl p-4 flex flex-col gap-2">
+                  <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest px-1">Số Tiền (VNĐ)</label>
+                  <input type="text" value={txForm.amount ? Number(String(txForm.amount).replace(/[^0-9]/g, '')).toLocaleString('vi-VN') : ''} onChange={e => setTxForm({...txForm, amount: e.target.value.replace(/[^0-9]/g, '')})} className="w-full bg-transparent outline-none font-black text-[32px] text-white placeholder-gray-700 leading-none px-1" placeholder="0" autoFocus />
+              </div>
 
               {txForm.type !== 'Chuyển' && (
                   <div>
-                      <label className="text-[10px] font-black text-gray-500 uppercase mb-1.5 block px-1">Danh mục</label>
-                      <select value={txForm.category} onChange={e => setTxForm({...txForm, category: e.target.value})} className="w-full bg-[#1a1a1a] border border-[#333] rounded-xl px-4 py-3 text-[12px] font-bold text-white outline-none focus:border-[#3b82f6] appearance-none">
+                      <label className="text-[10px] font-black text-gray-500 uppercase mb-1.5 block px-1">Danh mục thu chi</label>
+                      <select value={txForm.category} onChange={e => setTxForm({...txForm, category: e.target.value})} className="w-full bg-[#1a1a1a] border border-[#333] rounded-xl px-4 py-3.5 text-[12px] font-bold text-white outline-none focus:border-[#3b82f6] appearance-none shadow-sm">
                           {(categories[txForm.type.toUpperCase()] || []).map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                       </select>
                   </div>
               )}
+
+              <div>
+                  <label className="text-[10px] font-black text-gray-500 uppercase mb-1.5 block px-1">Tên Người Nhận / Người Chuyển</label>
+                  <div className="flex gap-2">
+                      <input type="text" list="financeContactsList" value={txForm.title} onChange={e => setTxForm({...txForm, title: e.target.value})} className="flex-1 bg-[#1a1a1a] border border-[#333] rounded-xl px-4 py-3.5 text-[13px] font-bold text-white outline-none focus:border-[#3b82f6] transition-colors shadow-sm" placeholder="Nhập tên..." />
+                      <button onClick={handleSaveContact} className="w-12 rounded-xl bg-[#1a1a1a] border border-[#333] text-emerald-500 hover:bg-emerald-500 hover:text-white transition-colors flex items-center justify-center shadow-sm" title="Lưu vào danh bạ"><i className="fas fa-save"></i></button>
+                  </div>
+                  <datalist id="financeContactsList">
+                      {savedContacts.map((c, i) => <option key={i} value={c} />)}
+                  </datalist>
+              </div>
 
               <div className="grid grid-cols-2 gap-3">
                   {txForm.type !== 'Thu' && (
@@ -1150,461 +2219,413 @@ function FinanceTab({ orders, erpData, pushDeltas, triggerToast, isAdmin }) {
               
               <div><textarea value={txForm.note} onChange={e => setTxForm({...txForm, note: e.target.value})} className="w-full bg-[#1a1a1a] border border-[#333] rounded-xl px-4 py-3 text-[12px] font-bold text-white outline-none focus:border-[#3b82f6] min-h-[60px]" placeholder="Ghi chú thêm..."></textarea></div>
 
-              {txForm.proofImage && (
-                  <div className="bg-[#0a0a0a] p-3 rounded-xl border border-[#d4af37]/30 flex items-start gap-3">
-                      <img src={txForm.proofImage} alt="Chứng từ đính kèm" className="w-16 h-16 object-cover rounded-lg border border-[#444]" />
-                      <div>
-                          <div className="text-[11px] font-black text-[#d4af37] uppercase tracking-widest"><i className="fas fa-paperclip mr-1"></i>Có ảnh đính kèm</div>
-                          <button onClick={() => setTxForm({...txForm, proofImage: null})} className="text-[10px] text-rose-500 mt-1 font-bold hover:underline">Xóa ảnh</button>
+              <div className="bg-[#0a0a0a] p-3 rounded-xl border border-[#333]">
+                  <label className="text-[10px] font-black text-gray-500 uppercase mb-2 block">Tài liệu / Ảnh đính kèm</label>
+                  {txForm.proofImage ? (
+                      <div className="flex items-start gap-3">
+                          <img src={txForm.proofImage} alt="Chứng từ đính kèm" className="w-16 h-16 object-cover rounded-lg border border-[#444]" />
+                          <div>
+                              <div className="text-[11px] font-black text-[#d4af37] uppercase tracking-widest mb-1"><i className="fas fa-check-circle mr-1"></i>Đã đính kèm ảnh</div>
+                              <button onClick={() => setTxForm({...txForm, proofImage: null})} className="text-[10px] bg-rose-500/20 text-rose-500 px-2 py-1 rounded font-bold hover:bg-rose-500 hover:text-white transition-colors">Xóa ảnh</button>
+                          </div>
                       </div>
-                  </div>
-              )}
+                  ) : (
+                      <div className="relative">
+                          <input type="file" accept="image/png, image/jpeg, image/jpg, image/webp" className="hidden" id="tx-upload-image" onChange={(e) => {
+                              const file = e.target.files[0];
+                              if (!file) return;
+                              const reader = new FileReader();
+                              reader.onload = (evt) => {
+                                  const img = new Image();
+                                  img.onload = () => {
+                                      const canvas = document.createElement('canvas');
+                                      const MAX_WIDTH = 800;
+                                      const scaleSize = MAX_WIDTH / img.width;
+                                      canvas.width = MAX_WIDTH;
+                                      canvas.height = img.height * scaleSize;
+                                      const ctx = canvas.getContext('2d');
+                                      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                                      setTxForm({...txForm, proofImage: canvas.toDataURL('image/jpeg', 0.6)});
+                                  };
+                                  img.src = evt.target.result;
+                              };
+                              reader.readAsDataURL(file);
+                          }} />
+                          <label htmlFor="tx-upload-image" className="cursor-pointer bg-[#1a1a1a] hover:bg-[#222] border border-dashed border-[#444] hover:border-[#3b82f6] text-gray-400 hover:text-[#3b82f6] rounded-xl py-4 flex flex-col items-center justify-center transition-all">
+                              <i className="fas fa-cloud-upload-alt text-xl mb-1"></i>
+                              <span className="text-[10px] font-bold">Bấm để tải ảnh chứng từ lên</span>
+                          </label>
+                      </div>
+                  )}
+              </div>
             </div>
 
             <button onClick={handleSaveTx} disabled={isSavingTx} className="w-full py-3.5 mt-4 bg-[#3b82f6] text-white font-black text-[13px] rounded-xl shadow-[0_0_15px_rgba(59,130,246,0.3)] active:scale-95 transition-all flex items-center justify-center gap-2">
-              {isSavingTx ? <><i className="fas fa-spinner fa-spin"></i> ĐANG LƯU...</> : <><i className="fas fa-save"></i> LƯU GIAO DỊCH</>}
+              {isSavingTx ? <><i className="fas fa-spinner fa-spin"></i> ĐANG LƯU...</> : <><i className="fas fa-save"></i> KIỂM TRA & LƯU GIAO DỊCH</>}
             </button>
           </div>
         </div>
       )}
 
       {showImportScanner && <ImportStatementModal categories={categories} erpData={erpData} onClose={() => setShowImportScanner(false)} pushDeltas={pushDeltas} triggerToast={triggerToast} />}
+      {showShopeeWalletScanner && <ShopeeWalletScannerModal categories={categories} erpData={erpData} onClose={() => setShowShopeeWalletScanner(false)} pushDeltas={pushDeltas} triggerToast={triggerToast} accountsData={accountsData} />}
       {showReceiptScanner && <ReceiptScannerModal accountsData={accountsData} onClose={() => setShowReceiptScanner(false)} triggerToast={triggerToast} onComplete={handleReceiptScanned} />}
       {viewingProofImage && <ProofViewerModal imageUrl={viewingProofImage} onClose={() => setViewingProofImage(null)} />}
       {showAccountModal && <AccountModal initialData={editingAccount} onClose={() => { setShowAccountModal(false); setEditingAccount(null); }} onSubmit={handleSaveAccount} />}
-      {viewingAccountTxs && <AccountHistoryModal account={viewingAccountTxs} allTxs={allTxs} onClose={() => setViewingAccountTxs(null)} secureMoney={secureMoney} pushDeltas={pushDeltas} canManageFinance={canManageFinance} />}
+      {viewingAccountTxs && <AccountHistoryModal account={viewingAccountTxs} allTxs={allTxs} onClose={() => setViewingAccountTxs(null)} secureMoney={secureMoney} pushDeltas={pushDeltas} canManageFinance={canManageFinance} onDeleteTx={handleDeleteTx} />}
     </div>
   );
-}
+});
 
 // -------------------------------------------------------------------------
 // 4. MAIN TAB: BusinessReportTab (BÁO CÁO KQKD DÀNH RIÊNG CHO BOSS)
 // -------------------------------------------------------------------------
-function BusinessReportTab({ erpData, pushDeltas, triggerToast }) {
-  const currentRole = localStorage.getItem('rf_role');
-  const isBoss = currentRole === 'TỐI CAO';
-  const canManageFinance = isBoss || currentRole === 'KẾ TOÁN';
-  
-  if (!isBoss) {
-      return (
-          <div className="flex flex-col items-center justify-center py-20 text-center animate-fade-in">
-              <i className="fas fa-lock text-5xl text-rose-500/50 mb-4"></i>
-              <h2 className="text-xl font-black text-rose-500 tracking-widest uppercase">Tuyệt Mật</h2>
-              <p className="text-sm text-gray-500 mt-2 max-w-xs">Chỉ tài khoản cấp TỐI CAO mới có quyền xem Báo cáo Kết quả Kinh doanh thực tế.</p>
-          </div>
-      );
-  }
 
-  React.useEffect(() => {
-      if (typeof window.XLSX === 'undefined') {
-          const script = document.createElement('script');
-          script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
-          document.head.appendChild(script);
-      }
-  }, []);
+const ReportMetricField = ({ label, field, value, isEditing, disabled, onChange, color, canView }) => (
+    <div className={`p-3.5 rounded-xl border transition-all ${isEditing && !disabled ? 'bg-[#0a0a0a] border-[#333] hover:border-[#555]' : 'bg-[#0a0a0a]/50 border-transparent'}`}>
+        <div className="text-[9px] font-black uppercase text-gray-500 mb-1.5 tracking-widest">{label}</div>
+        {isEditing && !disabled ? (
+            <input 
+                type="number" 
+                value={value || ''} 
+                onChange={e => onChange(field, e.target.value)} 
+                className={`w-full bg-transparent border-b border-[#444] focus:border-[#d4af37] outline-none text-[15px] font-black ${color} pb-1.5 transition-colors`} 
+                placeholder="0" 
+            />
+        ) : (
+            <div className={`text-[15px] font-black ${color} truncate`}>
+                {canView ? Number(value || 0).toLocaleString('vi-VN') + 'đ' : '******'}
+            </div>
+        )}
+    </div>
+);
 
-  const formatMoney = (val) => Number(val || 0).toLocaleString('vi-VN');
-  const secureMoney = (val) => formatMoney(val); 
-
-  const REPORT_CHANNELS = ['Shopee VN', 'Tiktok Shop', 'Bán Lẻ', 'Bán Sỉ', 'Cộng Tác Viên', 'Xuất Khẩu'];
-
-  const [filter, setFilter] = React.useState('Tháng Này');
-  const [localReports, setLocalReports] = React.useState({}); 
-  const [editingReport, setEditingReport] = React.useState(null);
-  const [reportForm, setReportForm] = React.useState({});
-
-  React.useEffect(() => {
-    if (erpData?.ProfitReports && erpData.ProfitReports.length > 0) {
-      const serverMap = {};
-      erpData.ProfitReports.forEach(r => { if (r.period && r.channel) { serverMap[`PROFIT_${r.period}_${r.channel}`] = r; } });
-      setLocalReports(prev => ({ ...serverMap, ...prev }));
+const BusinessReportTab = React.memo(function BusinessReportTab({ erpData, pushDeltas, triggerToast }) {
+    const currentRole = localStorage.getItem('rf_role');
+    const isBoss = currentRole === 'TỐI CAO';
+    
+    // 1. BẢO MẬT & PHÂN QUYỀN
+    if (!isBoss) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[65vh] text-center animate-fade-in p-6">
+                <div className="relative mb-8 group">
+                    <div className="absolute inset-0 bg-rose-600 rounded-full blur-[50px] opacity-20 group-hover:opacity-40 transition-opacity duration-700"></div>
+                    <div className="w-28 h-28 rounded-full bg-black/80 border border-rose-500/30 flex items-center justify-center relative z-10 shadow-[0_0_40px_rgba(225,29,72,0.15)] backdrop-blur-xl">
+                        <i className="fas fa-lock text-5xl text-rose-500 drop-shadow-[0_0_15px_rgba(225,29,72,0.8)]"></i>
+                    </div>
+                </div>
+                <h2 className="text-3xl font-black text-rose-500 tracking-[0.25em] uppercase drop-shadow-[0_0_10px_rgba(225,29,72,0.5)] mb-4">Tuyệt Mật</h2>
+                <div className="w-16 h-[2px] bg-rose-500/50 mb-5 mx-auto"></div>
+                <p className="text-[13px] font-bold text-gray-400 max-w-md tracking-wide leading-relaxed">
+                    Khu vực này chứa dữ liệu P&L sinh tử của doanh nghiệp.<br/><br/>Chỉ tài khoản mang đặc quyền <span className="text-rose-400 drop-shadow-[0_0_5px_rgba(225,29,72,0.8)]">TỐI CAO</span> mới được phép truy cập.
+                </p>
+            </div>
+        );
     }
-  }, [erpData?.ProfitReports]);
 
-  const filterOptions = React.useMemo(() => {
-    const opts = ['Tháng Này', 'Năm Nay'];
-    const today = new Date();
-    for (let i = today.getMonth(); i > 0; i--) opts.push(`Tháng ${i}`);
-    opts.push('Tất Cả');
-    return opts;
-  }, []);
+    const formatMoney = (val) => Number(val || 0).toLocaleString('vi-VN');
+    const REPORT_CHANNELS = ['Shopee VN', 'Tiktok Shop', 'Bán Lẻ', 'Bán Sỉ', 'Cộng Tác Viên', 'Xuất Khẩu'];
 
-  const isAggregatedView = filter === 'Năm Nay' || filter === 'Tất Cả';
+    const [filter, setFilter] = React.useState('Tháng Này');
+    const [localReports, setLocalReports] = React.useState({}); 
+    const [editingReport, setEditingReport] = React.useState(null);
+    const [reportForm, setReportForm] = React.useState({});
 
-  const getAggregatedReport = React.useCallback((channelName) => {
-    if (!isAggregatedView) {
-      const reportId = `PROFIT_${filter}_${channelName}`;
-      const serverReport = (erpData?.ProfitReports || []).find(r => r.period === filter && r.channel === channelName) || {};
-      return localReports[reportId] || serverReport;
-    }
-    let agg = { revenue: 0, orderCount: 0, platformFee: 0, returns: 0, discount: 0, ads: 0, cogs: 0, salary: 0, operation: 0 };
-    (erpData?.ProfitReports || []).forEach(r => {
-      if (r.channel === channelName && (filter === 'Tất Cả' || (filter === 'Năm Nay' && String(r.period).startsWith('Tháng')))) {
-        agg.revenue += Number(r.revenue || 0); agg.orderCount += Number(r.orderCount || 0); agg.platformFee += Number(r.platformFee || 0);
-        agg.returns += Number(r.returns || 0); agg.discount += Number(r.discount || 0); agg.ads += Number(r.ads || 0);
-        agg.cogs += Number(r.cogs || 0); agg.salary += Number(r.salary || 0); agg.operation += Number(r.operation || 0);
-      }
-    });
-    return agg;
-  }, [erpData?.ProfitReports, filter, localReports, isAggregatedView]);
+    React.useEffect(() => {
+        if (erpData?.ProfitReports && erpData.ProfitReports.length > 0) {
+            const serverMap = {};
+            erpData.ProfitReports.forEach(r => { 
+                if (r.period && r.channel) { 
+                    serverMap[`PROFIT_${r.period}_${r.channel}`] = r; 
+                } 
+            });
+            setLocalReports(prev => ({ ...serverMap, ...prev }));
+        }
+    }, [erpData?.ProfitReports]);
 
-  const profitData = React.useMemo(() => {
-    let summary = { totalRev: 0, totalSalesExp: 0, totalGeneralExp: 0, netProfit: 0 };
-    REPORT_CHANNELS.forEach(channel => {
-      const data = getAggregatedReport(channel);
-      summary.totalRev += Number(data.revenue || 0);
-      summary.totalSalesExp += Number(data.platformFee || 0) + Number(data.returns || 0) + Number(data.discount || 0) + Number(data.ads || 0);
-    });
-    const genData = getAggregatedReport('COMPANY_GENERAL');
-    summary.totalGeneralExp = Number(genData.cogs || 0) + Number(genData.salary || 0) + Number(genData.operation || 0);
-    summary.netProfit = summary.totalRev - summary.totalSalesExp - summary.totalGeneralExp;
-    return summary;
-  }, [getAggregatedReport]);
+    const filterOptions = React.useMemo(() => ['Tháng Này', 'Tháng Trước', 'Năm Nay', 'Tất Cả'], []);
+    const isCurrentMonth = filter === 'Tháng Này';
 
-  const handleEditReport = (channel) => {
-    const reportId = `PROFIT_${filter}_${channel}`;
-    const saved = localReports[reportId] || {};
-    setReportForm({ revenue: saved.revenue || 0, orderCount: saved.orderCount || 0, platformFee: saved.platformFee || 0, returns: saved.returns || 0, discount: saved.discount || 0, ads: saved.ads || 0, cogs: saved.cogs || 0, salary: saved.salary || 0, operation: saved.operation || 0 });
-    setEditingReport(channel);
-  };
+    // 2. HYBRID DATA ENGINE
+    const getAggregatedReport = React.useCallback((channelName) => {
+        let agg = { revenue: 0, orderCount: 0, platformFee: 0, returns: 0, discount: 0, ads: 0, cogs: 0, salary: 0, operation: 0 };
+        const today = new Date();
+        const currentMonth = today.getMonth() + 1;
+        const currentYear = today.getFullYear();
 
-  const handleFormChange = React.useCallback((field, value) => { setReportForm(prev => ({ ...prev, [field]: value })); }, []);
+        const reportId = `PROFIT_${filter}_${channelName}`;
+        // Lấy dữ liệu đã lưu (nếu có) để đắp vào các chỉ số thủ công (Ads, Cogs, PlatformFee,...)
+        const saved = localReports[reportId] || (erpData?.ProfitReports || []).find(r => r.period === filter && r.channel === channelName) || {};
+        
+        agg.platformFee = Number(saved.platformFee || 0);
+        agg.discount = Number(saved.discount || 0);
+        agg.ads = Number(saved.ads || 0);
+        agg.cogs = Number(saved.cogs || 0);
+        agg.salary = Number(saved.salary || 0);
+        agg.operation = Number(saved.operation || 0);
 
-  const handleSaveReport = async (channel) => {
-    const reportId = `PROFIT_${filter}_${channel}`;
-    try {
-      const payload = { id: reportId, period: filter, channel: channel, ...reportForm, updatedAt: new Date().toISOString() };
-      await pushDeltas({ ProfitReports: [payload] }, `Đã lưu ${channel}`, 'fa-save');
-      setLocalReports(prev => ({ ...prev, [reportId]: payload }));
-      setEditingReport(null); triggerToast(`Đã lưu báo cáo ${channel} thành công!`, 'fa-check', 'success');
-    } catch(e) { triggerToast('Lỗi khi lưu báo cáo!', 'fa-times', 'danger'); }
-  };
-
-  const handleImportKiotViet = (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-
-      if (typeof window.XLSX === 'undefined') {
-          triggerToast('Hệ thống đang nạp lõi đọc Excel, vui lòng thử lại sau 3 giây!', 'fa-spinner', 'warning');
-          return;
-      }
-
-      const reader = new FileReader();
-      reader.onload = (evt) => {
-          try {
-              const data = evt.target.result;
-              let workbook;
-              let isCSV = false;
-              
-              try { workbook = window.XLSX.read(data, { type: 'binary' }); } 
-              catch (err) { isCSV = true; }
-
-              const processRows = (json) => {
-                  if (!json || json.length < 2) return triggerToast('File trống hoặc không hợp lệ!', 'fa-times', 'danger');
-
-                  let count = 0;
-                  let rev = 0;
-                  let disc = 0;
-                  let platFee = 0;
-                  
-                  const processedInvoices = new Set();
-                  const headers = json[0] || [];
-                  const getCol = (rowArr, keyword) => {
-                      const idx = headers.findIndex(h => String(h).toLowerCase().includes(keyword.toLowerCase()));
-                      return idx !== -1 ? (rowArr[idx] !== undefined ? rowArr[idx] : '') : '';
-                  };
-
-                  for (let i = 1; i < json.length; i++) {
-                      const row = json[i];
-                      if (!row || row.length === 0) continue;
-                      
-                      const invoiceId = String(getCol(row, 'Mã hóa đơn') || '').trim();
-                      if (!invoiceId || invoiceId === 'undefined') continue;
-
-                      const trackingCode = String(getCol(row, 'Mã vận đơn') || '').toUpperCase();
-                      const kenhBan = String(getCol(row, 'Kênh bán') || '').toUpperCase();
-                      const doiTac = String(getCol(row, 'Đối tác giao hàng') || '').toUpperCase();
-                      const ghiChu = String(getCol(row, 'Ghi chú') || '').toUpperCase();
-
-                      let isForeign = false;
-                      let rate = 1;
-
-                      if (trackingCode.startsWith('SG') || kenhBan.includes('SG')) { isForeign = true; rate = 18700; }
-                      else if (trackingCode.startsWith('MY') || kenhBan.includes('MA') || kenhBan.includes('MY')) { isForeign = true; rate = 5400; }
-                      else if (trackingCode.startsWith('TH') || kenhBan.includes('TH')) { isForeign = true; rate = 700; }
-                      else if (trackingCode.startsWith('PH') || kenhBan.includes('PH')) { isForeign = true; rate = 440; }
-
-                      let rowChannel = '';
-
-                      if (isForeign) { rowChannel = 'Xuất Khẩu'; } 
-                      else if (invoiceId.startsWith('HDSPE') || doiTac.includes('SHOPEE') || ghiChu.includes('SHOPEE')) { rowChannel = 'Shopee VN'; } 
-                      else if (invoiceId.startsWith('HDTTS') || doiTac.includes('TIKTOK') || ghiChu.includes('TIKTOK')) { rowChannel = 'Tiktok Shop'; } 
-                      else if (kenhBan.includes('CỘNG TÁC VIÊN') || kenhBan.includes('CTV')) { rowChannel = 'Cộng Tác Viên'; } 
-                      else if (kenhBan.includes('BÁN LẺ') || kenhBan.includes('LẺ') || kenhBan.includes('LE')) { rowChannel = 'Bán Lẻ'; } 
-                      else if (kenhBan.includes('BÁN SỈ') || kenhBan.includes('SỈ') || kenhBan.includes('SI')) { rowChannel = 'Bán Sỉ'; } 
-                      else { rowChannel = 'Khác'; }
-
-                      if (rowChannel !== editingReport) continue;
-
-                      if (processedInvoices.has(invoiceId)) continue;
-                      processedInvoices.add(invoiceId);
-
-                      count++;
-
-                      let rowRev = Number(getCol(row, 'Khách cần trả')) || Number(getCol(row, 'Tổng sau giảm giá')) || Number(getCol(row, 'Tổng tiền hàng')) || 0;
-                      let rowDisc = Number(getCol(row, 'Giảm giá hóa đơn')) || Number(getCol(row, 'Giảm giá')) || 0;
-                      let rowPlatFee = Number(getCol(row, 'Phí trả ĐTGH')) || 0;
-
-                      rev += (rowRev * rate);
-                      disc += (rowDisc * rate);
-                      platFee += (rowPlatFee * rate);
-                  }
-
-                  setReportForm(prev => ({
-                      ...prev,
-                      revenue: rev,
-                      orderCount: count,
-                      discount: disc,
-                      platformFee: platFee
-                  }));
-                  
-                  triggerToast(`Đã gom ${count} Hóa Đơn (Kèm Phí Sàn) cho kênh ${editingReport}!`, 'fa-check', 'success');
-              };
-
-              if (isCSV) {
-                   const readerCSV = new FileReader();
-                   readerCSV.onload = (eCSV) => { 
-                       const wb = window.XLSX.read(eCSV.target.result, {type: 'string'});
-                       const ws = wb.Sheets[wb.SheetNames[0]];
-                       processRows(window.XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }));
-                   };
-                   readerCSV.readAsText(file);
-              } else {
-                   const ws = workbook.Sheets[workbook.SheetNames[0]];
-                   processRows(window.XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }));
-              }
-          } catch (err) {
-              triggerToast('Mảng dữ liệu lỗi hoặc không đúng chuẩn file Hóa Đơn KiotViet!', 'fa-times', 'danger');
-          }
-      };
-      
-      reader.readAsBinaryString(file);
-      e.target.value = null;
-  };
-
-  const handleImportReturnsKiotViet = (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-
-      if (typeof window.XLSX === 'undefined') {
-          triggerToast('Hệ thống đang nạp lõi đọc Excel, vui lòng thử lại sau 3 giây!', 'fa-spinner', 'warning');
-          return;
-      }
-
-      const reader = new FileReader();
-      reader.onload = (evt) => {
-          try {
-              const data = evt.target.result;
-              let workbook;
-              let isCSV = false;
-              
-              try { workbook = window.XLSX.read(data, { type: 'binary' }); } 
-              catch (err) { isCSV = true; }
-
-              const processRows = (json) => {
-                  if (!json || json.length < 2) return triggerToast('File trống hoặc không hợp lệ!', 'fa-times', 'danger');
-
-                  let count = 0;
-                  let retTotal = 0;
-                  
-                  const processedReturns = new Set();
-                  const headers = json[0] || [];
-                  const getCol = (rowArr, keyword) => {
-                      const idx = headers.findIndex(h => String(h).toLowerCase().includes(keyword.toLowerCase()));
-                      return idx !== -1 ? (rowArr[idx] !== undefined ? rowArr[idx] : '') : '';
-                  };
-
-                  for (let i = 1; i < json.length; i++) {
-                      const row = json[i];
-                      if (!row || row.length === 0) continue;
-                      
-                      const returnId = String(getCol(row, 'Mã trả hàng') || '').trim();
-                      if (!returnId || returnId === 'undefined') continue;
-
-                      const invoiceId = String(getCol(row, 'Mã hóa đơn') || '').trim();
-                      const trackingCode = String(getCol(row, 'Mã vận đơn bán') || getCol(row, 'Mã vận đơn') || '').toUpperCase();
-                      const kenhBan = String(getCol(row, 'Kênh bán') || '').toUpperCase();
-                      const ghiChu = String(getCol(row, 'Ghi chú') || '').toUpperCase();
-
-                      let isForeign = false;
-                      let rate = 1;
-
-                      if (trackingCode.startsWith('SG') || kenhBan.includes('SG')) { isForeign = true; rate = 18700; }
-                      else if (trackingCode.startsWith('MY') || kenhBan.includes('MA') || kenhBan.includes('MY')) { isForeign = true; rate = 5400; }
-                      else if (trackingCode.startsWith('TH') || kenhBan.includes('TH')) { isForeign = true; rate = 700; }
-                      else if (trackingCode.startsWith('PH') || kenhBan.includes('PH')) { isForeign = true; rate = 440; }
-
-                      let rowChannel = '';
-
-                      if (isForeign) { rowChannel = 'Xuất Khẩu'; } 
-                      else if (returnId.startsWith('CHHDSPE') || invoiceId.startsWith('HDSPE') || ghiChu.includes('SHOPEE')) { rowChannel = 'Shopee VN'; } 
-                      else if (returnId.startsWith('CHHDTTS') || invoiceId.startsWith('HDTTS') || ghiChu.includes('TIKTOK')) { rowChannel = 'Tiktok Shop'; } 
-                      else if (kenhBan.includes('CỘNG TÁC VIÊN') || kenhBan.includes('CTV')) { rowChannel = 'Cộng Tác Viên'; } 
-                      else if (kenhBan.includes('BÁN LẺ') || kenhBan.includes('LẺ') || kenhBan.includes('LE')) { rowChannel = 'Bán Lẻ'; } 
-                      else if (kenhBan.includes('BÁN SỈ') || kenhBan.includes('SỈ') || kenhBan.includes('SI')) { rowChannel = 'Bán Sỉ'; } 
-                      else { rowChannel = 'Khác'; }
-
-                      if (rowChannel !== editingReport) continue;
-
-                      if (processedReturns.has(returnId)) continue;
-                      processedReturns.add(returnId);
-
-                      count++;
-
-                      let rowRet = Number(getCol(row, 'Cần trả khách')) || Number(getCol(row, 'Tổng sau giảm giá')) || Number(getCol(row, 'Tổng tiền hàng trả')) || 0;
-                      
-                      retTotal += (rowRet * rate);
-                  }
-
-                  setReportForm(prev => ({
-                      ...prev,
-                      returns: retTotal
-                  }));
-                  
-                  triggerToast(`Đã lọc bóc tách ${count} đơn Trả Hàng cho kênh ${editingReport}!`, 'fa-check', 'success');
-              };
-
-              if (isCSV) {
-                   const readerCSV = new FileReader();
-                   readerCSV.onload = (eCSV) => { 
-                       const wb = window.XLSX.read(eCSV.target.result, {type: 'string'});
-                       const ws = wb.Sheets[wb.SheetNames[0]];
-                       processRows(window.XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }));
-                   };
-                   readerCSV.readAsText(file);
-              } else {
-                   const ws = workbook.Sheets[workbook.SheetNames[0]];
-                   processRows(window.XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }));
-              }
-          } catch (err) {
-              triggerToast('Mảng dữ liệu lỗi hoặc không đúng chuẩn file Trả Hàng KiotViet!', 'fa-times', 'danger');
-          }
-      };
-      
-      reader.readAsBinaryString(file);
-      e.target.value = null;
-  };
-
-  const getChannelIcon = (channel) => {
-    if (channel.includes('Shopee')) return 'fa-shopping-bag text-[#ea580c]'; if (channel === 'Tiktok Shop') return 'fa-music text-white';
-    if (channel === 'Bán Lẻ') return 'fa-store text-[#3b82f6]'; if (channel === 'Bán Sỉ') return 'fa-boxes text-[#d4af37]';
-    if (channel === 'Cộng Tác Viên') return 'fa-users text-[#ec4899]'; if (channel === 'Xuất Khẩu') return 'fa-globe-asia text-[#10b981]'; return 'fa-tag text-gray-400';
-  };
-
-  return (
-      <div className="space-y-4 animate-fade-in pb-12 overflow-x-hidden w-full">
-          <div className="flex gap-1.5 overflow-x-auto custom-scrollbar pb-1">
-            {filterOptions.map(p => (
-              <button key={p} onClick={() => { setFilter(p); setEditingReport(null); }} className={`whitespace-nowrap px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all shadow-sm ${filter === p ? 'bg-[#3b82f6] text-white shadow-md' : 'bg-[#1a1a1a] text-gray-500 border border-[#222] hover:text-[#d4af37]'}`}>{p}</button>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-[#1a73e8] p-4 rounded-2xl text-white shadow-md">
-              <div className="text-[10px] font-black uppercase opacity-80 mb-1">Tổng Doanh Thu</div>
-              <div className="text-[17px] font-black truncate">{secureMoney(profitData.totalRev)}đ</div>
-            </div>
-            <div className="bg-[#f59e0b] p-4 rounded-2xl text-white shadow-md">
-              <div className="text-[10px] font-black uppercase opacity-80 mb-1">Chi Phí Bán Hàng</div>
-              <div className="text-[17px] font-black truncate">{secureMoney(profitData.totalSalesExp)}đ</div>
-            </div>
-            <div className="bg-[#f43f5e] p-4 rounded-2xl text-white shadow-md">
-              <div className="text-[10px] font-black uppercase opacity-80 mb-1">Chi Phí Hoạt Động</div>
-              <div className="text-[17px] font-black truncate">{secureMoney(profitData.totalGeneralExp)}đ</div>
-            </div>
-            <div className="bg-[#10b981] p-4 rounded-2xl text-white shadow-md relative overflow-hidden">
-               <div className="absolute top-0 right-0 w-24 h-24 bg-white/20 rounded-full blur-2xl -mr-10 -mt-10"></div>
-              <div className="text-[10px] font-black uppercase opacity-90 mb-1">Lợi Nhuận Ròng Thực Tế</div>
-              <div className="text-[17px] font-black truncate">{secureMoney(profitData.netProfit)}đ</div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 mt-4 mb-2 pl-1"><i className="fas fa-satellite-dish text-[#3b82f6]"></i><span className="text-[11px] font-black text-gray-400 uppercase tracking-widest">Hiệu Quả Doanh Thu & Sàn ({filter})</span></div>
-
-          <div className="space-y-4">
-            {REPORT_CHANNELS.map(channel => {
-              const isEditing = editingReport === channel; const reportId = `PROFIT_${filter}_${channel}`;
-              const data = isEditing ? reportForm : (localReports[reportId] || (erpData?.ProfitReports || []).find(r => r.period === filter && r.channel === channel) || {});
-              const channelGrossProfit = Number(data.revenue || 0) - (Number(data.platformFee || 0) + Number(data.returns || 0) + Number(data.discount || 0) + Number(data.ads || 0));
-              
-              return (
-                  <div key={channel} className={`bg-[#141414] rounded-2xl border transition-all duration-300 p-4 shadow-sm ${isEditing ? 'border-[#3b82f6]' : 'border-[#2a2a2a]'}`}>
-                      <div className="flex justify-between items-start sm:items-center flex-col sm:flex-row mb-3 pb-3 border-b border-[#222] gap-3">
-                          <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-full bg-[#0a0a0a] border border-[#333] flex items-center justify-center"><i className={`fas ${getChannelIcon(channel)} text-[13px]`}></i></div><span className="font-black text-[#f5f5f5] text-[14px] uppercase tracking-wide">{channel}</span></div>
-                          {isEditing ? (
-                              <div className="flex gap-2 flex-wrap w-full sm:w-auto justify-end">
-                                  <button onClick={() => setEditingReport(null)} className="px-3 py-1.5 bg-[#222] text-gray-300 rounded-lg text-[10px] font-black active:scale-95 transition-all">HỦY</button>
-                                  
-                                  <label className="cursor-pointer px-3 py-1.5 bg-[#10b981]/20 text-[#10b981] border border-[#10b981]/30 rounded-lg text-[10px] font-black hover:bg-[#10b981] hover:text-black active:scale-95 transition-all flex items-center gap-1.5">
-                                      <i className="fas fa-file-invoice-dollar"></i> HÓA ĐƠN
-                                      <input type="file" accept=".csv, .xlsx, .xls" className="hidden" onChange={handleImportKiotViet} />
-                                  </label>
-
-                                  <label className="cursor-pointer px-3 py-1.5 bg-rose-500/20 text-rose-500 border border-rose-500/30 rounded-lg text-[10px] font-black hover:bg-rose-500 hover:text-black active:scale-95 transition-all flex items-center gap-1.5">
-                                      <i className="fas fa-undo-alt"></i> TRẢ HÀNG
-                                      <input type="file" accept=".csv, .xlsx, .xls" className="hidden" onChange={handleImportReturnsKiotViet} />
-                                  </label>
-
-                                  <button onClick={() => handleSaveReport(channel)} className="px-4 py-1.5 bg-[#3b82f6] text-white rounded-lg text-[10px] font-black active:scale-95 transition-all flex items-center gap-1.5"><i className="fas fa-save"></i> LƯU</button>
-                              </div>
-                          ) : (
-                              <button onClick={() => handleEditReport(channel)} className="px-3.5 py-1.5 bg-[#d4af37]/10 text-[#d4af37] border border-[#d4af37]/30 rounded-lg text-[10px] font-black hover:bg-[#d4af37]/20 active:scale-95 transition-all flex items-center gap-1.5"><i className="fas fa-edit"></i> NHẬP SỐ LIỆU</button>
-                          )}
-                      </div>
-
-                      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
-                          <MetricField label="Doanh Thu" field="revenue" value={data.revenue} isEditing={isEditing} onChange={handleFormChange} color="text-[#3b82f6]" canView={true} />
-                          <MetricField label="SL Đơn Hàng" field="orderCount" value={data.orderCount} isEditing={isEditing} onChange={handleFormChange} color="text-white" canView={true} />
-                          <MetricField label="Phí Sàn" field="platformFee" value={data.platformFee} isEditing={isEditing} onChange={handleFormChange} color="text-rose-400" canView={true} />
-                          <MetricField label="Trả Hàng" field="returns" value={data.returns} isEditing={isEditing} onChange={handleFormChange} color="text-rose-400" canView={true} />
-                          <MetricField label="Giảm Giá / Voucher" field="discount" value={data.discount} isEditing={isEditing} onChange={handleFormChange} color="text-orange-400" canView={true} />
-                          <MetricField label="Chi Phí ADS" field="ads" value={data.ads} isEditing={isEditing} onChange={handleFormChange} color="text-yellow-400" canView={true} />
-                      </div>
-
-                      <div className={`border rounded-xl p-3.5 flex justify-between items-center transition-colors ${channelGrossProfit >= 0 ? 'bg-[#3b82f6]/10 border-[#3b82f6]/30' : 'bg-rose-500/10 border-rose-500/30'}`}>
-                          <span className={`text-[10px] font-black uppercase tracking-widest ${channelGrossProfit >= 0 ? 'text-[#3b82f6]' : 'text-rose-500'}`}>Lợi Nhuận Gộp Kênh</span>
-                          <span className={`text-[16px] font-black ${channelGrossProfit >= 0 ? 'text-[#3b82f6]' : 'text-rose-500'}`}>{formatMoney(channelGrossProfit)}đ</span>
-                      </div>
-                  </div>
-              )
-            })}
-          </div>
-
-          <div className="bg-[#141414] rounded-2xl border border-[#2a2a2a] p-4 mt-6 shadow-sm relative overflow-hidden">
-             <div className="absolute top-0 right-0 w-32 h-32 bg-[#10b981]/5 rounded-full blur-3xl -mr-10 -mt-10"></div>
-             <div className="flex justify-between items-center mb-4 pb-3 border-b border-[#222] relative z-10">
-                <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-full bg-[#10b981]/10 border border-[#10b981]/30 flex items-center justify-center"><i className="fas fa-building text-[13px] text-[#10b981]"></i></div><span className="font-black text-[#f5f5f5] text-[14px] uppercase tracking-wide">Chi Phí Hoạt Động Cty</span></div>
-                {editingReport === 'COMPANY_GENERAL' ? (
-                        <div className="flex gap-2"><button onClick={() => setEditingReport(null)} className="px-3 py-1.5 bg-[#222] text-gray-300 rounded-lg text-[10px] font-black active:scale-95 transition-all">HỦY</button><button onClick={() => handleSaveReport('COMPANY_GENERAL')} className="px-4 py-1.5 bg-[#10b981] hover:bg-[#059669] text-white rounded-lg text-[10px] font-black active:scale-95 transition-all flex items-center gap-1.5"><i className="fas fa-save"></i> LƯU</button></div>
-                    ) : (<button onClick={() => handleEditReport('COMPANY_GENERAL')} className="px-3.5 py-1.5 bg-[#10b981]/10 text-[#10b981] border border-[#10b981]/30 rounded-lg text-[10px] font-black hover:bg-[#10b981]/20 active:scale-95 transition-all flex items-center gap-1.5"><i className="fas fa-edit"></i> NHẬP SỐ LIỆU</button>)
+        // Quét Live từ Orders nếu là Tháng Này hoặc nếu báo cáo lịch sử chưa được Lưu (revenue = 0)
+        let dynamicRev = 0, dynamicRet = 0, dynamicCount = 0;
+        let shouldScanLive = isCurrentMonth || !saved.revenue;
+        
+        if (shouldScanLive) {
+            const orders = erpData?.Orders || [];
+            for (let i = 0; i < orders.length; i++) {
+                const o = orders[i];
+                const oDate = new Date(o.date || o.createdAt);
+                if (isNaN(oDate.getTime())) continue;
+                
+                let isMatch = false;
+                if (filter === 'Tháng Này') {
+                    isMatch = oDate.getFullYear() === currentYear && (oDate.getMonth() + 1) === currentMonth;
+                } else if (filter === 'Tháng Trước') {
+                    let lastMonth = currentMonth - 1;
+                    let lastYear = currentYear;
+                    if (lastMonth === 0) { lastMonth = 12; lastYear -= 1; }
+                    isMatch = oDate.getFullYear() === lastYear && (oDate.getMonth() + 1) === lastMonth;
+                } else if (filter === 'Năm Nay') {
+                    isMatch = oDate.getFullYear() === currentYear;
+                } else {
+                    isMatch = true; // Tất Cả
                 }
-             </div>
+                
+                if (isMatch) {
+                    let ch = String(o.channel || '').trim().toUpperCase();
+                    let code = String(o.orderCode || '').toUpperCase();
+                    let isForeign = false, rate = 1;
+                    
+                    if (ch.includes('SG') || code.includes('SG')) { isForeign = true; rate = 18700; }
+                    else if (ch.includes('MY') || ch.includes('MA') || code.includes('MY')) { isForeign = true; rate = 5400; }
+                    else if (ch.includes('TH') || code.includes('TH')) { isForeign = true; rate = 700; }
+                    else if (ch.includes('PH') || code.includes('PH')) { isForeign = true; rate = 440; }
+                    
+                    let mappedChannel = 'Bán Lẻ';
+                    if (isForeign || ch.includes('XUẤT KHẨU') || ch.includes('QUỐC TẾ')) mappedChannel = 'Xuất Khẩu';
+                    else if (ch.includes('SHOPEE')) mappedChannel = 'Shopee VN';
+                    else if (ch.includes('TIKTOK')) mappedChannel = 'Tiktok Shop';
+                    else if (ch.includes('CỘNG TÁC VIÊN') || ch.includes('CTV')) mappedChannel = 'Cộng Tác Viên';
+                    else if (ch.includes('BÁN SỈ') || ch.includes('SỈ') || ch.includes('SI')) mappedChannel = 'Bán Sỉ';
+                    else if (REPORT_CHANNELS.includes(o.channel)) mappedChannel = o.channel;
 
-             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 relative z-10">
-                {(() => {
-                    const isEditing = editingReport === 'COMPANY_GENERAL'; const genId = `PROFIT_${filter}_COMPANY_GENERAL`;
-                    const data = isEditing ? reportForm : (localReports[genId] || (erpData?.ProfitReports || []).find(r => r.period === filter && r.channel === 'COMPANY_GENERAL') || {});
+                    if (mappedChannel === channelName) {
+                        const status = String(o.status || '').toUpperCase();
+                        const val = Number(o.revenue || 0) * rate;
+                        if (status === 'ĐƠN HỦY' || status === 'ĐƠN HUỶ') { continue; }
+                        else if (status === 'HÀNG HOÀN') { dynamicRet += val; }
+                        else { dynamicRev += val; dynamicCount++; }
+                    }
+                }
+            }
+            agg.revenue = dynamicRev;
+            agg.returns = dynamicRet;
+            agg.orderCount = dynamicCount;
+        } else {
+            // Đã chốt sổ, lấy cứng từ dữ liệu đã lưu
+            agg.revenue = Number(saved.revenue || 0);
+            agg.returns = Number(saved.returns || 0);
+            agg.orderCount = Number(saved.orderCount || 0);
+        }
+
+        return agg;
+    }, [erpData?.ProfitReports, erpData?.Orders, filter, localReports, isCurrentMonth]);
+
+    const profitData = React.useMemo(() => {
+        let summary = { totalRev: 0, totalSalesExp: 0, totalGeneralExp: 0, netProfit: 0 };
+        
+        REPORT_CHANNELS.forEach(channel => {
+            const data = getAggregatedReport(channel);
+            summary.totalRev += data.revenue;
+            summary.totalSalesExp += data.platformFee + data.returns + data.discount + data.ads;
+        });
+        
+        const genData = getAggregatedReport('COMPANY_GENERAL');
+        summary.totalGeneralExp = genData.cogs + genData.salary + genData.operation;
+        summary.netProfit = summary.totalRev - summary.totalSalesExp - summary.totalGeneralExp;
+        
+        return summary;
+    }, [getAggregatedReport]);
+
+    const handleEditReport = (channel) => {
+        const reportId = `PROFIT_${filter}_${channel}`;
+        const saved = localReports[reportId] || {};
+        const agg = getAggregatedReport(channel);
+        setReportForm({ 
+            revenue: agg.revenue || 0, 
+            orderCount: agg.orderCount || 0, 
+            platformFee: saved.platformFee || 0, 
+            returns: agg.returns || 0, 
+            discount: saved.discount || 0, 
+            ads: saved.ads || 0, 
+            cogs: saved.cogs || 0, 
+            salary: saved.salary || 0, 
+            operation: saved.operation || 0 
+        });
+        setEditingReport(channel);
+    };
+
+    const handleFormChange = React.useCallback((field, value) => { 
+        setReportForm(prev => ({ ...prev, [field]: Number(value) || 0 })); 
+    }, []);
+
+    const handleSaveReport = async (channel) => {
+        const reportId = `PROFIT_${filter}_${channel}`;
+        try {
+            const payload = { 
+                id: reportId, 
+                period: filter, 
+                channel: channel, 
+                ...reportForm, 
+                updatedAt: new Date().toISOString() 
+            };
+            await pushDeltas({ ProfitReports: [payload] }, `Đã lưu ${channel}`, 'fa-save');
+            setLocalReports(prev => ({ ...prev, [reportId]: payload }));
+            setEditingReport(null); 
+            triggerToast(`Đã lưu báo cáo ${channel} thành công!`, 'fa-check', 'success');
+        } catch(e) { 
+            triggerToast('Lỗi khi lưu báo cáo!', 'fa-times', 'danger'); 
+        }
+    };
+
+    const getChannelIcon = (channel) => {
+        if (channel.includes('Shopee')) return 'fa-shopping-bag text-[#ea580c]'; 
+        if (channel === 'Tiktok Shop') return 'fa-music text-white';
+        if (channel === 'Bán Lẻ') return 'fa-store text-[#3b82f6]'; 
+        if (channel === 'Bán Sỉ') return 'fa-boxes text-[#d4af37]';
+        if (channel === 'Cộng Tác Viên') return 'fa-users text-[#ec4899]'; 
+        if (channel === 'Xuất Khẩu') return 'fa-globe-asia text-[#10b981]'; 
+        return 'fa-tag text-gray-400';
+    };
+
+    return (
+        <div className="space-y-6 animate-fade-in pb-12 w-full">
+            {/* Filters */}
+            <div className="flex gap-2.5 overflow-x-auto custom-scrollbar pb-2 pt-1">
+                {filterOptions.map(p => (
+                    <button key={p} onClick={() => { setFilter(p); setEditingReport(null); }} className={`whitespace-nowrap px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all shadow-sm border ${filter === p ? 'bg-gradient-to-r from-zinc-800 to-black text-[#d4af37] border-white/20 shadow-[0_4px_15px_rgba(212,175,55,0.15)] drop-shadow-[0_0_2px_rgba(212,175,55,0.8)]' : 'bg-black/40 text-gray-500 border-white/5 hover:border-white/10 hover:text-white backdrop-blur-md'}`}>
+                        {p}
+                    </button>
+                ))}
+            </div>
+
+            {/* 3. DASHBOARD UI/UX (Hero Metrics) */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
+                <div className="bg-[#09090b]/60 backdrop-blur-xl p-5 rounded-3xl border border-blue-500/20 shadow-[0_8px_32px_rgba(0,0,0,0.3)] relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/10 rounded-full blur-2xl -mr-10 -mt-10 group-hover:bg-blue-500/20 transition-all duration-500"></div>
+                    <div className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-2 opacity-90"><i className="fas fa-arrow-trend-up mr-2"></i>Tổng Doanh Thu</div>
+                    <div className="text-[22px] lg:text-[26px] font-black text-white truncate drop-shadow-[0_0_5px_rgba(59,130,246,0.3)]">{formatMoney(profitData.totalRev)}</div>
+                </div>
+                
+                <div className="bg-[#09090b]/60 backdrop-blur-xl p-5 rounded-3xl border border-amber-500/20 shadow-[0_8px_32px_rgba(0,0,0,0.3)] relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/10 rounded-full blur-2xl -mr-10 -mt-10 group-hover:bg-amber-500/20 transition-all duration-500"></div>
+                    <div className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-2 opacity-90"><i className="fas fa-bullhorn mr-2"></i>Chi Phí Bán Hàng</div>
+                    <div className="text-[22px] lg:text-[26px] font-black text-white truncate drop-shadow-[0_0_5px_rgba(245,158,11,0.3)]">{formatMoney(profitData.totalSalesExp)}</div>
+                </div>
+                
+                <div className="bg-[#09090b]/60 backdrop-blur-xl p-5 rounded-3xl border border-rose-500/20 shadow-[0_8px_32px_rgba(0,0,0,0.3)] relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-rose-500/10 rounded-full blur-2xl -mr-10 -mt-10 group-hover:bg-rose-500/20 transition-all duration-500"></div>
+                    <div className="text-[10px] font-black text-rose-500 uppercase tracking-widest mb-2 opacity-90"><i className="fas fa-industry mr-2"></i>Chi Phí Hoạt Động</div>
+                    <div className="text-[22px] lg:text-[26px] font-black text-white truncate drop-shadow-[0_0_5px_rgba(244,63,94,0.3)]">{formatMoney(profitData.totalGeneralExp)}</div>
+                </div>
+                
+                <div className="bg-[#09090b]/80 backdrop-blur-xl p-5 rounded-3xl border border-emerald-500/30 shadow-[0_0_40px_rgba(16,185,129,0.15)] relative overflow-hidden group scale-[1.02] transform-gpu">
+                    <div className="absolute inset-0 bg-emerald-500/5 group-hover:bg-emerald-500/10 transition-colors duration-500"></div>
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 bg-emerald-500/20 rounded-full blur-3xl opacity-70 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none"></div>
+                    <div className="relative z-10">
+                        <div className="text-[11px] font-black text-emerald-400 uppercase tracking-[0.2em] mb-2"><i className="fas fa-gem mr-2"></i>Lợi Nhuận Ròng</div>
+                        <div className={`text-[26px] lg:text-[30px] font-black truncate drop-shadow-[0_0_15px_rgba(16,185,129,0.5)] ${profitData.netProfit >= 0 ? 'text-emerald-400' : 'text-rose-500 drop-shadow-[0_0_15px_rgba(225,29,72,0.5)]'}`}>
+                            {formatMoney(profitData.netProfit)}<span className="text-[14px] ml-1 opacity-70">đ</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Channels Breakdown */}
+            <div className="flex items-center gap-3 mt-8 mb-5 pl-2">
+                <i className="fas fa-layer-group text-[#d4af37]"></i>
+                <span className="text-[13px] font-black text-gray-300 uppercase tracking-[0.15em] drop-shadow-md">Phân Tích Kênh Bán & Vận Hành ({filter})</span>
+                <div className="h-[1px] flex-1 bg-gradient-to-r from-white/10 to-transparent ml-2"></div>
+            </div>
+
+            <div className="space-y-5">
+                {REPORT_CHANNELS.map(channel => {
+                    const isEditing = editingReport === channel; 
+                    const reportId = `PROFIT_${filter}_${channel}`;
+                    const data = isEditing ? reportForm : (localReports[reportId] || (erpData?.ProfitReports || []).find(r => r.period === filter && r.channel === channel) || {});
+                    const channelGrossProfit = Number(data.revenue || 0) - (Number(data.platformFee || 0) + Number(data.returns || 0) + Number(data.discount || 0) + Number(data.ads || 0));
+                    
                     return (
-                        <>
-                            <MetricField label="Giá Vốn Hàng Bán" field="cogs" value={data.cogs} isEditing={isEditing} onChange={handleFormChange} color="text-rose-400" canView={true} />
-                            <MetricField label="Chi Phí Lương + Thưởng" field="salary" value={data.salary} isEditing={isEditing} onChange={handleFormChange} color="text-purple-400" canView={true} />
-                            <MetricField label="Vận Hành, Đóng Gói, Kho Bãi" field="operation" value={data.operation} isEditing={isEditing} onChange={handleFormChange} color="text-gray-400" canView={true} />
-                        </>
-                    );
-                })()}
-             </div>
-          </div>
-      </div>
-  );
-}
+                        <div key={channel} className={`bg-[#09090b]/50 backdrop-blur-lg rounded-3xl border transition-all duration-300 p-5 lg:p-6 shadow-[0_8px_32px_rgba(0,0,0,0.2)] relative overflow-hidden group ${isEditing ? 'border-[#3b82f6]/50 shadow-[0_0_20px_rgba(59,130,246,0.15)]' : 'border-white/5 hover:border-white/15 hover:bg-black/60'}`}>
+                            <div className="flex justify-between items-start sm:items-center flex-col sm:flex-row mb-5 pb-5 border-b border-white/10 gap-4 relative z-10">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-12 h-12 rounded-xl bg-black/60 border border-white/10 flex items-center justify-center shadow-inner group-hover:border-[#d4af37]/30 transition-colors">
+                                        <i className={`fas ${getChannelIcon(channel)} text-[18px] drop-shadow-md`}></i>
+                                    </div>
+                                    <span className="font-black text-white text-[16px] uppercase tracking-wider drop-shadow-md">{channel}</span>
+                                </div>
+                                {isEditing ? (
+                                    <div className="flex gap-2.5 flex-wrap w-full sm:w-auto justify-end">
+                                        <button onClick={() => setEditingReport(null)} className="px-5 py-2.5 bg-white/5 hover:bg-white/10 text-gray-300 rounded-xl text-[11px] font-black uppercase tracking-wider border border-white/10 active:scale-95 transition-all backdrop-blur-sm">HỦY</button>
+                                        <button onClick={() => handleSaveReport(channel)} className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl text-[11px] font-black uppercase tracking-wider border border-blue-400/30 active:scale-95 transition-all flex items-center gap-2 shadow-[0_0_15px_rgba(37,99,235,0.4)]"><i className="fas fa-save"></i> LƯU SỐ LIỆU</button>
+                                    </div>
+                                ) : (
+                                    <button onClick={() => handleEditReport(channel)} className="px-5 py-2.5 bg-[#d4af37]/10 text-[#d4af37] border border-[#d4af37]/30 rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-[#d4af37]/20 hover:shadow-[0_0_15px_rgba(212,175,55,0.2)] active:scale-95 transition-all flex items-center gap-2.5"><i className="fas fa-edit"></i> NHẬP SỐ LIỆU</button>
+                                )}
+                            </div>
+
+                            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6 relative z-10">
+                                <ReportMetricField label="Doanh Thu" field="revenue" value={data.revenue} isEditing={isEditing} disabled={isCurrentMonth} onChange={handleFormChange} color="text-blue-400" canView={true} />
+                                <ReportMetricField label="SL Đơn Hàng" field="orderCount" value={data.orderCount} isEditing={isEditing} disabled={isCurrentMonth} onChange={handleFormChange} color="text-zinc-200" canView={true} />
+                                <ReportMetricField label="Phí Sàn" field="platformFee" value={data.platformFee} isEditing={isEditing} onChange={handleFormChange} color="text-rose-400" canView={true} />
+                                <ReportMetricField label="Trả Hàng" field="returns" value={data.returns} isEditing={isEditing} disabled={isCurrentMonth} onChange={handleFormChange} color="text-rose-400" canView={true} />
+                                <ReportMetricField label="Giảm Giá / Voucher" field="discount" value={data.discount} isEditing={isEditing} onChange={handleFormChange} color="text-amber-400" canView={true} />
+                                <ReportMetricField label="Chi Phí ADS" field="ads" value={data.ads} isEditing={isEditing} onChange={handleFormChange} color="text-amber-400" canView={true} />
+                            </div>
+
+                            <div className={`rounded-2xl p-5 flex justify-between items-center transition-colors relative z-10 ${channelGrossProfit >= 0 ? 'bg-emerald-500/10 border border-emerald-500/20' : 'bg-rose-500/10 border border-rose-500/20'}`}>
+                                <span className={`text-[12px] font-black uppercase tracking-[0.2em] ${channelGrossProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>Lợi Nhuận Gộp Kênh</span>
+                                <span className={`text-[22px] font-black drop-shadow-md ${channelGrossProfit >= 0 ? 'text-emerald-400' : 'text-rose-500'}`}>{formatMoney(channelGrossProfit)}<span className="text-[14px] opacity-70 ml-1">đ</span></span>
+                            </div>
+                        </div>
+                    )
+                })}
+            </div>
+
+            {/* Company General */}
+            <div className="bg-[#09090b]/70 backdrop-blur-xl rounded-3xl border border-white/10 p-6 lg:p-8 mt-10 shadow-[0_8px_40px_rgba(0,0,0,0.5)] relative overflow-hidden group hover:border-[#d4af37]/30 transition-colors duration-500">
+                <div className="absolute top-0 right-0 w-48 h-48 bg-zinc-800/50 rounded-full blur-[60px] -mr-16 -mt-16 group-hover:bg-[#d4af37]/10 transition-colors duration-700 pointer-events-none"></div>
+                <div className="flex justify-between items-start sm:items-center flex-col sm:flex-row mb-6 pb-5 border-b border-white/10 gap-4 relative z-10">
+                    <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-xl bg-black/60 border border-white/10 flex items-center justify-center shadow-inner group-hover:border-[#d4af37]/30 transition-colors">
+                            <i className="fas fa-building text-[18px] text-gray-300 group-hover:text-[#d4af37] transition-colors drop-shadow-md"></i>
+                        </div>
+                        <span className="font-black text-white text-[16px] uppercase tracking-wider drop-shadow-md">Chi Phí Cố Định Công Ty</span>
+                    </div>
+                    {editingReport === 'COMPANY_GENERAL' ? (
+                        <div className="flex gap-2.5 flex-wrap w-full sm:w-auto justify-end">
+                            <button onClick={() => setEditingReport(null)} className="px-5 py-2.5 bg-white/5 hover:bg-white/10 text-gray-300 rounded-xl text-[11px] font-black uppercase tracking-wider border border-white/10 active:scale-95 transition-all backdrop-blur-sm">HỦY</button>
+                            <button onClick={() => handleSaveReport('COMPANY_GENERAL')} className="px-6 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-[11px] font-black uppercase tracking-wider border border-emerald-400/30 active:scale-95 transition-all flex items-center gap-2 shadow-[0_0_15px_rgba(16,185,129,0.4)]"><i className="fas fa-save"></i> LƯU SỐ LIỆU</button>
+                        </div>
+                    ) : (
+                        <button onClick={() => handleEditReport('COMPANY_GENERAL')} className="px-5 py-2.5 bg-white/10 text-white border border-white/20 rounded-xl text-[11px] font-black uppercase tracking-wider hover:bg-white/20 hover:shadow-[0_0_15px_rgba(255,255,255,0.1)] active:scale-95 transition-all flex items-center gap-2.5"><i className="fas fa-edit"></i> NHẬP SỐ LIỆU</button>
+                    )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-5 relative z-10">
+                    {(() => {
+                        const isEditing = editingReport === 'COMPANY_GENERAL'; 
+                        const genId = `PROFIT_${filter}_COMPANY_GENERAL`;
+                        const data = isEditing ? reportForm : (localReports[genId] || (erpData?.ProfitReports || []).find(r => r.period === filter && r.channel === 'COMPANY_GENERAL') || {});
+                        return (
+                            <>
+                                <ReportMetricField label="Giá Vốn Hàng Bán (COGS)" field="cogs" value={data.cogs} isEditing={isEditing} onChange={handleFormChange} color="text-rose-400" canView={true} />
+                                <ReportMetricField label="Quỹ Lương & Thưởng (Salary)" field="salary" value={data.salary} isEditing={isEditing} onChange={handleFormChange} color="text-purple-400" canView={true} />
+                                <ReportMetricField label="Vận Hành, Mặt Bằng, Kho Bãi" field="operation" value={data.operation} isEditing={isEditing} onChange={handleFormChange} color="text-gray-400" canView={true} />
+                            </>
+                        );
+                    })()}
+                </div>
+            </div>
+        </div>
+    );
+});
 </script>

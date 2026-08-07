@@ -1,0 +1,12 @@
+# Bỏ qua toàn bộ file CSDL CSV cục bộ
+*.csv
+
+# Bỏ qua các file cấu hình IDE & Git
+.git/
+.vscode/
+.antigravityrules
+.cursorrules
+node_modules/
+package.json
+package-lock.json
+README.md
