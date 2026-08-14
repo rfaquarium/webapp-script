@@ -126,6 +126,117 @@ function api_generateMonthlyKPI_All(allStatsMap) {
   }
 }
 
+// =========================================================================
+// 🪙 MODULE PHỤ TRỢ: QUẢN LÝ VÀ GHI NHẬN QUỸ XU TÍCH LŨY DÀI HẠN
+// Đảm bảo tách biệt hoàn toàn giữa Xu (Tích lũy cuối năm) và VNĐ (Lương tháng)
+// =========================================================================
+
+/**
+ * Ghi nhận biến động Xu tích lũy của nhân sự vào bảng tính độc lập.
+ * Tự động khởi tạo bảng 'ThongKe_TichLuyXu' ở danh sách bên trái nếu chưa tồn tại.
+ * 
+ * @param {string} user - Tên hoặc email nhân sự thực hiện
+ * @param {number} amountXu - Số xu biến động (Dương là thưởng, Âm là phạt)
+ * @param {string} type - Loại nghiệp vụ (Ví dụ: "Thưởng nhiệm vụ", "Phạt Anti-cheat")
+ * @param {string} note - Ghi chú chi tiết lý do biến động
+ * @param {string} orderCode - Mã đơn hàng hoặc mã nhiệm vụ liên quan (nếu có)
+ * @returns {Object} Trạng thái thực thi
+ */
+function api_recordXuTransaction(user, amountXu, type, note, orderCode) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheetName = 'ThongKe_TichLuyXu';
+    var sheet = ss.getSheetByName(sheetName);
+    
+    // BƯỚC 1: Tự động khởi tạo bảng tính bên trái nếu chưa có (Zero-configuration)
+    if (!sheet) {
+      sheet = ss.insertSheet(sheetName);
+      // Thiết lập cấu trúc cột dữ liệu chuẩn hóa cho hệ thống lưu vết quỹ
+      sheet.appendRow([
+        'id', 
+        'user', 
+        'type', 
+        'amount_xu', 
+        'date', 
+        'orderCode', 
+        'note', 
+        'timestamp'
+      ]);
+      // Định dạng dòng tiêu đề cho dễ nhìn và quản lý
+      sheet.getRange(1, 1, 1, 8)
+           .setBackground('#78350f') // Màu nâu hổ phách đặc trưng của Xu
+           .setFontColor('#ffffff')
+           .setFontWeight('bold')
+           .setHorizontalAlignment('center');
+    }
+    
+    // BƯỚC 2: Chuẩn bị dữ liệu dòng ghi nhận mới
+    var timestamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    var dateStr = new Date().toISOString().slice(0, 10);
+    var uniqueId = 'XU_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+    
+    var newRow = [
+      uniqueId,
+      String(user).trim(),
+      String(type).trim(),
+      Number(amountXu) || 0,
+      dateStr,
+      orderCode ? String(orderCode).trim() : '',
+      note ? String(note).trim() : '',
+      timestamp
+    ];
+    
+    // BƯỚC 3: Ghi dữ liệu vào dòng cuối cùng của bảng tính
+    sheet.appendRow(newRow);
+    
+    return { 
+      success: true, 
+      message: 'Đã ghi nhận thành công ' + amountXu + ' Xu vào quỹ tích lũy của nhân sự ' + user 
+    };
+  } catch (error) {
+    return { 
+      success: false, 
+      message: 'Lỗi phát sinh khi ghi nhận quỹ Xu tích lũy: ' + error.toString() 
+    };
+  }
+}
+
+/**
+ * Tính tổng số dư Xu tích lũy hiện tại của một nhân sự từ lịch sử bảng tính.
+ * Dùng để trả về dữ liệu thời gian thực hiển thị trên Badge của Tab_HR.html
+ * 
+ * @param {string} userName - Tên nhân sự cần tính toán số dư
+ * @returns {number} Tổng số xu tích lũy hiện tại
+ */
+function api_getUserXuBalance(userName) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName('ThongKe_TichLuyXu');
+    if (!sheet) return 0;
+    
+    var data = sheet.getDataRange().getValues();
+    if (data.length <= 1) return 0; // Chỉ có dòng tiêu đề
+    
+    var userCol = 1;     // Cột 'user'
+    var amountCol = 3;   // Cột 'amount_xu'
+    var totalBalance = 0;
+    
+    var targetUser = String(userName).trim().toLowerCase();
+    
+    for (var i = 1; i < data.length; i++) {
+      var rowUser = String(data[i][userCol]).trim().toLowerCase();
+      if (rowUser === targetUser) {
+        totalBalance += (Number(data[i][amountCol]) || 0);
+      }
+    }
+    
+    return totalBalance;
+  } catch (e) {
+    console.error('Lỗi khi tính số dư Xu của ' + userName + ': ' + e.toString());
+    return 0;
+  }
+}
+
 /**
  * Quét toàn bộ hệ thống trả về Cảnh Báo Vận Hành
  */
