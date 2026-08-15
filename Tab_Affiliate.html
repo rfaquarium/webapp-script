@@ -1,5 +1,5 @@
 <script type="text/babel">
-function TabAffiliate({ orders, ctvFinance, pushDeltas, currentUser, triggerToast, userRole, userConfigs }) {
+function TabAffiliate({ orders, ctvFinance, pushDeltas, currentUser, triggerToast, userRole, userConfigs, erpData, prodItems, configGiaLayout }) {
   const [selectedCTV, setSelectedCTV] = React.useState('');
   const [selectedMonth, setSelectedMonth] = React.useState(new Date().toISOString().substring(0, 7));
   const [showAddTx, setShowAddTx] = React.useState(false);
@@ -8,6 +8,8 @@ function TabAffiliate({ orders, ctvFinance, pushDeltas, currentUser, triggerToas
   const [txNote, setTxNote] = React.useState('');
   const [editingTxId, setEditingTxId] = React.useState(null);
   const [isProcessing, setIsProcessing] = React.useState(false);
+  const [editingOrder, setEditingOrder] = React.useState(null);
+  const [viewingHistoryOrder, setViewingHistoryOrder] = React.useState(null);
 
   const isCTV = userRole === 'CTV' || userRole === 'CỘNG TÁC VIÊN';
   const isAdminOrKetoan = userRole === 'TỐI CAO' || userRole === 'KẾ TOÁN' || userRole === 'QUẢN LÝ BÁN HÀNG';
@@ -46,6 +48,32 @@ function TabAffiliate({ orders, ctvFinance, pushDeltas, currentUser, triggerToas
           return t.user === selectedCTV && matchMonth;
       }).sort((a, b) => new Date(b.date) - new Date(a.date));
   }, [ctvFinance, selectedCTV, selectedMonth]);
+
+  // Tính chi phí phụ gắn với từng đơn hàng cụ thể
+  const getOrderExtraExpenses = React.useCallback((o) => {
+      if (!ctvTxs || ctvTxs.length === 0 || !o) return 0;
+      const code = String(o.orderCode || '').toLowerCase();
+      const cust = String(o.customer || '').toLowerCase();
+      const id = String(o.id || '').toLowerCase();
+      
+      return ctvTxs.filter(t => {
+          const note = String(t.note || '').toLowerCase();
+          return (code && note.includes(code)) || (id && note.includes(id)) || (cust && note.includes(cust));
+      }).reduce((sum, t) => {
+          const amt = Number(t.amount) || 0;
+          if (t.type === 'THANH TOÁN' || t.type === 'DƯ NỢ KỲ TRƯỚC (SHOP NỢ)') return sum - amt;
+          return sum + amt;
+      }, 0);
+  }, [ctvTxs]);
+
+  const handleAddExpenseForOrder = (o) => {
+      setEditingTxId(null);
+      setTxType('PHÍ VẬN CHUYỂN');
+      setTxAmount('');
+      setTxNote(`${o.customer || 'Khách'} - ${o.orderCode || o.id}`);
+      setShowAddTx(true);
+      if (triggerToast) triggerToast(`Đã chọn đơn ${o.orderCode || o.customer} để thêm chi phí!`, 'fa-plus', 'info');
+  };
 
   // Tính toán Dư Nợ
   const debtStats = React.useMemo(() => {
@@ -196,22 +224,51 @@ function TabAffiliate({ orders, ctvFinance, pushDeltas, currentUser, triggerToas
                 {ctvOrders.length === 0 ? (
                     <div className="text-center text-gray-500 text-xs italic mt-10">Chưa có đơn hàng nào.</div>
                 ) : (
-                    ctvOrders.map(o => (
-                        <div key={o.id} className="bg-[#0a0a0a] border border-[#222] rounded-xl p-3 flex justify-between items-center hover:border-[#333] transition-colors">
-                            <div>
-                                <div className="text-[13px] font-bold text-gray-200 mb-0.5">{o.customer}</div>
-                                <div className="text-[10px] text-gray-500 font-mono">{o.orderCode} • {o.date?.substring(0,10)}</div>
-                                <div className="text-[10px] font-bold px-2 py-0.5 rounded-full inline-block mt-1 bg-[#222] text-gray-300">{o.status}</div>
-                            </div>
-                            <div className="text-right">
-                                <div className="text-[12px] font-bold text-emerald-400">Giá: {formatMoney(o.revenue)}đ</div>
-                                <div className="text-[12px] font-bold text-amber-400 mt-0.5">COD: {formatMoney(o.cod)}đ</div>
-                                <div className={`text-[12px] font-black mt-1 ${((Number(o.revenue)||0) - (Number(o.cod)||0)) > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
-                                    Nợ: {formatMoney((Number(o.revenue)||0) - (Number(o.cod)||0))}đ
+                    ctvOrders.map(o => {
+                        const extraExp = getOrderExtraExpenses(o);
+                        return (
+                            <div key={o.id} className="bg-[#0a0a0a] border border-[#222] rounded-xl p-3 hover:border-[#333] transition-colors space-y-2">
+                                <div className="flex justify-between items-start">
+                                    <div>
+                                        <div className="text-[13px] font-bold text-gray-200 mb-0.5">{o.customer}</div>
+                                        <div className="text-[10px] text-gray-500 font-mono">{o.orderCode} • {o.date?.substring(0,10)}</div>
+                                        <div className="flex items-center gap-2 mt-1">
+                                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#222] text-gray-300">{o.status}</span>
+                                            {extraExp !== 0 && (
+                                                <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400" title="Chi phí phụ phát sinh gắn với đơn này">
+                                                    <i className="fas fa-file-invoice-dollar mr-1"></i>Phụ phí: {extraExp > 0 ? '+' : ''}{formatMoney(extraExp)}đ
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="text-[12px] font-bold text-emerald-400">Giá: {formatMoney(o.revenue)}đ</div>
+                                        <div className="text-[12px] font-bold text-amber-400 mt-0.5">COD: {formatMoney(o.cod)}đ</div>
+                                        <div className={`text-[12px] font-black mt-1 ${((Number(o.revenue)||0) - (Number(o.cod)||0)) > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                                            Nợ: {formatMoney((Number(o.revenue)||0) - (Number(o.cod)||0))}đ
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center justify-between border-t border-[#1a1a1a] pt-2 mt-1">
+                                    <div className="flex items-center gap-1.5">
+                                        <button onClick={() => setEditingOrder(o)} className="text-[10px] font-bold text-amber-400 bg-amber-400/10 hover:bg-amber-400 hover:text-black border border-amber-400/20 px-2 py-1 rounded-lg flex items-center gap-1 transition-all" title="Chỉnh sửa đơn hàng">
+                                            <i className="fas fa-edit"></i> Sửa
+                                        </button>
+                                        <button onClick={() => setViewingHistoryOrder(o)} className="text-[10px] font-bold text-blue-400 bg-blue-400/10 hover:bg-blue-400 hover:text-white border border-blue-400/20 px-2 py-1 rounded-lg flex items-center gap-1 transition-all" title="Xem nhật ký chỉnh sửa công khai">
+                                            <i className="fas fa-history"></i> Lịch sử
+                                        </button>
+                                    </div>
+
+                                    {(userRole === 'TỐI CAO' || localStorage.getItem('rf_role') === 'TỐI CAO') && (
+                                        <button onClick={() => handleAddExpenseForOrder(o)} className="text-[10px] font-bold text-[#d4af37] bg-[#d4af37]/10 hover:bg-[#d4af37] hover:text-black border border-[#d4af37]/30 px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all shadow-sm" title="Thêm chi phí liên quan ngay cho đơn này">
+                                            <i className="fas fa-plus text-[9px]"></i> Chi phí
+                                        </button>
+                                    )}
                                 </div>
                             </div>
-                        </div>
-                    ))
+                        );
+                    })
                 )}
             </div>
         </div>
@@ -297,7 +354,27 @@ function TabAffiliate({ orders, ctvFinance, pushDeltas, currentUser, triggerToas
             </div>
         </div>
       </div>
-      
+
+      {editingOrder && typeof AddModal !== 'undefined' && (
+        <AddModal
+          onClose={() => setEditingOrder(null)}
+          pushDeltas={pushDeltas}
+          products={erpData?.Products || []}
+          erpData={erpData || {}}
+          triggerToast={triggerToast}
+          userConfigs={userConfigs}
+          configGiaLayout={configGiaLayout || []}
+          editOrder={editingOrder}
+          editProds={(prodItems || []).filter(p => p.orderId === editingOrder.id)}
+        />
+      )}
+
+      {viewingHistoryOrder && typeof OrderHistoryModal !== 'undefined' && (
+        <OrderHistoryModal
+          order={viewingHistoryOrder}
+          onClose={() => setViewingHistoryOrder(null)}
+        />
+      )}
     </div>
   );
 }

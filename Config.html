@@ -261,6 +261,16 @@ const checkTimeFilter = (dateStr, mode) => {
     return true; 
 };
 
+function isExportChannel(channelStr) {
+  if (!channelStr) return false;
+  const raw = String(channelStr).trim().toUpperCase();
+  if (/\b(XUẤT KHẨU|EXPORT|QUỐC TẾ|INTERNATIONAL|GLOBAL|MALAYSIA|THAILAND|PHILIPPINES|SINGAPORE|TAIWAN)\b/i.test(raw)) return true;
+  if (/\bSHOPEE\s*[-_]?\s*(TH|MA|MY|SG|TW|PH|THAILAND|MALAYSIA|PHILIPPINES|SINGAPORE|TAIWAN)\b/i.test(raw)) return true;
+  if (/\b(SHOPEE_TH|SHOPEE_MA|SHOPEE_MY|SHOPEE_SG|SHOPEE_TW|SHOPEE_PH|SHOPEE_MALAYSIA|SHOPEE_THAILAND)\b/i.test(raw)) return true;
+  if (/\b(MY|TH|PH|SG|TW|MA)\b/i.test(raw) && raw.includes('SHOPEE')) return true;
+  return false;
+}
+
 function getSopAndReward(item, phaseName, kpiConfig = [], channel = '') {
   if (!item?.name || !kpiConfig?.length) { return { time: 30, reward: 0 }; }
   const rawName = String(item.name).toLowerCase().trim();
@@ -286,7 +296,7 @@ function getSopAndReward(item, phaseName, kpiConfig = [], channel = '') {
     } else if (phase.includes('đóng gói') || phase.includes('pack')) {
       reward = 2000;
     }
-    if (/SG|MY|TH|PH|MA|TW|Quốc Tế|Xuất Khẩu/i.test(channel)) reward *= 3;
+    if (isExportChannel(channel)) reward *= 3;
     return { time, reward };
   }
 
@@ -337,14 +347,14 @@ function getSopAndReward(item, phaseName, kpiConfig = [], channel = '') {
     time = Number(matchedRow['Thời gian Khâu 2']) || 30;
   }
   else if (phase.includes('đóng gói') || phase.includes('pack')) {
-    reward = Number(matchedRow['Tiền Đóng Gói']) || 0;
+    reward = Number(matchedRow['Tiền Đóng Gói']) || Number(matchedRow['Thưởng Đóng Gói']) || 0;
     time = Number(matchedRow['Thời gian Đóng Gói']) || 15;
   }
   else if (phase.includes('bảo hành') || phase.includes('sửa')) {
     reward = 5000; time = 60;
   }
 
-  if (/SG|MY|TH|PH|MA|TW|Quốc Tế|Xuất Khẩu/i.test(channel)) {
+  if (isExportChannel(channel)) {
     reward *= 3;
   }
 
@@ -352,7 +362,7 @@ function getSopAndReward(item, phaseName, kpiConfig = [], channel = '') {
 }
 
 function getPackingReward(itemName, kpiConfig, channel = '') {
-  const mult = /SG|MY|TH|PH|MA|TW|Quốc Tế|Xuất Khẩu/i.test(channel) ? 3 : 1;
+  const mult = isExportChannel(channel) ? 3 : 1;
   if (!itemName || !kpiConfig || kpiConfig.length === 0) return 1000 * mult;
   const rawName = String(itemName).toLowerCase().trim();
 
@@ -387,7 +397,7 @@ function getPackingReward(itemName, kpiConfig, channel = '') {
     }
   }
 
-  let reward = matchedRow ? (Number(matchedRow['Thưởng Đóng Gói']) || 1000) : 1000;
+  let reward = matchedRow ? (Number(matchedRow['Thưởng Đóng Gói']) || Number(matchedRow['Tiền Đóng Gói']) || 1000) : 1000;
   return reward * mult;
 }
 
@@ -454,19 +464,61 @@ function getUserTitle(name, userConfigs) {
 }
 
 const getChannelBadge = (channel) => { 
-    const ch = String(channel || '').toLowerCase();
-    if (ch.includes('tiktok')) return 'bg-zinc-950 text-white border border-zinc-700';
-    if (ch.includes('shopee vn')) return 'bg-orange-600 text-white border border-orange-500';
-    if (ch.includes('shopee ma')) return 'bg-amber-400 text-black border border-amber-300';
-    if (ch.includes('shopee sg')) return 'bg-red-600 text-white border border-red-500';
-    if (ch.includes('shopee th')) return 'bg-blue-600 text-white border border-blue-500';
-    if (ch.includes('shopee ph')) return 'bg-purple-600 text-white border border-purple-500';
-    if (ch.includes('bán lẻ')) return 'bg-emerald-600 text-white border border-emerald-500';
-    if (ch.includes('bán sỉ')) return 'bg-teal-600 text-white border border-teal-500';
-    if (ch.includes('cộng tác viên')) return 'bg-pink-500 text-white border border-pink-400';
-    if (ch.includes('bảo hành') || ch.includes('sửa chữa')) return 'bg-slate-500 text-white border border-slate-400';
-    if (ch.includes('shopee')) return 'bg-orange-600 text-white border border-orange-500'; 
-    return 'bg-blue-600 text-white border border-blue-500'; 
+    const ch = String(channel || '').toUpperCase().trim();
+    if (ch.includes('SHOPEE')) {
+        return 'bg-[#f97316] text-black font-black border border-[#ea580c] shadow-sm';
+    }
+    if (ch.includes('TIKTOK')) {
+        return 'bg-[#06b6d4] text-black font-black border border-[#0891b2] shadow-sm';
+    }
+    if (ch.includes('CỘNG TÁC VIÊN') || ch.includes('CTV')) {
+        return 'bg-[#10b981] text-black font-black border border-[#059669] shadow-sm';
+    }
+    if (ch.includes('BÁN LẺ') || ch.includes('OFFLINE') || ch.includes('ZALO') || ch.includes('FACEBOOK') || ch.includes('MESSENGER')) {
+        return 'bg-[#0284c7] text-white font-black border border-[#0369a1] shadow-sm';
+    }
+    if (ch.includes('BÁN SỈ') || ch.includes('WHOLESALE')) {
+        return 'bg-[#14b8a6] text-black font-black border border-[#0d9488] shadow-sm';
+    }
+    if (ch.includes('SẢN XUẤT TỒN') || ch.includes('SẢN XUẤT BÙ KHO') || ch.includes('TỒN XƯỞNG')) {
+        return 'bg-[#a855f7] text-white font-black border border-[#9333ea] shadow-sm';
+    }
+    if (ch.includes('BẢO HÀNH') || ch.includes('SỬA CHỮA')) {
+        return 'bg-[#f43f5e] text-white font-black border border-[#e11d48] shadow-sm';
+    }
+    if (ch.includes('XUẤT KHẨU') || ch.includes('EXPORT') || ch.includes('QUỐC TẾ') || ch.includes('MA') || ch.includes('TH') || ch.includes('TW') || ch.includes('SG') || ch.includes('PH')) {
+        return 'bg-[#eab308] text-black font-black border border-[#ca8a04] shadow-sm';
+    }
+    return 'bg-[#eab308] text-black font-black border border-[#ca8a04] shadow-sm'; 
+};
+
+const getChannelInlineStyle = (groupKey) => {
+    const k = String(groupKey || '').toUpperCase().trim();
+    if (k.includes('SHOPEE')) {
+        return { background: '#f97316', color: '#000000', border: '2px solid #ea580c' };
+    }
+    if (k.includes('TIKTOK')) {
+        return { background: '#06b6d4', color: '#000000', border: '2px solid #0891b2' };
+    }
+    if (k.includes('XUẤT KHẨU')) {
+        return { background: '#eab308', color: '#000000', border: '2px solid #ca8a04' };
+    }
+    if (k.includes('CỘNG TÁC VIÊN') || k.includes('CTV')) {
+        return { background: '#10b981', color: '#000000', border: '2px solid #059669' };
+    }
+    if (k.includes('BÁN LẺ')) {
+        return { background: '#0284c7', color: '#ffffff', border: '2px solid #0369a1' };
+    }
+    if (k.includes('SẢN XUẤT TỒN')) {
+        return { background: '#a855f7', color: '#ffffff', border: '2px solid #9333ea' };
+    }
+    if (k.includes('BẢO HÀNH')) {
+        return { background: '#f43f5e', color: '#ffffff', border: '2px solid #e11d48' };
+    }
+    if (k.includes('BÁN SỈ')) {
+        return { background: '#14b8a6', color: '#000000', border: '2px solid #0d9488' };
+    }
+    return { background: '#eab308', color: '#000000', border: '2px solid #ca8a04' };
 };
 
 

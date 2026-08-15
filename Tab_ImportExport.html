@@ -334,16 +334,19 @@ const ImportExportTab = React.memo(function ImportExportTab({ data, pushData, is
 
     return (
         <div className="space-y-5 animate-fade-in pb-10 w-full">
-            {/* Action Buttons (Kiểm Kho / Nhập / Xuất) */}
-            <div className="flex justify-between items-center bg-[#141414] p-3.5 rounded-2xl shadow-sm border border-[#2a2a2a]">
-                <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-sky-500/10 flex items-center justify-center"><i className="fas fa-boxes text-sky-500 text-[12px]"></i></div>
+            {/* Action Buttons (Kiểm Kho / Nhập / Xuất) - VIBRANT COLOR PALETTE */}
+            <div className="flex justify-between items-center bg-gradient-to-r from-[#141824] via-[#10141f] to-[#141824] p-4 rounded-2xl shadow-[0_8px_25px_rgba(0,0,0,0.5)] border border-[#3b82f6]/30">
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-sky-500/20 border border-sky-400/30 flex items-center justify-center shadow-[0_0_15px_rgba(56,189,248,0.2)]"><i className="fas fa-boxes text-sky-400 text-sm"></i></div>
                     <div>
-                        <h3 className="font-black text-white text-[12px] uppercase tracking-wide">QUẢN LÝ {mode === 'KIEM_KHO' ? 'KIỂM KHO' : 'CHỨNG TỪ'}</h3>
-                        <div className="text-[10px] text-gray-500 font-bold">Hệ thống quản lý kho vận</div>
+                        <h3 className="font-black text-white text-[13px] uppercase tracking-wide flex items-center gap-2">
+                            QUẢN LÝ {mode === 'KIEM_KHO' ? 'KIỂM KHO' : 'CHỨNG TỪ'}
+                            <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30">Kho Vận Pro</span>
+                        </h3>
+                        <div className="text-[10px] text-gray-400 font-bold mt-0.5">Hệ thống quản lý xuất nhập và chứng từ tự động</div>
                     </div>
                 </div>
-                <div className="flex gap-2 shrink-0">
+                <div className="flex gap-2.5 shrink-0 flex-wrap justify-end">
                     {mode === 'KIEM_KHO' && (
                         <button onClick={() => {
                             if (isKiemToan || currentRole === 'KHO VẬN' || currentRole === 'QUẢN LÝ KHO VẬN') {
@@ -351,23 +354,23 @@ const ImportExportTab = React.memo(function ImportExportTab({ data, pushData, is
                             } else {
                                 alert('Chỉ Quản Lý Kho, Kế Toán hoặc Kiểm Toán mới có quyền tạo phiếu kiểm kho!');
                             }
-                        }} className="bg-[#2563eb] text-white text-[12px] font-black px-6 py-4 rounded-xl shadow-[0_0_15px_rgba(37,99,235,0.3)] hover:bg-blue-600 active:scale-95 transition-all uppercase tracking-wider">
-                            <i className="fas fa-plus mr-1"></i> Tạo Phiếu Kiểm Kho
+                        }} className="bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-500 text-white text-[12px] font-black px-6 py-3.5 rounded-xl shadow-[0_0_20px_rgba(37,99,235,0.4)] border border-blue-400/40 active:scale-95 transition-all uppercase tracking-wider flex items-center gap-1.5">
+                            <i className="fas fa-plus-circle"></i> Tạo Phiếu Kiểm Kho
                         </button>
                     )}
                     {mode === 'NHAT_KY' && (
                         <>
-                            <button onClick={() => { window.pendingType = 'Nhập'; setShowForm(true); }} className="bg-emerald-600 text-white border-emerald-500 border text-[11px] font-black px-4 py-3 rounded-xl active:scale-95 transition-all uppercase shadow-sm">
-                                <i className="fas fa-arrow-down mr-1"></i> Nhập Kho
+                            <button onClick={() => { window.pendingType = 'Nhập'; setShowForm(true); }} className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white border border-emerald-400/50 text-[11px] font-black px-4 py-3 rounded-xl shadow-[0_0_15px_rgba(16,185,129,0.35)] active:scale-95 transition-all uppercase tracking-wider flex items-center gap-1.5">
+                                <i className="fas fa-arrow-down text-[10px]"></i> Nhập Kho
                             </button>
-                            <button onClick={() => { window.pendingType = 'Đặt Hàng'; setShowForm(true); }} className="bg-purple-600 text-white border-purple-500 border text-[11px] font-black px-4 py-3 rounded-xl active:scale-95 transition-all uppercase shadow-sm">
-                                <i className="fas fa-file-invoice mr-1"></i> Đặt Hàng
+                            <button onClick={() => { window.pendingType = 'Đặt Hàng'; setShowForm(true); }} className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white border border-purple-400/50 text-[11px] font-black px-4 py-3 rounded-xl shadow-[0_0_15px_rgba(147,51,234,0.35)] active:scale-95 transition-all uppercase tracking-wider flex items-center gap-1.5">
+                                <i className="fas fa-file-invoice text-[10px]"></i> Đặt Hàng
                             </button>
-                            <button onClick={() => { window.pendingType = 'Xuất'; setShowForm(true); }} className="bg-red-600 text-white border-red-500 border text-[11px] font-black px-4 py-3 rounded-xl active:scale-95 transition-all uppercase shadow-sm">
-                                <i className="fas fa-arrow-up mr-1"></i> Xuất Kho
+                            <button onClick={() => { window.pendingType = 'Xuất'; setShowForm(true); }} className="bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white border border-rose-400/50 text-[11px] font-black px-4 py-3 rounded-xl shadow-[0_0_15px_rgba(244,63,94,0.35)] active:scale-95 transition-all uppercase tracking-wider flex items-center gap-1.5">
+                                <i className="fas fa-arrow-up text-[10px]"></i> Xuất Kho
                             </button>
-                            <button onClick={() => { window.pendingType = 'Thanh Lý'; setShowForm(true); }} className="bg-amber-400 text-black border-amber-300 border text-[11px] font-black px-4 py-3 rounded-xl active:scale-95 transition-all uppercase shadow-sm">
-                                <i className="fas fa-trash-restore mr-1"></i> Thanh Lý
+                            <button onClick={() => { window.pendingType = 'Thanh Lý'; setShowForm(true); }} className="bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 hover:from-amber-300 hover:to-yellow-400 text-black border border-amber-300/60 text-[11px] font-black px-4 py-3 rounded-xl shadow-[0_0_15px_rgba(245,158,11,0.35)] active:scale-95 transition-all uppercase tracking-wider flex items-center gap-1.5">
+                                <i className="fas fa-trash-restore text-[10px]"></i> Thanh Lý
                             </button>
                         </>
                     )}

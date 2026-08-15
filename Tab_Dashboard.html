@@ -74,15 +74,23 @@ const OperationsHealthWidget = React.memo(function OperationsHealthWidget() {
 // -------------------------------------------------------------------------
 // 🏆 BỘ PHẬN GIAO VIỆC & NHIỆM VỤ CHUNG TRÊN DASHBOARD
 // -------------------------------------------------------------------------
-const DashboardTasksSection = React.memo(function DashboardTasksSection({ prodItems = [], currentUser, pushDeltas, triggerToast, isAdmin, userConfigs, reimbursements = [] }) {
+const DashboardTasksSection = React.memo(function DashboardTasksSection({ prodItems = [], currentUser, pushDeltas, triggerToast, isAdmin, userConfigs, reimbursements = [], products = [] }) {
   const [showAddReminder, setShowAddReminder] = React.useState(false);
-  // States for creating Reminder
+  // States for material order request
+  const [selectedProdId, setSelectedProdId] = React.useState('');
+  const [reqQty, setReqQty] = React.useState('1');
+  const [reqNote, setReqNote] = React.useState('');
   const [remText, setRemText] = React.useState('');
-  const [remTarget, setRemTarget] = React.useState('');
-  const [remReward, setRemReward] = React.useState('');
-  const [editingReminderId, setEditingReminderId] = React.useState(null);
-  // States for creating Reminder
   const [processing, setProcessing] = React.useState(false);
+
+  // Filter products for category PHỤ KIỆN & SẢN XUẤT
+  const selectableProducts = React.useMemo(() => {
+      const filtered = (products || []).filter(p => {
+          const cat = String(p.category || '').toUpperCase();
+          return cat.includes('PHỤ KIỆN') || cat.includes('SẢN XUẤT') || !p.category;
+      });
+      return filtered.length > 0 ? filtered : (products || []);
+  }, [products]);
 
   // Extract staff names from userConfigs
   const staffNames = React.useMemo(() => {
@@ -92,7 +100,6 @@ const DashboardTasksSection = React.memo(function DashboardTasksSection({ prodIt
           .filter(name => name && name !== 'admin' && name !== 'Boss' && name !== 'TỐI CAO' && name !== 'Khách');
   }, [userConfigs]);
 
-  // Filter Reminders (orderId === 'REMINDER')
   // Lọc danh sách báo nhập hàng (orderId === 'MATERIAL_REQ')
   const materialRequests = React.useMemo(() => {
     return (prodItems || []).filter(i => i.orderId === 'MATERIAL_REQ');
@@ -107,27 +114,60 @@ const DashboardTasksSection = React.memo(function DashboardTasksSection({ prodIt
   }, [materialRequests]);
 
   const handleCreateMaterialRequest = async () => {
-    if (!remText.trim()) {
-      triggerToast('Vui lòng nhập tên vật tư cần báo nhập!', 'fa-exclamation-triangle', 'warning');
+    const selectedProd = selectableProducts.find(p => String(p.id) === String(selectedProdId)) || (selectedProdId ? null : selectableProducts[0]);
+    const qty = Math.max(1, Number(reqQty) || 1);
+    
+    if (!selectedProd && !remText.trim()) {
+      triggerToast('Vui lòng chọn hàng hoá / vật tư cần nhập!', 'fa-exclamation-triangle', 'warning');
       return;
     }
+    
+    const prodName = selectedProd ? selectedProd.name : remText.trim();
+    const prodSku = selectedProd ? (selectedProd.sku || '') : '';
+    const prodUnit = selectedProd ? (selectedProd.unit || 'cái') : 'cái';
+    const prodCostPrice = selectedProd ? Number(selectedProd.costPrice || selectedProd.price || 0) : 0;
+    const totalCost = prodCostPrice * qty;
+    const prodCat = selectedProd ? (selectedProd.category || 'Vật tư') : 'Vật tư';
+
     setProcessing(true);
     try {
+      const nowIso = new Date().toISOString();
+      const nowStr = nowIso.slice(0, 19).replace('T', ' ');
+
+      // 1. Tạo phiếu ĐẶT HÀNG chính thức trong bảng ImportExport (Chứng từ Kho)
+      const ieTicket = {
+        id: 'IE_' + Date.now(),
+        type: 'ĐẶT HÀNG',
+        target: (selectedProd && selectedProd.supplier) ? selectedProd.supplier : 'Khác',
+        totalAmount: totalCost,
+        date: nowStr,
+        note: `Báo nhập vật tư từ nhân sự: ${currentUser}${reqNote ? ' (' + reqNote.trim() + ')' : ''}`,
+        itemsData: JSON.stringify([{
+          id: selectedProd ? selectedProd.id : ('ITEM_' + Date.now()),
+          sku: prodSku,
+          name: prodName,
+          quantity: qty,
+          unit: prodUnit,
+          costPrice: prodCostPrice
+        }])
+      };
+
+      // 2. Tạo record hiển thị trên Bảng Báo Nhập Hàng ở Dashboard
       const task = {
         id: 'MAT_REQ_' + Date.now(),
         orderId: 'MATERIAL_REQ',
         type: 'Báo Nhập Hàng',
-        name: remText.trim(),
-        note: '',
+        name: `[${prodCat}] ${prodName} x${qty} ${prodUnit}${reqNote ? ' (' + reqNote.trim() + ')' : ''}`,
+        note: reqNote ? reqNote.trim() : '',
         status: 'Chờ đặt hàng',
-        deadline: new Date().toISOString(),
+        deadline: nowIso,
         fulfilledFromStock: false,
         phases: {
           phase1: {
             name: 'Yêu cầu',
             status: 'Chờ đặt hàng',
             user: currentUser,
-            start: new Date().toISOString().slice(0, 16).replace('T', ' '),
+            start: nowStr.slice(0, 16),
             endTime: '',
             photo: '',
             reward_vnd: 0
@@ -135,13 +175,17 @@ const DashboardTasksSection = React.memo(function DashboardTasksSection({ prodIt
           phase2: { name: '', status: '', user: '', start: '', endTime: '', photo: '', reward_vnd: 0 }
         }
       };
-      await pushDeltas({ prodItems: [task] }, `Đã báo yêu cầu nhập hàng: ${remText.trim()}`, 'fa-box');
-      triggerToast('Đã gửi báo nhập hàng thành công!', 'fa-check', 'success');
+
+      await pushDeltas({ ImportExport: [ieTicket], prodItems: [task] }, `Đã báo nhập vật tư & tạo phiếu ĐẶT HÀNG: ${prodName} x${qty}`, 'fa-boxes');
+      triggerToast('Đã gửi yêu cầu & tạo phiếu ĐẶT HÀNG thành công!', 'fa-check', 'success');
       
+      setSelectedProdId('');
+      setReqQty('1');
+      setReqNote('');
       setRemText('');
       setShowAddReminder(false);
     } catch(e) {
-      triggerToast('Lỗi khi tạo báo nhập hàng!', 'fa-times', 'danger');
+      triggerToast('Lỗi khi tạo phiếu đặt hàng!', 'fa-times', 'danger');
     }
     setProcessing(false);
   };
@@ -236,26 +280,58 @@ const DashboardTasksSection = React.memo(function DashboardTasksSection({ prodIt
 
         {/* Form Yêu cầu nhập hàng của Nhân sự */}
         {showAddReminder && (
-          <div className="bg-[#141414] border border-[#222] p-3 rounded-xl space-y-2.5 animate-fade-in text-[11px]">
+          <div className="bg-[#141414] border border-[#222] p-3.5 rounded-xl space-y-3 animate-fade-in text-[11px]">
             <div>
-              <label className="text-[9px] font-black text-gray-500 block mb-0.5 uppercase">Tên vật tư cần nhập (Ghi rõ số lượng) *</label>
-              <input 
-                type="text" 
-                value={remText} 
-                onChange={e => setRemText(e.target.value)} 
-                className="w-full bg-[#0a0a0a] border border-[#333] text-white font-bold rounded-lg px-2.5 py-1.5 outline-none focus:border-emerald-500 transition-colors" 
-                placeholder="Ví dụ: Lấy 5 thùng keo 502"
-              />
+              <label className="text-[9px] font-black text-emerald-400 block mb-1 uppercase flex items-center gap-1">
+                <i className="fas fa-boxes"></i> Chọn Vật Tư / Hàng Hoá (Danh mục Phụ Kiện & Sản Xuất) *
+              </label>
+              <select 
+                value={selectedProdId} 
+                onChange={e => setSelectedProdId(e.target.value)} 
+                className="w-full bg-[#0a0a0a] border border-[#333] text-white font-bold rounded-lg px-2.5 py-2 outline-none focus:border-emerald-500 transition-colors text-[11px]"
+              >
+                <option value="">-- Chọn vật tư / phụ kiện --</option>
+                {selectableProducts.map(p => (
+                  <option key={p.id} value={p.id}>
+                    [{p.category || 'Vật tư'}] {p.name} {p.sku ? `(SKU: ${p.sku})` : ''} - Giá: {Number(p.costPrice || p.price || 0).toLocaleString('vi-VN')}đ/{p.unit || 'cái'}
+                  </option>
+                ))}
+              </select>
             </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <div className="col-span-1">
+                <label className="text-[9px] font-black text-gray-400 block mb-1 uppercase">Số Lượng *</label>
+                <input 
+                  type="number" 
+                  min="1"
+                  value={reqQty} 
+                  onChange={e => setReqQty(e.target.value)} 
+                  className="w-full bg-[#0a0a0a] border border-[#333] text-emerald-400 font-black rounded-lg px-2.5 py-1.5 outline-none focus:border-emerald-500 transition-colors text-[12px]" 
+                  placeholder="Số lượng..."
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="text-[9px] font-black text-gray-400 block mb-1 uppercase">Ghi chú (Tùy chọn)</label>
+                <input 
+                  type="text" 
+                  value={reqNote} 
+                  onChange={e => setReqNote(e.target.value)} 
+                  className="w-full bg-[#0a0a0a] border border-[#333] text-white font-bold rounded-lg px-2.5 py-1.5 outline-none focus:border-emerald-500 transition-colors text-[11px]" 
+                  placeholder="Ví dụ: Cần gấp trong ca sáng..."
+                />
+              </div>
+            </div>
+
             <div className="flex justify-end gap-2 pt-1">
               <button 
-                onClick={() => { setRemText(''); setShowAddReminder(false); }} 
+                onClick={() => { setSelectedProdId(''); setReqQty('1'); setReqNote(''); setRemText(''); setShowAddReminder(false); }} 
                 className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-black px-4 py-2 rounded-lg active:scale-95 transition-colors uppercase text-[9px]"
               >
                 Huỷ
               </button>
-              <button onClick={handleCreateMaterialRequest} disabled={processing} className="bg-emerald-600 hover:bg-emerald-500 text-white font-black px-4 py-2 rounded-lg active:scale-95 transition-colors uppercase text-[9px]">
-                Gửi Yêu Cầu
+              <button onClick={handleCreateMaterialRequest} disabled={processing} className="bg-emerald-600 hover:bg-emerald-500 text-white font-black px-5 py-2 rounded-lg active:scale-95 transition-colors uppercase text-[9px] flex items-center gap-1.5 shadow-md shadow-emerald-950">
+                <i className="fas fa-file-signature"></i> Tạo Phiếu Đặt Hàng & Gửi Yêu Cầu
               </button>
             </div>
           </div>
@@ -707,6 +783,7 @@ const DashboardTab = React.memo(function DashboardTab({ reimbursements = [], ord
           isAdmin={isSuperAdmin} 
           userConfigs={userConfigs}
           reimbursements={reimbursements}
+          products={erpProducts || erpData?.Products || []}
       />
 
 

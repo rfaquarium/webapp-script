@@ -92,9 +92,17 @@ function handleApiRequest(payload) {
       var pin = payload.pin;
       var auth = validatePin(pin);
       if (auth && auth.valid) {
-        response.success = true;
-        var deltaPayload = typeof payload.data === 'string' ? JSON.parse(payload.data) : payload.data;
-        response.data = syncDeltas(deltaPayload, pin);
+        var lock = LockService.getScriptLock();
+        try {
+          lock.waitLock(15000); // Đợi 15s để lấy quyền truy cập độc quyền
+          response.success = true;
+          var deltaPayload = typeof payload.data === 'string' ? JSON.parse(payload.data) : payload.data;
+          response.data = syncDeltas(deltaPayload, pin);
+        } catch (e) {
+          response.message = 'Hệ thống đang quá tải, vui lòng thử lại sau vài giây! Lỗi: ' + e.message;
+        } finally {
+          lock.releaseLock();
+        }
       } else {
         response.message = 'Xác thực thất bại!';
       }
@@ -116,6 +124,54 @@ function handleApiRequest(payload) {
       } else {
         response.message = 'Xác thực thất bại!';
       }
+    }
+    else if (action === 'processCascadeCancelOrder') {
+      var pin = payload.pin;
+      var auth = validatePin(pin);
+      if (auth && auth.valid) {
+        response = processCascadeCancelOrder(payload.orderId, payload.isHandedOver || payload.isReturned);
+      } else {
+        response.message = 'Xác thực thất bại!';
+      }
+    }
+    else if (action === 'checkAndAutoForwardOrder') {
+      var pin = payload.pin;
+      var auth = validatePin(pin);
+      if (auth && auth.valid) {
+        response = checkAndAutoForwardOrder(payload.orderId);
+      } else {
+        response.message = 'Xác thực thất bại!';
+      }
+    }
+    else if (action === 'processAutoAllocation' || action === 'autoAllocateOrders') {
+      var pin = payload.pin;
+      var auth = validatePin(pin);
+      if (auth && auth.valid) {
+        response = processAutoAllocation(payload.orderId);
+      } else {
+        response.message = 'Xác thực thất bại!';
+      }
+    }
+    else if (action === 'processRcaResolver') {
+      var pin = payload.pin;
+      var auth = validatePin(pin);
+      if (auth && auth.valid) {
+        response = processRcaResolver(payload);
+      } else {
+        response.message = 'Xác thực thất bại!';
+      }
+    }
+    else if (action === 'api_insertManualKPI' || action === 'insertManualKPI') {
+      var pin = payload.pin;
+      var auth = validatePin(pin);
+      if (auth && auth.valid) {
+        response = api_insertManualKPI(payload.data || payload);
+      } else {
+        response = api_insertManualKPI(payload);
+      }
+    }
+    else if (action === 'api_syncMasterPayroll' || action === 'syncMasterPayroll') {
+      response = api_syncMasterPayroll(payload.data || payload);
     }
     else if (action === 'generateMonthlySnapshot') {
       var pin = payload.pin;
@@ -153,6 +209,25 @@ function handleApiRequest(payload) {
         response.message = 'Xác thực thất bại!';
       }
     }
+    else if (action === 'uploadImage' || action === 'uploadQCImage') {
+      var pin = payload.pin;
+      var auth = validatePin(pin);
+      if (auth && auth.valid) {
+        response.success = true;
+        response.data = uploadImage(payload.base64Data || payload.data || payload.b64, payload.fileName);
+      } else {
+        response.message = 'Xác thực thất bại!';
+      }
+    }
+    else if (action === 'getDashboardErrors') {
+      var pin = payload.pin;
+      var auth = validatePin(pin);
+      if (auth && auth.valid) {
+        response = api_getDashboardErrors();
+      } else {
+        response.message = 'Xác thực thất bại!';
+      }
+    }
     else {
       response.message = 'Action không hợp lệ: ' + (action || 'null');
     }
@@ -167,7 +242,7 @@ function handleApiRequest(payload) {
 }
 
 function include(filename) {
-  var content = HtmlService.createHtmlOutputFromFile(filename).getContent();
+  var content = HtmlService.createTemplateFromFile(filename).getRawContent();
   if (!content) return '';
   content = content.replace(/\0/g, '')
     .replace(/[\uFEFF\uFFFE]/g, '')
@@ -180,70 +255,65 @@ function include(filename) {
 // NEW ARCHITECTURE LOGIC: BOM, SLA, LEDGER, QC
 // =========================================================================
 
-function processMaterialDeduction(prodId, materialUsageData) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var prodSheet = ss.getSheetByName('Production');
-  var prodData = prodSheet.getDataRange().getValues();
-  var pHeaders = prodData[0];
-  var prodRow = -1;
-  var prodObj = {};
-  for (var i = 1; i < prodData.length; i++) {
-    if (String(prodData[i][pHeaders.indexOf('id')]) === String(prodId)) {
-      prodRow = i + 1;
-      for (var h = 0; h < pHeaders.length; h++) prodObj[pHeaders[h]] = prodData[i][h];
-      break;
-    }
-  }
-  if (prodRow === -1) return { success: false, message: 'Không tìm thấy lệnh sản xuất' };
 
-  var bomSheet = ss.getSheetByName('BOM_Config');
-  if (!bomSheet) return { success: false, message: 'Thiếu bảng BOM_Config' };
-  var bomData = readSheet('BOM_Config', null, ss);
 
-  var layoutCode = prodObj.name;
-  var boms = bomData.filter(function (b) { return b.layoutCode === layoutCode; });
+function checkAndAutoForwardOrder(orderId) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  var prodSheetErp = ss.getSheetByName('Products');
-  var prodErpData = prodSheetErp.getDataRange().getValues();
-  var pErpHeaders = prodErpData[0];
-  var qtyCol = pErpHeaders.indexOf('quantity');
-  var skuCol = pErpHeaders.indexOf('sku');
+    var orderSheet = ss.getSheetByName('Orders');
+    var prodSheet = ss.getSheetByName('Production');
+    if (!orderSheet || !prodSheet) return { success: false, message: 'Bảng dữ liệu không tồn tại!' };
 
-  var deductions = materialUsageData || {};
-  if (Object.keys(deductions).length === 0) {
-    boms.forEach(function (b) { deductions[b.materialSku] = Number(b.defaultQty); });
-  }
+    var prodData = prodSheet.getDataRange().getValues();
+    var pHeaders = prodData[0];
+    var pOrderIdCol = pHeaders.indexOf('orderId');
+    var pStatusCol = pHeaders.indexOf('status');
+    var pStockCol = pHeaders.indexOf('fulfilledFromStock');
 
-  var logEntries = [];
-  Object.keys(deductions).forEach(function (sku) {
-    var qtyToDeduct = Number(deductions[sku]) || 0;
-    if (qtyToDeduct <= 0) return;
-    for (var j = 1; j < prodErpData.length; j++) {
-      if (String(prodErpData[j][skuCol]) === sku) {
-        var oldQty = Number(prodErpData[j][qtyCol]) || 0;
-        prodSheetErp.getRange(j + 1, qtyCol + 1).setValue(oldQty - qtyToDeduct);
-        logEntries.push({ name: sku, qty: qtyToDeduct, price: 0 });
-        break;
+    var childProds = [];
+    for (var i = 1; i < prodData.length; i++) {
+      if (String(prodData[i][pOrderIdCol]).trim() === String(orderId).trim()) {
+        childProds.push({
+          status: String(prodData[i][pStatusCol] || '').trim().toUpperCase(),
+          fulfilledFromStock: prodData[i][pStockCol] === true || String(prodData[i][pStockCol]).toUpperCase() === 'TRUE'
+        });
       }
     }
-  });
 
-  var ieLogSheet = ss.getSheetByName('ImportExport');
-  if (ieLogSheet && logEntries.length > 0) {
-    var logId = 'IE_BOM_' + Date.now();
-    var ieRow = SCHEMA_ERP.ImportExport.map(function (h) {
-      if (h === 'id') return logId;
-      if (h === 'type') return 'Xuất';
-      if (h === 'target') return 'Sản Xuất Layout';
-      if (h === 'date') return new Date().toISOString().slice(0, 19).replace('T', ' ');
-      if (h === 'note') return 'Tự động trừ vật tư BOM cho đơn: ' + prodObj.orderId;
-      if (h === 'itemsData') return JSON.stringify(logEntries);
-      return '';
+    if (childProds.length === 0) return { success: false, message: 'Đơn hàng không chứa lệnh sản xuất nào.' };
+
+    var isAllCompleted = childProds.every(function (p) {
+      return p.status === 'DONE' || p.status === 'ĐÃ XONG' || p.status === 'HOÀN KHO ĐẠT' || p.fulfilledFromStock;
     });
-    ieLogSheet.appendRow(ieRow);
-  }
 
-  return { success: true, message: 'Đã cấn trừ thành công vật tư BOM' };
+    if (isAllCompleted) {
+      var orderData = orderSheet.getDataRange().getValues();
+      var oHeaders = orderData[0];
+      var oIdCol = oHeaders.indexOf('id');
+      var oStatusCol = oHeaders.indexOf('status');
+
+      for (var o = 1; o < orderData.length; o++) {
+        if (String(orderData[o][oIdCol]).trim() === String(orderId).trim()) {
+          var currentStatus = String(orderData[o][oStatusCol] || '').trim();
+          if (['Chờ Sản Xuất', 'Đang Sản Xuất', 'Quét Tự Động'].indexOf(currentStatus) > -1) {
+            orderSheet.getRange(o + 1, oStatusCol + 1).setValue('Sẵn sàng đóng gói');
+            return { success: true, message: 'Đã tự động chuyển đơn ' + orderId + ' ➔ Sẵn sàng đóng gói' };
+          }
+          break;
+        }
+      }
+    }
+
+    return { success: true, message: 'Đơn hàng chưa đủ điều kiện chuyển trạng thái.' };
+
+  } catch (err) {
+    return { success: false, message: 'Lỗi Auto-Forward SLA: ' + err.toString() };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function processQCApproval(prodId, approverName) {
@@ -328,6 +398,211 @@ function calculateBusinessHoursSLA(startStr, endStr) {
   return totalMin;
 }
 
+// =========================================================================
+// API ĐỒNG BỘ LƯƠNG TẬP TRUNG (CLIENT-SERVER PAYROLL SYNC)
+// =========================================================================
+function api_syncMasterPayroll(payload) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+  } catch (e) {
+    return { success: false, message: 'Hệ thống đang bận đồng bộ dữ liệu lương, vui lòng thử lại sau.' };
+  }
+
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var p = payload || {};
+    if (payload && payload.data) p = payload.data;
+
+    var monthStr = p.monthStr || p.filterMonth || new Date().toISOString().slice(0, 7);
+
+    // 1. KÍCH HOẠT TỰ ĐỘNG KHÓA SỔ LƯƠNG (FREEZE PAYROLL) KHI ĐÃ TRẢ / ĐÃ CHỐT
+    var snapSheet = ss.getSheetByName('Monthly_Snapshots');
+    if (snapSheet) {
+      var existingSnaps = readSheet('Monthly_Snapshots', function (s) { return s.month === monthStr; }, ss);
+      if (existingSnaps.length > 0) {
+        var targetUsers = [];
+        if (p.BonusPenalty_Updates) p.BonusPenalty_Updates.forEach(function (b) { if (b.user && targetUsers.indexOf(b.user) === -1) targetUsers.push(b.user); });
+        if (p.Attendance_Updates) p.Attendance_Updates.forEach(function (a) { if (a.user && targetUsers.indexOf(a.user) === -1) targetUsers.push(a.user); });
+        
+        var isLocked = existingSnaps.some(function (s) {
+          return targetUsers.length === 0 || targetUsers.indexOf(s.user) !== -1;
+        });
+        if (isLocked) {
+          return { success: false, message: '🔒 Dữ liệu lương tháng ' + monthStr + ' đã Khóa Sổ / Đã Trả. Hệ thống tự động chặn mọi quyền chỉnh sửa!' };
+        }
+      }
+    }
+
+    // 2. GHI NHẬN THAY ĐỔI DỮ LIỆU
+    if (p.BonusPenalty_Updates && p.BonusPenalty_Updates.length > 0) {
+      updateDeltas('BonusPenalty', p.BonusPenalty_Updates, formatBonusPenalty, ss);
+    }
+    if (p.Attendance_Updates && p.Attendance_Updates.length > 0) {
+      updateDeltas('Attendance', p.Attendance_Updates, formatAtt, ss);
+    }
+    if (p.deletes || p.Deletes) {
+      var del = p.deletes || p.Deletes;
+      if (del.BonusPenalty && del.BonusPenalty.length > 0) {
+        deleteDeltas('BonusPenalty', del.BonusPenalty, ss);
+      }
+      if (del.Attendance && del.Attendance.length > 0) {
+        deleteDeltas('Attendance', del.Attendance, ss);
+      }
+    }
+
+    // 2. TÍNH TOÁN TẬP TRUNG (SERVER-SIDE PAYROLL AGGREGATION)
+    var userConfig = getUserConfig();
+    var allUsers = userConfig.users || [];
+    if (allUsers.length === 0) {
+      allUsers = ['Đỗ Minh Ân', 'Trần Hữu Tâm', 'Nguyễn Hoàng Dương', 'Nguyễn Thị Diệu Hương'];
+    }
+
+    var prodData = readSheet('Production', function (item) {
+      return (item.p1_endTime && item.p1_endTime.indexOf(monthStr) === 0) || (item.p2_endTime && item.p2_endTime.indexOf(monthStr) === 0);
+    }, ss);
+    var packData = readSheet('Packings', function (item) {
+      return item.endTime && item.endTime.indexOf(monthStr) === 0;
+    }, ss);
+    var attData = readSheet('Attendance', function (item) {
+      return item.date && item.date.indexOf(monthStr) === 0;
+    }, ss);
+    var bpData = readSheet('BonusPenalty', function (item) {
+      return item.date && item.date.indexOf(monthStr) === 0;
+    }, ss);
+    var kpiProgressData = readSheet('KPI_Progress', function (item) {
+      return item.endTime && item.endTime.indexOf(monthStr) === 0;
+    }, ss);
+
+    // Dư nợ tháng trước
+    var prevMonth = new Date(monthStr + '-01');
+    prevMonth.setMonth(prevMonth.getMonth() - 1);
+    var prevMonthStr = prevMonth.getFullYear() + '-' + ('0' + (prevMonth.getMonth() + 1)).slice(-2);
+    var prevSnaps = readSheet('Monthly_Snapshots', function (s) { return s.month === prevMonthStr; }, ss);
+    var prevDebtMap = {};
+    prevSnaps.forEach(function (s) { prevDebtMap[s.user] = Number(s.totalDebt) || 0; });
+
+    var payrollData = {};
+
+    allUsers.forEach(function (u) {
+      var salConfig = userConfig.salaries ? (userConfig.salaries[u] || {}) : {};
+      var userAtts = attData.filter(function (a) { return String(a.user).trim() === String(u).trim(); });
+      var userBPs = bpData.filter(function (b) { return String(b.user).trim() === String(u).trim(); });
+
+      var totalGateHours = userAtts.reduce(function (sum, a) { return sum + (Number(a.totalHours) || 0); }, 0);
+      var hoursWorked = totalGateHours;
+      var daysWorked = userAtts.filter(function (a) { return Number(a.totalHours) > 0 || (a.morningIn && a.morningOut); }).length;
+
+      var baseSalaryConfig = Number(salConfig.baseSalary) || Number(salConfig['Lương Cơ Bản']) || 0;
+      var luongChinh = baseSalaryConfig > 0 ? Math.round((baseSalaryConfig / 208) * hoursWorked) : hoursWorked * 20000;
+      var luongLamThemGio = userBPs.filter(function (b) { return b.type === 'Lương Làm Thêm Giờ'; }).reduce(function (sum, b) { return sum + Number(b.amount || 0); }, 0);
+
+      // Quét Production: p1_user, p2_user, p1_endTime, p2_endTime, p1_reward_vnd, p2_reward_vnd khi status = 'Done'
+      var prodSalary = 0;
+      prodData.forEach(function (pItem) {
+        var itemDone = pItem.status === 'Done' || String(pItem.status).toUpperCase() === 'ĐÃ XONG' || String(pItem.status).toUpperCase() === 'HOÀN KHO ĐẠT';
+        if (pItem.p1_user === u && pItem.p1_endTime && pItem.p1_endTime.indexOf(monthStr) === 0 && (pItem.p1_status === 'Done' || itemDone)) {
+          prodSalary += Number(pItem.p1_reward_vnd) || 0;
+        }
+        if (pItem.p2_user === u && pItem.p2_endTime && pItem.p2_endTime.indexOf(monthStr) === 0 && (pItem.p2_status === 'Done' || itemDone)) {
+          prodSalary += Number(pItem.p2_reward_vnd) || 0;
+        }
+      });
+
+      // Quét Packings: user, endTime, reward_vnd khi status = 'Done'
+      var packSalary = 0;
+      packData.forEach(function (pk) {
+        if (pk.user === u && (pk.status === 'Done' || String(pk.status).toUpperCase() === 'ĐÃ XONG')) {
+          packSalary += Number(pk.reward_vnd) || 0;
+        }
+      });
+
+      var hoaHongSanXuat = prodSalary + packSalary;
+      var hoTroSanLuong = userBPs.filter(function (b) { return b.type === 'Hỗ Trợ Sản Lượng'; }).reduce(function (sum, b) { return sum + Number(b.amount || 0); }, 0);
+
+      // KPI Progress & Phụ Cấp Xăng Xe / Chức Vụ
+      var userDevKpis = kpiProgressData.filter(function (k) {
+        return k.user === u && String(k.unit).toLowerCase() !== 'xu' &&
+               (k.isClaimed === true || String(k.isClaimed).toLowerCase() === 'true');
+      });
+      var dynamicFuncSalary = userDevKpis.reduce(function (sum, k) { return sum + (Number(k.reward) || 0); }, 0);
+      var ceilingFuncSalary = Number(salConfig.funcSalary) || Number(salConfig['Lương Chức Vụ']) || 0;
+      var funcSalary = ceilingFuncSalary > 0 ? Math.min(dynamicFuncSalary, ceilingFuncSalary) : dynamicFuncSalary;
+
+      var allowanceConfig = Number(salConfig.allowance) || Number(salConfig['Phụ Cấp Xăng Xe']) || 0;
+      var phuCapKhac = userBPs.filter(function (b) { return b.type === 'Phụ Cấp Khác'; }).reduce(function (sum, b) { return sum + Number(b.amount || 0); }, 0);
+      var tongPhuCap = funcSalary + allowanceConfig + phuCapKhac;
+
+      // Thưởng
+      var thuongNong = userBPs.filter(function (b) { return b.type === 'Thưởng Nóng' || b.type === 'Thưởng'; }).reduce(function (sum, b) { return sum + Number(b.amount || 0); }, 0);
+      var manualChuyenCanRec = userBPs.find(function (b) { return b.type === 'Thưởng Chuyên Cần'; });
+      var chuyenCan = manualChuyenCanRec ? Number(manualChuyenCanRec.amount) : ((daysWorked >= 28 || totalGateHours >= 216) ? 500000 : 0);
+      var tongThuong = thuongNong + chuyenCan;
+
+      var hoaHongBanHang = userBPs.filter(function (b) { return b.type === 'Hoa Hồng Bán Hàng' || b.type === 'Thưởng Bán Hàng'; }).reduce(function (sum, b) { return sum + Number(b.amount || 0); }, 0);
+      var cacKhoanThuKhac = userBPs.filter(function (b) { return b.type === 'Thu Nhập Khác' || b.type === 'Các Khoản Thu Khác'; }).reduce(function (sum, b) { return sum + Number(b.amount || 0); }, 0);
+
+      var tongThuNhap = luongChinh + luongLamThemGio + hoaHongSanXuat + hoTroSanLuong + tongPhuCap + tongThuong + hoaHongBanHang + cacKhoanThuKhac;
+
+      // Giảm trừ
+      var soNgayNghi = userAtts.filter(function (a) { return String(a.status || '').indexOf('Nghỉ') > -1 || String(a.shift || '').indexOf('Nghỉ') > -1; }).length;
+      var phatVuotNgayNghi = soNgayNghi > 2 ? (soNgayNghi - 2) * 200000 : 0;
+      var attPenalty = userAtts.reduce(function (sum, a) { return sum + (Number(a.penalty) || 0); }, 0);
+      var phatQuyDinhBP = Math.abs(userBPs.filter(function (b) { return b.type === 'Phạt Quy Định' || b.type === 'Phạt'; }).reduce(function (sum, b) { return sum + Number(b.amount || 0); }, 0));
+      var phatQuyDinh = phatQuyDinhBP + attPenalty + phatVuotNgayNghi;
+
+      var phiCongDoan = 50000;
+      var chiPhiBaoHanh = Math.abs(userBPs.filter(function (b) { return b.type === 'Chi Phí Bảo Hành'; }).reduce(function (sum, b) { return sum + Number(b.amount || 0); }, 0));
+      var tamUng = Math.abs(userBPs.filter(function (b) { return b.type === 'Tạm Ứng'; }).reduce(function (sum, b) { return sum + Number(b.amount || 0); }, 0));
+      var excludeGiamTru = ['Phạt Quy Định', 'Phạt', 'Chi Phí Bảo Hành', 'Tạm Ứng', 'Thanh Toán Lương', 'Đã Trả'];
+      var giamTruKhac = Math.abs(userBPs.filter(function (b) { return excludeGiamTru.indexOf(b.type) === -1 && Number(b.amount) < 0; }).reduce(function (sum, b) { return sum + Number(b.amount || 0); }, 0));
+      var noThangTruoc = prevDebtMap[u] || 0;
+
+      var tongGiamTru = phatQuyDinh + phiCongDoan + chiPhiBaoHanh + tamUng + giamTruKhac + noThangTruoc;
+      var totalSalary = tongThuNhap - tongGiamTru;
+      var daTraNhanVien = Math.abs(userBPs.filter(function (b) { return b.type === 'Đã Trả' || b.type === 'Thanh Toán Lương'; }).reduce(function (sum, b) { return sum + Number(b.amount || 0); }, 0));
+      var conCanTra = totalSalary - daTraNhanVien;
+
+      payrollData[u] = {
+        user: u,
+        month: monthStr,
+        hoursWorked: hoursWorked,
+        totalGateHours: totalGateHours,
+        daysWorked: daysWorked,
+        luongChinh: luongChinh,
+        luongLamThemGio: luongLamThemGio,
+        hoaHongSanXuat: hoaHongSanXuat,
+        tongPhuCap: tongPhuCap,
+        tongThuong: tongThuong,
+        hoaHongBanHang: hoaHongBanHang,
+        cacKhoanThuKhac: cacKhoanThuKhac,
+        tongThuNhap: tongThuNhap,
+        phatQuyDinh: phatQuyDinh,
+        phiCongDoan: phiCongDoan,
+        chiPhiBaoHanh: chiPhiBaoHanh,
+        tamUng: tamUng,
+        giamTruKhac: giamTruKhac,
+        noThangTruoc: noThangTruoc,
+        tongGiamTru: tongGiamTru,
+        totalSalary: totalSalary,
+        daTraNhanVien: daTraNhanVien,
+        conCanTra: conCanTra,
+        totalDebt: totalSalary < 0 ? Math.abs(totalSalary) : 0
+      };
+    });
+
+    return {
+      success: true,
+      message: 'Đồng bộ dữ liệu lương tập trung thành công!',
+      payrollData: payrollData
+    };
+  } catch (err) {
+    return { success: false, message: 'Lỗi đồng bộ lương: ' + err.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function api_generateMonthlySnapshot(payload) {
   try {
     var auth = validatePin(payload.pin);
@@ -342,100 +617,179 @@ function api_generateMonthlySnapshot(payload) {
 }
 
 function generateMonthlySnapshot(monthStr) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var snapSheet = ss.getSheetByName('Monthly_Snapshots');
-  if (!snapSheet) {
-    snapSheet = ss.insertSheet('Monthly_Snapshots');
-    snapSheet.appendRow(SCHEMA_ERP.Monthly_Snapshots);
-    snapSheet.setFrozenRows(1);
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+  } catch (e) {
+    return { success: false, message: 'Hệ thống đang bận khóa sổ, vui lòng thử lại sau giây lát.' };
   }
 
-  var snaps = readSheet('Monthly_Snapshots', function (s) { return s.month === monthStr; }, ss);
-  if (snaps.length > 0) return { success: false, message: 'Tháng ' + monthStr + ' đã được khóa sổ.' };
-
-  var prodData = readSheet('Production', function (p) { return (p.p1_endTime && p.p1_endTime.indexOf(monthStr) === 0) || (p.p2_endTime && p.p2_endTime.indexOf(monthStr) === 0); }, ss);
-  var packData = readSheet('Packings', function (p) { return p.endTime && p.endTime.indexOf(monthStr) === 0; }, ss);
-  var attData = readSheet('Attendance', function (a) { return a.date && a.date.indexOf(monthStr) === 0; }, ss);
-  var bpData = readSheet('BonusPenalty', function (b) { return b.date && b.date.indexOf(monthStr) === 0; }, ss);
-
-  // Lấy nợ từ tháng trước
-  var prevMonth = new Date(monthStr + '-01');
-  prevMonth.setMonth(prevMonth.getMonth() - 1);
-  var prevMonthStr = prevMonth.getFullYear() + '-' + ('0' + (prevMonth.getMonth() + 1)).slice(-2);
-  var prevSnaps = readSheet('Monthly_Snapshots', function (s) { return s.month === prevMonthStr; }, ss);
-
-  var users = {};
-  function getUser(u) {
-    if (!u) return null;
-    if (!users[u]) users[u] = { totalSalary: 0, totalHours: 0, totalAdvance: 0, totalDebt: 0, penalty: 0 };
-    return users[u];
-  }
-
-  prevSnaps.forEach(function (s) {
-    var u = getUser(s.user);
-    if (u) u.penalty += Number(s.totalDebt) || 0; // Nợ tháng trước chuyển thành khoản phải trừ tháng này
-  });
-
-  prodData.forEach(function (p) {
-    if (p.p1_endTime && p.p1_endTime.indexOf(monthStr) === 0) {
-      var u = getUser(p.p1_user); if (u) u.totalSalary += Number(p.p1_reward_vnd) || 0;
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var snapSheet = ss.getSheetByName('Monthly_Snapshots');
+    if (!snapSheet) {
+      snapSheet = ss.insertSheet('Monthly_Snapshots');
+      snapSheet.appendRow(SCHEMA_ERP.Monthly_Snapshots);
+      snapSheet.setFrozenRows(1);
     }
-    if (p.p2_endTime && p.p2_endTime.indexOf(monthStr) === 0) {
-      var u = getUser(p.p2_user); if (u) u.totalSalary += Number(p.p2_reward_vnd) || 0;
-    }
-  });
-  packData.forEach(function (p) {
-    var u = getUser(p.user); if (u) u.totalSalary += Number(p.reward_vnd) || 0;
-  });
-  attData.forEach(function (a) {
-    var u = getUser(a.user);
-    if (u) {
-      u.totalHours += Number(a.totalHours) || 0;
-      u.penalty += Number(a.penalty) || 0;
-    }
-  });
-  bpData.forEach(function (b) {
-    var u = getUser(b.user);
-    if (u) {
-      if (b.type === 'Tạm Ứng') u.totalAdvance += Number(b.amount) || 0;
-      else if (b.type === 'Phạt Quy Định' || b.type === 'Phạt') u.penalty += Number(b.amount) || 0;
-      else if (b.type === 'Thưởng') u.totalSalary += Number(b.amount) || 0;
-    }
-  });
 
-  var newRows = [];
-  var createdAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
-  Object.keys(users).forEach(function (u) {
-    var data = users[u];
-    var netPay = data.totalSalary - data.totalAdvance - data.penalty;
-    var debt = 0;
-    if (netPay < 0) {
-      debt = Math.abs(netPay);
-      netPay = 0; // Thực lĩnh = 0 nếu âm
-    }
-    data.totalDebt = debt;
+    var snaps = readSheet('Monthly_Snapshots', function (s) { return s.month === monthStr; }, ss);
+    if (snaps.length > 0) return { success: false, message: 'Tháng ' + monthStr + ' đã được khóa sổ.' };
 
-    var row = SCHEMA_ERP.Monthly_Snapshots.map(function (h) {
-      if (h === 'id') return 'SNAP_' + monthStr + '_' + u + '_' + Date.now();
-      if (h === 'month') return monthStr;
-      if (h === 'user') return u;
-      if (h === 'totalSalary') return data.totalSalary;
-      if (h === 'totalHours') return data.totalHours;
-      if (h === 'totalAdvance') return data.totalAdvance;
-      if (h === 'totalDebt') return debt;
-      if (h === 'createdAt') return createdAt;
-      if (h === 'snapshotData') return JSON.stringify(data);
-      return '';
+    var userConfig = getUserConfig();
+    var allUsers = userConfig.users || [];
+    if (allUsers.length === 0) {
+      allUsers = ['Đỗ Minh Ân', 'Trần Hữu Tâm', 'Nguyễn Hoàng Dương', 'Nguyễn Thị Diệu Hương'];
+    }
+
+    var prodData = readSheet('Production', function (p) { return (p.p1_endTime && p.p1_endTime.indexOf(monthStr) === 0) || (p.p2_endTime && p.p2_endTime.indexOf(monthStr) === 0); }, ss);
+    var packData = readSheet('Packings', function (p) { return p.endTime && p.endTime.indexOf(monthStr) === 0; }, ss);
+    var attData = readSheet('Attendance', function (a) { return a.date && a.date.indexOf(monthStr) === 0; }, ss);
+    var bpData = readSheet('BonusPenalty', function (b) { return b.date && b.date.indexOf(monthStr) === 0; }, ss);
+    var kpiProgressData = readSheet('KPI_Progress', function (k) { return k.endTime && k.endTime.indexOf(monthStr) === 0; }, ss);
+
+    // Lấy nợ từ tháng trước
+    var prevMonth = new Date(monthStr + '-01');
+    prevMonth.setMonth(prevMonth.getMonth() - 1);
+    var prevMonthStr = prevMonth.getFullYear() + '-' + ('0' + (prevMonth.getMonth() + 1)).slice(-2);
+    var prevSnaps = readSheet('Monthly_Snapshots', function (s) { return s.month === prevMonthStr; }, ss);
+    var prevDebtMap = {};
+    prevSnaps.forEach(function (s) {
+      prevDebtMap[s.user] = Number(s.totalDebt) || 0;
     });
-    newRows.push(row);
-  });
 
-  if (newRows.length > 0) {
-    var range = snapSheet.getRange(snapSheet.getLastRow() + 1, 1, newRows.length, SCHEMA_ERP.Monthly_Snapshots.length);
-    range.setValues(newRows);
+    var newRows = [];
+    var createdAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+    allUsers.forEach(function (u) {
+      var salConfig = userConfig.salaries ? (userConfig.salaries[u] || {}) : {};
+      var userAtts = attData.filter(function (a) { return a.user === u; });
+      var userBPs = bpData.filter(function (b) { return b.user === u; });
+
+      var totalGateHours = userAtts.reduce(function (sum, a) { return sum + (Number(a.totalHours) || 0); }, 0);
+      var hoursWorked = totalGateHours;
+      var daysWorked = userAtts.filter(function (a) { return Number(a.totalHours) > 0 || (a.morningIn && a.morningOut); }).length;
+
+      var baseSalaryConfig = Number(salConfig.baseSalary) || Number(salConfig['Lương Cơ Bản']) || 0;
+      var luongChinh = baseSalaryConfig > 0 ? (baseSalaryConfig / 208) * hoursWorked : hoursWorked * 20000;
+      var luongLamThemGio = 0; // Đã bao hàm trong tổng giờ công
+
+      // Thưởng sản xuất
+      var prodSalary = 0;
+      prodData.forEach(function (p) {
+        if (p.p1_user === u && p.p1_endTime && p.p1_endTime.indexOf(monthStr) === 0) prodSalary += Number(p.p1_reward_vnd) || 0;
+        if (p.p2_user === u && p.p2_endTime && p.p2_endTime.indexOf(monthStr) === 0) prodSalary += Number(p.p2_reward_vnd) || 0;
+      });
+
+      // Thưởng đóng gói
+      var packSalary = 0;
+      packData.forEach(function (pk) {
+        if (pk.user === u) packSalary += Number(pk.reward_vnd) || 0;
+      });
+
+      var hoaHongSanXuat = prodSalary + packSalary;
+      var hoTroSanLuong = 0;
+
+      // Phụ cấp & KPI
+      var userDevKpis = kpiProgressData.filter(function (k) {
+        return k.user === u && String(k.unit).toLowerCase() !== 'xu' &&
+               (k.isClaimed === true || String(k.isClaimed).toLowerCase() === 'true');
+      });
+      var dynamicFuncSalary = userDevKpis.reduce(function (sum, k) { return sum + (Number(k.reward) || 0); }, 0);
+      var ceilingFuncSalary = Number(salConfig.funcSalary) || Number(salConfig['Lương Chức Vụ']) || 0;
+      var funcSalary = ceilingFuncSalary > 0 ? Math.min(dynamicFuncSalary, ceilingFuncSalary) : dynamicFuncSalary;
+
+      var allowanceConfig = Number(salConfig.allowance) || Number(salConfig['Phụ Cấp Xăng Xe']) || 0;
+      var phuCapKhac = userBPs.filter(function (b) { return b.type === 'Phụ Cấp Khác'; }).reduce(function (sum, b) { return sum + Number(b.amount || 0); }, 0);
+      var tongPhuCap = funcSalary + allowanceConfig + phuCapKhac;
+
+      // Thưởng
+      var thuongNong = userBPs.filter(function (b) { return b.type === 'Thưởng Nóng' || b.type === 'Thưởng'; }).reduce(function (sum, b) { return sum + Number(b.amount || 0); }, 0);
+      var manualChuyenCanRec = userBPs.find(function (b) { return b.type === 'Thưởng Chuyên Cần'; });
+      var chuyenCan = manualChuyenCanRec ? Number(manualChuyenCanRec.amount) : ((daysWorked >= 28 || totalGateHours >= 216) ? 500000 : 0);
+      var tongThuong = thuongNong + chuyenCan;
+
+      var hoaHongBanHang = userBPs.filter(function (b) { return b.type === 'Hoa Hồng Bán Hàng'; }).reduce(function (sum, b) { return sum + Number(b.amount || 0); }, 0);
+      var cacKhoanThuKhac = userBPs.filter(function (b) { return b.type === 'Thu Nhập Khác' || b.type === 'Các Khoản Thu Khác'; }).reduce(function (sum, b) { return sum + Number(b.amount || 0); }, 0);
+
+      var tongThuNhap = luongChinh + luongLamThemGio + hoaHongSanXuat + hoTroSanLuong + tongPhuCap + tongThuong + hoaHongBanHang + cacKhoanThuKhac;
+
+      // Giảm trừ
+      var soNgayNghi = userAtts.filter(function (a) { return String(a.status || '').indexOf('Nghỉ') > -1 || String(a.shift || '').indexOf('Nghỉ') > -1; }).length;
+      var phatVuotNgayNghi = soNgayNghi > 2 ? (soNgayNghi - 2) * 200000 : 0;
+      var attPenalty = userAtts.reduce(function (sum, a) { return sum + (Number(a.penalty) || 0); }, 0);
+      var phatQuyDinhBP = Math.abs(userBPs.filter(function (b) { return b.type === 'Phạt Quy Định' || b.type === 'Phạt'; }).reduce(function (sum, b) { return sum + Number(b.amount || 0); }, 0));
+      var phatQuyDinh = phatQuyDinhBP + attPenalty + phatVuotNgayNghi;
+
+      var phiCongDoan = 50000;
+      var chiPhiBaoHanh = Math.abs(userBPs.filter(function (b) { return b.type === 'Chi Phí Bảo Hành'; }).reduce(function (sum, b) { return sum + Number(b.amount || 0); }, 0));
+      var tamUng = Math.abs(userBPs.filter(function (b) { return b.type === 'Tạm Ứng'; }).reduce(function (sum, b) { return sum + Number(b.amount || 0); }, 0));
+      var excludeGiamTru = ['Phạt Quy Định', 'Phạt', 'Chi Phí Bảo Hành', 'Tạm Ứng', 'Thanh Toán Lương', 'Đã Trả'];
+      var giamTruKhac = Math.abs(userBPs.filter(function (b) { return excludeGiamTru.indexOf(b.type) === -1 && Number(b.amount) < 0; }).reduce(function (sum, b) { return sum + Number(b.amount || 0); }, 0));
+      var noThangTruoc = prevDebtMap[u] || 0;
+
+      var tongGiamTru = phatQuyDinh + phiCongDoan + chiPhiBaoHanh + tamUng + giamTruKhac + noThangTruoc;
+
+      var netCalculated = tongThuNhap - tongGiamTru;
+      var daTraNhanVien = Math.abs(userBPs.filter(function (b) { return b.type === 'Đã Trả' || b.type === 'Thanh Toán Lương'; }).reduce(function (sum, b) { return sum + Number(b.amount || 0); }, 0));
+      var conCanTra = netCalculated - daTraNhanVien;
+
+      var debt = 0;
+      if (netCalculated < 0) {
+        debt = Math.abs(netCalculated);
+      }
+
+      var detailedSnapshot = {
+        user: u,
+        month: monthStr,
+        hoursWorked: hoursWorked,
+        totalGateHours: totalGateHours,
+        daysWorked: daysWorked,
+        luongChinh: luongChinh,
+        luongLamThemGio: luongLamThemGio,
+        hoaHongSanXuat: hoaHongSanXuat,
+        tongPhuCap: tongPhuCap,
+        tongThuong: tongThuong,
+        hoaHongBanHang: hoaHongBanHang,
+        cacKhoanThuKhac: cacKhoanThuKhac,
+        tongThuNhap: tongThuNhap,
+        phatQuyDinh: phatQuyDinh,
+        phiCongDoan: phiCongDoan,
+        chiPhiBaoHanh: chiPhiBaoHanh,
+        tamUng: tamUng,
+        giamTruKhac: giamTruKhac,
+        noThangTruoc: noThangTruoc,
+        tongGiamTru: tongGiamTru,
+        totalSalary: netCalculated,
+        daTraNhanVien: daTraNhanVien,
+        conCanTra: conCanTra,
+        totalDebt: debt
+      };
+
+      var row = SCHEMA_ERP.Monthly_Snapshots.map(function (h) {
+        if (h === 'id') return 'SNAP_' + monthStr + '_' + u.replace(/\s+/g, '') + '_' + Date.now();
+        if (h === 'month') return monthStr;
+        if (h === 'user') return u;
+        if (h === 'totalSalary') return netCalculated;
+        if (h === 'totalHours') return totalGateHours;
+        if (h === 'totalAdvance') return tamUng;
+        if (h === 'totalDebt') return debt;
+        if (h === 'createdAt') return createdAt;
+        if (h === 'snapshotData') return JSON.stringify(detailedSnapshot);
+        return '';
+      });
+      newRows.push(row);
+    });
+
+    if (newRows.length > 0) {
+      var range = snapSheet.getRange(snapSheet.getLastRow() + 1, 1, newRows.length, SCHEMA_ERP.Monthly_Snapshots.length);
+      range.setValues(newRows);
+    }
+
+    return { success: true, message: 'Đã khóa sổ tháng ' + monthStr + ' thành công cho ' + newRows.length + ' nhân sự!' };
+  } finally {
+    lock.releaseLock();
   }
-
-  return { success: true, message: 'Đã khóa sổ tháng ' + monthStr + ' thành công!' };
 }
 
 
@@ -563,27 +917,34 @@ function getAppData(pin) {
       var bomSheet = ss.insertSheet('BOM_Config');
       bomSheet.appendRow(SCHEMA_ERP.BOM_Config);
       bomSheet.getRange("A1:E1").setFontWeight("bold").setBackground("#d4af37");
-      bomSheet.setFrozenRows(1);
     }
+    repairKPIProgressSheetHeaders();
+    
     // 1. TẠO MỐC THỜI GIAN CẮT DỮ LIỆU (MẶC ĐỊNH LÀ NGÀY 1 THÁNG TRƯỚC) CHO HR & ERP
     var today = new Date();
     var cutoffDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
     var cutoffStr = Utilities.formatDate(cutoffDate, Session.getScriptTimeZone(), "yyyy-MM-dd");
 
-    // 2. LỌC ĐƠN HÀNG: CHỈ LẤY CÁC ĐƠN ĐANG VẬN HÀNH VÀ CÁC ĐƠN ĐÃ ĐÓNG TỪ THÁNG TRƯỚC
+    // 2. LỌC ĐƠN HÀNG: NẠP TOÀN BỘ ĐƠN ĐANG VẬN HÀNH VÀ CÁC ĐƠN ĐÃ ĐÓNG
     var orderIds = {};
     var orders = readSheet('Orders', function (o) {
-      if (!o.status) return true;
-      var s = String(o.status).toUpperCase().trim();
+      if (!o.id || String(o.id).trim() === '0' || String(o.id).trim() === '') return false;
+      if (!o.orderCode || String(o.orderCode).trim() === '0' || String(o.orderCode).trim() === '') return false;
+      
+      // BỘ LỌC CHỐNG GHOST ORDERS (RCA v4 - Final):
+      // Ghost orders từ VLOOKUP/ARRAYFORMULA luôn có customer = số 0 (chuyển thành chuỗi "0")
+      // Đơn thật: customer = tên khách (VD: "a10bvu0p45") hoặc "" (rỗng, nếu chưa điền)
+      // Không bao giờ có khách hàng thật tên là "0" → điều kiện này là bulletproof
+      if (String(o.customer).trim() === '0') {
+        return false;
+      }
+      
+      var s = String(o.status || '').trim();
+      if (s === '0' || s === '') return true;
+      s = s.toUpperCase();
       var isTerminal = (s === 'ĐÃ BÀN GIAO' || s === 'ĐÃ GIAO' || s === 'HOÀN THÀNH' || s === 'ĐÃ HỦY' || s === 'ĐƠN HUỶ' || s === 'ĐỐI SOÁT THÀNH CÔNG' || s === 'HÀNG HOÀN' || s === 'CANCELLED');
       if (!isTerminal) return true; // Đang vận hành thì luôn lấy
-      // Nếu đã đóng, giữ lại các đơn từ tháng trước (theo cutoffDate) để có data cho bộ lọc Tháng Này/Tháng Trước
-      var dateToCheck = o.reconciledAt || o.createdAt || o.date;
-      if (dateToCheck) {
-        var d = new Date(dateToCheck);
-        if (!isNaN(d.getTime()) && d >= cutoffDate) return true;
-      }
-      return false;
+      return true; // Giữ toàn bộ đơn để bộ lọc phía Frontend xử lý linh hoạt theo tháng
     }, ss).map(function (o) {
       var acc = o.accessories;
       if (acc && typeof acc === 'string') {
@@ -815,7 +1176,14 @@ function applyDeltasToSheet(sheetName, items, formatter, ss) {
             if (isNaN(currentQtyVal)) currentQtyVal = 0;
             var diffVal = Number(item._diff);
             if (isNaN(diffVal)) diffVal = 0;
-            return currentQtyVal + diffVal;
+            var finalQty = currentQtyVal + diffVal;
+
+            var catColIdx = headers.indexOf('category');
+            var category = catColIdx >= 0 ? String(data[i][catColIdx]).trim().toUpperCase() : '';
+            if ((category.indexOf('BỂ KÍNH') > -1 || category.indexOf('LAYOUT') > -1) && finalQty < 0) {
+              finalQty = 0;
+            }
+            return finalQty;
           }
 
           if (sheetName === 'Accounts' && h === 'balance') {
@@ -831,7 +1199,17 @@ function applyDeltasToSheet(sheetName, items, formatter, ss) {
             var newVal = rowObject[h];
             if (typeof newVal === 'number' && isNaN(newVal)) return 0;
             if (newVal === 'NaN' || newVal === 'undefined') return '';
-            return newVal !== undefined ? newVal : '';
+
+            var finalVal = newVal !== undefined ? newVal : '';
+            if (sheetName === 'Products' && h === 'quantity') {
+              var catColIdx2 = headers.indexOf('category');
+              var category2 = catColIdx2 >= 0 ? String(data[i][catColIdx2]).trim().toUpperCase() : '';
+              if ((category2.indexOf('BỂ KÍNH') > -1 || category2.indexOf('LAYOUT') > -1)) {
+                var qtyNum = Number(finalVal);
+                if (qtyNum < 0) finalVal = 0;
+              }
+            }
+            return finalVal;
           }
 
           return data[i][colIdx];
@@ -903,6 +1281,7 @@ function formatProfitReport(r) { return { "id": r.id, "period": r.period || '', 
 function formatBonusPenalty(b) { return { "id": b.id, "user": b.user || '', "amount": b.amount || 0, "type": b.type || '', "note": b.note || '', "date": b.date || '', "orderCode": b.orderCode || '' }; }
 function formatKPIProg(k) { return { "id": k.id, "user": k.user || '', "kpiName": k.kpiName || '', "current": k.current || 0, "target": k.target || 0, "unit": k.unit || '', "lastUpdated": k.lastUpdated || '', "startTime": k.startTime || '', "endTime": k.endTime || '', "reward": k.reward || 0, "isClaimed": k.isClaimed || false }; }
 function formatReimbursement(r) { return { "id": r.id, "staffName": r.staffName || '', "reason": r.reason || '', "amount": r.amount || 0, "qrCodeUrl": r.qrCodeUrl || '', "status": r.status || '', "createdAt": r.createdAt || new Date().toISOString() }; }
+function formatBOMConfig(b) { return { "id": b.id, "layoutCode": b.layoutCode || '', "materialSku": b.materialSku || '', "defaultQty": Number(b.defaultQty) || 0, "unit": b.unit || '' }; }
 
 // HÀM LƯU PHÂN QUYỀN VÀ CẤU HÌNH NHÂN SỰ VỀ GOOGLE SHEETS
 function updateUserConfigSheet(configPayload) {
@@ -1105,8 +1484,30 @@ function syncDeltas(payload, pin) {
       var stockUpdates = {}; // { rowIndex: { qty: newQty, col: qtyColIndex + 1 } }
 
       // A. XỬ LÝ KHI BƠM ĐƠN / THÊM ĐƠN HÀNG MỚI
-      // Xây dựng map Lệnh Sản Xuất và Đơn Hàng hiện tại để phục vụ Cướp Lệnh (Auto-link)
+      // Xây dựng map Lệnh Sản Xuất và Đơn Hàng hiện tại để phục vụ Cướp Lệnh (Auto-link) và Quét Tồn Kho
+      var existingOrderMap = {};
+      var activeOrders = {};
+      var oSheetToRead = ss.getSheetByName('Orders');
+      if (oSheetToRead) {
+        var oVals = oSheetToRead.getDataRange().getValues();
+        var oHead = oVals[0];
+        var oIdCol = oHead.indexOf('id');
+        var oChanCol = oHead.indexOf('channel');
+        var oStatusCol = oHead.indexOf('status');
+        for (var oi = 1; oi < oVals.length; oi++) {
+          var oId = String(oVals[oi][oIdCol]);
+          existingOrderMap[oId] = { id: oId, channel: oVals[oi][oChanCol] };
+          
+          var oStat = String(oVals[oi][oStatusCol]).toUpperCase().trim();
+          var isTerminal = (oStat === 'ĐÃ BÀN GIAO' || oStat === 'ĐÃ GIAO' || oStat === 'HOÀN THÀNH' || oStat === 'ĐÃ HỦY' || oStat === 'ĐƠN HUỶ' || oStat === 'HỦY' || oStat === 'HUỶ' || oStat === 'ĐỐI SOÁT THÀNH CÔNG' || oStat === 'HÀNG HOÀN' || oStat === 'CANCELLED');
+          if (!isTerminal) {
+            activeOrders[oId] = true;
+          }
+        }
+      }
+
       var existingProdMap = {};
+      var pendingAllocations = {};
       if (prodSheet) {
         var pVals = prodSheet.getDataRange().getValues();
         var pHead = pVals[0];
@@ -1114,27 +1515,34 @@ function syncDeltas(payload, pin) {
         var pOrderIdCol = pHead.indexOf('orderId');
         var pNameCol = pHead.indexOf('name');
         var pStatusCol = pHead.indexOf('status');
+        var pFulCol = pHead.indexOf('fulfilledFromStock');
+        var pQcCol = pHead.indexOf('qc_status');
+        
         for (var pi = 1; pi < pVals.length; pi++) {
-          existingProdMap[String(pVals[pi][pIdCol])] = {
-            id: pVals[pi][pIdCol],
-            orderId: pVals[pi][pOrderIdCol],
-            name: pVals[pi][pNameCol],
+          var pId = String(pVals[pi][pIdCol]);
+          var oId = String(pVals[pi][pOrderIdCol]);
+          var pName = String(pVals[pi][pNameCol]);
+          existingProdMap[pId] = {
+            id: pId,
+            orderId: oId,
+            name: pName,
             status: pVals[pi][pStatusCol]
           };
-        }
-      }
-      var existingOrderMap = {};
-      var oSheetToRead = ss.getSheetByName('Orders');
-      if (oSheetToRead) {
-        var oVals = oSheetToRead.getDataRange().getValues();
-        var oHead = oVals[0];
-        var oIdCol = oHead.indexOf('id');
-        var oChanCol = oHead.indexOf('channel');
-        for (var oi = 1; oi < oVals.length; oi++) {
-          existingOrderMap[String(oVals[oi][oIdCol])] = {
-            id: oVals[oi][oIdCol],
-            channel: oVals[oi][oChanCol]
-          };
+
+          if (activeOrders[oId]) {
+            var fStock = String(pVals[pi][pFulCol]).toUpperCase() === 'TRUE';
+            var pStat = String(pVals[pi][pStatusCol]).toUpperCase();
+            var qc = String(pVals[pi][pQcCol]).toUpperCase();
+            var isKcsPassed = qc.indexOf('ĐÃ DUYỆT') > -1 || qc === 'ĐẠT';
+            var isDone = pStat === 'DONE' || pStat === 'ĐÃ XONG' || pStat === 'HOÀN KHO ĐẠT';
+            var isReady = isDone && isKcsPassed;
+            
+            if (fStock || isReady) {
+              var nName = normalizeProdName(pName);
+              if (!pendingAllocations[nName]) pendingAllocations[nName] = 0;
+              pendingAllocations[nName]++;
+            }
+          }
         }
       }
 
@@ -1167,8 +1575,11 @@ function syncDeltas(payload, pin) {
               var isTargetItem = (String(pItem.type || '').toUpperCase() === 'BỂ KÍNH' || (isLayoutItem && !isCover));
 
               if (isTargetItem) {
-                // Tồn kho hiện tại (chỉ dùng để tính toán luồng, KHÔNG trừ trực tiếp vào kho)
-                var currentQty = stockUpdates[pInfo.rowIndex] !== undefined ? stockUpdates[pInfo.rowIndex].qty : pInfo.qty;
+                // Tồn kho hiện tại (đã trừ đi lượng hàng đang bị giam bởi các đơn chưa bàn giao)
+                var lockedQty = pendingAllocations[normalizeProdName(pItem.name)] || 0;
+                var realQty = pInfo.qty - lockedQty;
+                if (realQty < 0) realQty = 0;
+                var currentQty = stockUpdates[pInfo.rowIndex] !== undefined ? stockUpdates[pInfo.rowIndex].qty : realQty;
                 var minStock = Number(pInfo.minStock) || 0;
 
                 // 1. CƯỚP LỆNH TỒN (Chỉ dành cho Layout)
@@ -1192,8 +1603,8 @@ function syncDeltas(payload, pin) {
 
                 if (hijackedProdId) {
                   // Cướp thành công, cập nhật lệnh tồn thành lệnh khách
-                  payload.productions = payload.productions || [];
-                  payload.productions.push({
+                  payload.prodItems = payload.prodItems || [];
+                  payload.prodItems.push({
                     id: hijackedProdId,
                     orderId: orderObj.id, // Gắn sang đơn mới
                     note: 'Được chuyển từ lệnh Tồn kho sang đơn khách'
@@ -1222,10 +1633,26 @@ function syncDeltas(payload, pin) {
                   pItem._skipInsert = true;
 
                 } else {
-                  // 2. KHÔNG CƯỚP ĐƯỢC -> XỬ LÝ THEO TỒN KHO
-                  if (currentQty <= 0) {
-                    // KHO = 0: Tạo lệnh sản xuất bình thường
+                  // 2. KHÔNG CƯỚP ĐƯỢC -> XỬ LÝ THEO TỒN KHO HOẶC ĐƠN XUẤT KHẨU
+                  var pItemChannel = '';
+                  if (payload.orders) {
+                    for (var oIdx = 0; oIdx < payload.orders.length; oIdx++) {
+                      if (String(payload.orders[oIdx].id) === String(pItem.orderId)) {
+                        pItemChannel = String(payload.orders[oIdx].channel || '').toUpperCase();
+                        break;
+                      }
+                    }
+                  }
+                  var isExportOrder = pItemChannel.indexOf('SHOPEE SG') !== -1 || pItemChannel.indexOf('SHOPEE MA') !== -1 || 
+                                      pItemChannel.indexOf('SHOPEE MY') !== -1 || pItemChannel.indexOf('SHOPEE TH') !== -1 || 
+                                      pItemChannel.indexOf('SHOPEE PH') !== -1 || pItemChannel.indexOf('SHOPEE TW') !== -1 || 
+                                      pItemChannel.indexOf('XUẤT KHẨU') !== -1 || pItemChannel.indexOf('EXPORT') !== -1 ||
+                                      pItemChannel.indexOf('QUỐC TẾ') !== -1;
+
+                  if (currentQty <= 0 || isExportOrder) {
+                    // KHO = 0 HOẶC LÀ ĐƠN XUẤT KHẨU: Bắt buộc tạo lệnh sản xuất mới
                     pItem.fulfilledFromStock = false;
+                    if (isExportOrder) pItem.note = (pItem.note || '') + ' (Đơn Xuất Khẩu - Ép buộc tạo lệnh SX mới)';
                     if (payload.orders) {
                       for (var oIdx = 0; oIdx < payload.orders.length; oIdx++) {
                         if (String(payload.orders[oIdx].id) === String(pItem.orderId)) {
@@ -1244,8 +1671,10 @@ function syncDeltas(payload, pin) {
                       }
                     }
                   } else {
-                    // KHO > 0: Chuyển SẴN SÀNG ĐÓNG GÓI, KHÔNG TRỪ KHO BÂY GIỜ, không tạo lệnh sx cho đơn này
-                    pItem._skipInsert = true;
+                    // KHO > 0 & KHÔNG PHẢI ĐƠN XUẤT KHẨU: Lấy từ tồn kho
+                    pItem.fulfilledFromStock = true;
+                    pItem.status = 'Hoàn Kho Đạt';
+                    pItem.note = 'Lấy từ tồn kho có sẵn';
 
                     if (payload.orders) {
                       for (var oIdx = 0; oIdx < payload.orders.length; oIdx++) {
@@ -1338,14 +1767,20 @@ function syncDeltas(payload, pin) {
         payload.prodItems.forEach(function (newP) {
           var pInfo = getProductInfoByName(ss, newP.name);
           if (pInfo && pInfo.isEligible) {
-            var isNewDone = String(newP.status || '').toUpperCase() === 'DONE';
-            if (isNewDone) {
-              // Tìm trạng thái cũ từ sheet để chỉ xử lý khi trạng thái chuyển từ Chưa Xong sang Xong
+            var isNewDone = String(newP.status || '').toUpperCase() === 'DONE' || String(newP.status || '').toUpperCase() === 'ĐÃ XONG';
+            var qcStr = String(newP.qc_status || '').toUpperCase();
+            var isNewQC = qcStr.indexOf('ĐÃ DUYỆT') > -1 || qcStr === 'ĐẠT';
+            
+            var isReady = isNewDone && isNewQC;
+            
+            if (isReady) {
+              // Tìm trạng thái cũ từ sheet để chỉ xử lý khi trạng thái chuyển từ Chưa Ready sang Ready
               var oldP = null;
               for (var rIdx = 1; rIdx < pData.length; rIdx++) {
                 if (String(pData[rIdx][pIdCol]) === String(newP.id)) {
                   oldP = {
                     status: String(pData[rIdx][pStatusCol] || ''),
+                    qc_status: String(pData[rIdx][pHeaders.indexOf('qc_status')] || ''),
                     orderId: String(pData[rIdx][pOrderIdCol] || ''),
                     fulfilledFromStock: String(pData[rIdx][pFulfilledCol]).toUpperCase() === 'TRUE'
                   };
@@ -1353,9 +1788,13 @@ function syncDeltas(payload, pin) {
                 }
               }
 
-              var wasAlreadyDone = oldP && oldP.status.toUpperCase() === 'DONE';
+              var oldIsDone = oldP && (oldP.status.toUpperCase() === 'DONE' || oldP.status.toUpperCase() === 'ĐÃ XONG');
+              var oldQcStr = oldP ? oldP.qc_status.toUpperCase() : '';
+              var oldIsQC = oldQcStr.indexOf('ĐÃ DUYỆT') > -1 || oldQcStr === 'ĐẠT';
+              var wasAlreadyReady = oldIsDone && oldIsQC;
+              
               var isFulfilledFromStock = (newP.fulfilledFromStock === true || String(newP.fulfilledFromStock).toUpperCase() === 'TRUE') || (oldP && oldP.fulfilledFromStock);
-              if (!wasAlreadyDone && !isFulfilledFromStock) {
+              if (!wasAlreadyReady && !isFulfilledFromStock) {
                 // 1. Tự động tạo phiếu nhập kho
                 var cost = pInfo.costPrice;
                 var logId = 'IE_AUTO_IMPORT_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
@@ -1372,8 +1811,9 @@ function syncDeltas(payload, pin) {
                 });
 
                 // Tăng số lượng tồn kho lên 1
-                if (pProductsSheet) {
-                  pProductsSheet.getRange(pInfo.rowIndex, pInfo.qtyColIndex + 1).setValue(pInfo.qty + 1);
+                var tempProdSheet = ss.getSheetByName('Products');
+                if (tempProdSheet) {
+                  tempProdSheet.getRange(pInfo.rowIndex, pInfo.qtyColIndex + 1).setValue(pInfo.qty + 1);
                 }
 
                 // 2. Chuyển trạng thái đơn sang Sẵn sàng đóng gói
@@ -1455,6 +1895,9 @@ function syncDeltas(payload, pin) {
       var oldOrdersData = ordersSheetObj ? ordersSheetObj.getDataRange().getValues() : [];
       var oIdColIdx = oldOrdersData.length > 0 ? oldOrdersData[0].indexOf('id') : -1;
       var oStatusColIdx = oldOrdersData.length > 0 ? oldOrdersData[0].indexOf('status') : -1;
+      var oCodeColIdx = oldOrdersData.length > 0 ? oldOrdersData[0].indexOf('orderCode') : -1;
+      var oAccColIdx = oldOrdersData.length > 0 ? oldOrdersData[0].indexOf('accessories') : -1;
+      var oChanColIdx = oldOrdersData.length > 0 ? oldOrdersData[0].indexOf('channel') : -1;
 
       var ordersToHandover = [];
       payload.orders.forEach(function (incomingOrder) {
@@ -1464,6 +1907,9 @@ function syncDeltas(payload, pin) {
           for (var r = 1; r < oldOrdersData.length; r++) {
             if (String(oldOrdersData[r][oIdColIdx]) === String(incomingOrder.id)) {
               oldStatus = String(oldOrdersData[r][oStatusColIdx]).toUpperCase().trim();
+              if (!incomingOrder.orderCode && oCodeColIdx !== -1) incomingOrder.orderCode = oldOrdersData[r][oCodeColIdx];
+              if (!incomingOrder.accessories && oAccColIdx !== -1) incomingOrder.accessories = oldOrdersData[r][oAccColIdx];
+              if (!incomingOrder.channel && oChanColIdx !== -1) incomingOrder.channel = oldOrdersData[r][oChanColIdx];
               break;
             }
           }
@@ -1600,6 +2046,7 @@ function syncDeltas(payload, pin) {
     if (payload.ProfitReports && payload.ProfitReports.length > 0) applyDeltasToSheet('ProfitReports', payload.ProfitReports, formatProfitReport, ss);
     if (payload.BonusPenalty && payload.BonusPenalty.length > 0) applyDeltasToSheet('BonusPenalty', payload.BonusPenalty, formatBonusPenalty, ss);
     if (payload.KPI_Progress && payload.KPI_Progress.length > 0) applyDeltasToSheet('KPI_Progress', payload.KPI_Progress, formatKPIProg, ss);
+    if (payload.BOM_Config && payload.BOM_Config.length > 0) applyDeltasToSheet('BOM_Config', payload.BOM_Config, formatBOMConfig, ss);
     // XỬ LÝ RIÊNG TÀI CHÍNH CỘNG TÁC VIÊN (CÁCH LY VỚI SỔ QUỸ CHÍNH)
     if (payload.ctvTransactions && payload.ctvTransactions.length > 0) {
       let financeSheet = ss.getSheetByName('CTV_Finance');
@@ -1649,7 +2096,8 @@ function syncDeltas(payload, pin) {
         'documents': 'Documents',
         'Trainings': 'Trainings',
         'trainings': 'Trainings',
-        'Models3D': 'Models3D'
+        'Models3D': 'Models3D',
+        'BOM_Config': 'BOM_Config'
       };
       Object.keys(payload.deletes).forEach(function (clientKey) {
         var sName = keyMapping[clientKey] || clientKey;
@@ -1657,12 +2105,6 @@ function syncDeltas(payload, pin) {
           deleteDeltas(sName, payload.deletes[clientKey], ss);
         }
       });
-    }
-    // 7. Tự động bốc kho tồn cho đơn hàng chờ
-    try {
-      // autoAllocateStockFromServer(ss); // Đã bị vô hiệu hóa, sử dụng logic mới ở Bơm Đơn
-    } catch (allocErr) {
-      console.error("Lỗi khi chạy tự động bốc kho:", allocErr);
     }
     SpreadsheetApp.flush();
     props.setProperty('RF_LAST_UPDATED', new Date().getTime().toString());
@@ -1968,70 +2410,15 @@ function processOCR(base64Data) {
   }
 }
 
-function recalculateOldKPI() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const kpiSheet = ss.getSheetByName('Config_KPI');
-  const prodSheet = ss.getSheetByName('Production');
-  if (!kpiSheet || !prodSheet) return 0;
 
-  const kpiValues = kpiSheet.getDataRange().getValues();
-  const kpiHeaders = kpiValues[0];
-  const kpiConfig = kpiValues.slice(1).map(row => {
-    const obj = {};
-    kpiHeaders.forEach((h, i) => obj[h] = row[i]);
-    return obj;
-  });
-
-  const ordersSheet = ss.getSheetByName('Orders');
-  const ordersValues = ordersSheet ? ordersSheet.getDataRange().getValues() : [];
-  const ordersHeaders = ordersValues.length > 0 ? ordersValues[0] : [];
-  const orderChannelMap = {};
-  if (ordersValues.length > 1) {
-    const idIdx = ordersHeaders.indexOf('id');
-    const channelIdx = ordersHeaders.indexOf('channel');
-    const codeIdx = ordersHeaders.indexOf('orderCode');
-    if (idIdx > -1) {
-      for (let k = 1; k < ordersValues.length; k++) {
-        const ch = channelIdx > -1 ? String(ordersValues[k][channelIdx]).trim() : '';
-        const code = codeIdx > -1 ? String(ordersValues[k][codeIdx]).trim() : '';
-        orderChannelMap[String(ordersValues[k][idIdx]).trim()] = ch + ' ' + code;
-      }
-    }
-  }
-
-  const prodValues = prodSheet.getDataRange().getValues();
-  const prodHeaders = prodValues[0];
-  let updatedCount = 0;
-
-  for (let i = 1; i < prodValues.length; i++) {
-    const row = prodValues[i];
-    const prodItem = {};
-    prodHeaders.forEach((h, idx) => prodItem[h] = row[idx]);
-    if (prodItem.fulfilledFromStock === true || prodItem.fulfilledFromStock === 'TRUE') continue;
-    let hasChange = false;
-
-    if (prodItem.p1_status === 'Done' && prodItem.p1_name) {
-      const channel = orderChannelMap[String(prodItem.orderId).trim()] || '';
-      const result = getSopAndRewardBackend(prodItem, prodItem.p1_name, kpiConfig, channel);
-      const currentReward = Number(prodItem.p1_reward_vnd) || 0;
-      if (result.reward !== currentReward) {
-        const col = prodHeaders.indexOf('p1_reward_vnd') + 1;
-        if (col > 0) { prodSheet.getRange(i + 1, col).setValue(result.reward); hasChange = true; }
-      }
-    }
-
-    if (prodItem.p2_status === 'Done' && prodItem.p2_name) {
-      const channel = orderChannelMap[String(prodItem.orderId).trim()] || '';
-      const result = getSopAndRewardBackend(prodItem, prodItem.p2_name, kpiConfig, channel);
-      const currentReward = Number(prodItem.p2_reward_vnd) || 0;
-      if (result.reward !== currentReward) {
-        const col = prodHeaders.indexOf('p2_reward_vnd') + 1;
-        if (col > 0) { prodSheet.getRange(i + 1, col).setValue(result.reward); hasChange = true; }
-      }
-    }
-    if (hasChange) updatedCount++;
-  }
-  return updatedCount;
+function isExportChannel(channelStr) {
+  if (!channelStr) return false;
+  var raw = String(channelStr).trim().toUpperCase();
+  if (/\b(XUẤT KHẨU|EXPORT|QUỐC TẾ|INTERNATIONAL|GLOBAL|MALAYSIA|THAILAND|PHILIPPINES|SINGAPORE|TAIWAN)\b/i.test(raw)) return true;
+  if (/\bSHOPEE\s*[-_]?\s*(TH|MA|MY|SG|TW|PH|THAILAND|MALAYSIA|PHILIPPINES|SINGAPORE|TAIWAN)\b/i.test(raw)) return true;
+  if (/\b(SHOPEE_TH|SHOPEE_MA|SHOPEE_MY|SHOPEE_SG|SHOPEE_TW|SHOPEE_PH|SHOPEE_MALAYSIA|SHOPEE_THAILAND)\b/i.test(raw)) return true;
+  if (/\b(MY|TH|PH|SG|TW|MA)\b/i.test(raw) && raw.indexOf('SHOPEE') !== -1) return true;
+  return false;
 }
 
 function getSopAndRewardBackend(item, phaseName, kpiConfig, channel = '') {
@@ -2059,7 +2446,7 @@ function getSopAndRewardBackend(item, phaseName, kpiConfig, channel = '') {
     } else if (phase.includes('đóng gói') || phase.includes('pack')) {
       reward = 2000;
     }
-    if (/SG|MY|TH|PH|MA|TW|Quốc Tế|Xuất Khẩu/i.test(channel)) reward *= 3;
+  if (isExportChannel(channel)) reward *= 3;
     return { time, reward };
   }
 
@@ -2106,84 +2493,16 @@ function getSopAndRewardBackend(item, phaseName, kpiConfig, channel = '') {
     reward = Number(matchedRow['Tiền Khâu 2']) || 0;
   }
   else if (phase.includes('đóng gói') || phase.includes('pack')) {
-    reward = Number(matchedRow['Thưởng Đóng Gói']) || 0;
+    reward = Number(matchedRow['Thưởng Đóng Gói']) || Number(matchedRow['Tiền Đóng Gói']) || 0;
   }
 
-  if (/SG|MY|TH|PH|MA|TW|Quốc Tế|Xuất Khẩu/i.test(channel)) {
+  if (isExportChannel(channel)) {
     reward *= 3;
   }
 
   return { time: 30, reward };
 }
 
-function recalculateOldPackingReward() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const kpiSheet = ss.getSheetByName('Config_KPI');
-  const packSheet = ss.getSheetByName('Packings');
-  const prodSheet = ss.getSheetByName('Production');
-  if (!kpiSheet || !packSheet || !prodSheet) return 0;
-
-  const kpiValues = kpiSheet.getDataRange().getValues();
-  const kpiHeaders = kpiValues[0];
-  const kpiConfig = kpiValues.slice(1).map(row => {
-    const obj = {}; kpiHeaders.forEach((h, i) => obj[h] = row[i]); return obj;
-  });
-
-  const prodValues = prodSheet.getDataRange().getValues();
-  const prodHeaders = prodValues[0];
-  const orderItemMap = {};
-
-  for (let i = 1; i < prodValues.length; i++) {
-    const p = {}; prodHeaders.forEach((h, idx) => p[h] = prodValues[i][idx]);
-    if (p.orderId && p.name) {
-      orderItemMap[String(p.orderId).trim()] = { name: p.name, type: p.type || '' };
-    }
-  }
-
-  const packValues = packSheet.getDataRange().getValues();
-  const packHeaders = packValues[0];
-  const ordersSheet = ss.getSheetByName('Orders');
-  const ordersValues = ordersSheet ? ordersSheet.getDataRange().getValues() : [];
-  const ordersHeaders = ordersValues.length > 0 ? ordersValues[0] : [];
-  const orderChannelMap = {};
-  if (ordersValues.length > 1) {
-    const idIdx = ordersHeaders.indexOf('id');
-    const channelIdx = ordersHeaders.indexOf('channel');
-    const codeIdx = ordersHeaders.indexOf('orderCode');
-    if (idIdx > -1) {
-      for (let k = 1; k < ordersValues.length; k++) {
-        const ch = channelIdx > -1 ? String(ordersValues[k][channelIdx]).trim() : '';
-        const code = codeIdx > -1 ? String(ordersValues[k][codeIdx]).trim() : '';
-        orderChannelMap[String(ordersValues[k][idIdx]).trim()] = ch + ' ' + code;
-      }
-    }
-  }
-
-  let updatedCount = 0;
-
-  for (let i = 1; i < packValues.length; i++) {
-    const row = packValues[i];
-    const pack = {}; packHeaders.forEach((h, idx) => pack[h] = row[idx]);
-    if (pack.status !== 'Done' || !pack.orderId) continue;
-
-    const packOrderId = String(pack.orderId).trim();
-    const itemObj = orderItemMap[packOrderId] || null; if (!itemObj || !itemObj.name) continue;
-    const channel = orderChannelMap[packOrderId] || '';
-
-    let newReward = 0;
-    if (String(pack.id).includes('PK_WH_')) {
-      newReward = 10000;
-    } else {
-      newReward = getPackingReward(itemObj, kpiConfig, channel);
-    }
-
-    if (Number(pack.reward_vnd) !== newReward) {
-      const col = packHeaders.indexOf('reward_vnd') + 1;
-      if (col > 0) { packSheet.getRange(i + 1, col).setValue(newReward); updatedCount++; }
-    }
-  }
-  return updatedCount;
-}
 
 function getPackingReward(itemObj, kpiConfig, channel = '') {
   const mult = /SG|MY|TH|PH|MA|TW|Quốc Tế|Xuất Khẩu/i.test(channel) ? 3 : 1;
@@ -2230,16 +2549,6 @@ function getPackingReward(itemObj, kpiConfig, channel = '') {
   return reward * mult;
 }
 
-function getAppDataDelta(lastClientSync, pin) {
-  var props = PropertiesService.getScriptProperties();
-  var lastServerUpdate = props.getProperty('RF_LAST_UPDATED');
-  if (!lastServerUpdate || !lastClientSync || parseInt(lastServerUpdate) > parseInt(lastClientSync)) {
-    var data = getAppData(pin); data.hasChanges = true; return data;
-  }
-  return { hasChanges: false, serverTime: new Date().getTime() };
-}
-
-function saveAppData(payload) { return syncDeltas(payload); }
 
 
 
@@ -2628,30 +2937,61 @@ function processSPXReturnEmail(message, ss) {
 
     if (codeIndex === -1 || statusIndex === -1) return;
 
+    var idIndex = headers.indexOf('id');
+    var isCarriedIndex = headers.indexOf('isCarriedToWH');
+
+    var packingsSheet = ss.getSheetByName('Packings');
+    var packingsData = packingsSheet ? packingsSheet.getDataRange().getValues() : [];
+    var pHeaders = packingsData.length > 0 ? packingsData[0] : [];
+    var pOrderIdIdx = pHeaders.indexOf('orderId');
+    var pStatusIdx = pHeaders.indexOf('status');
+
     var updatedRows = [];
     var matchedCodes = [];
 
     for (var j = 1; j < ordersData.length; j++) {
       var currentStatus = String(ordersData[j][statusIndex] || '');
-      if (currentStatus !== 'Hàng Hoàn' && currentStatus !== 'Đã Huỷ') {
+      var currentStatusUpper = currentStatus.toUpperCase().trim();
+
+      if (currentStatusUpper !== 'HÀNG HOÀN' && currentStatusUpper !== 'ĐÃ HỦY' && currentStatusUpper !== 'ĐƠN HUỶ' && currentStatusUpper !== 'ĐƠN HỦY') {
         var orderCode = String(ordersData[j][codeIndex] || '');
+        var orderId = idIndex !== -1 ? String(ordersData[j][idIndex] || '') : orderCode;
 
         for (var k = 0; k < spxMatches.length; k++) {
           var spxCode = spxMatches[k];
           if (orderCode.indexOf(spxCode) !== -1) {
-            updatedRows.push(j + 1);
-            matchedCodes.push(spxCode);
-            break; // Tìm thấy mã này trong order thì ngừng vòng lặp k
+            // Kiểm tra xem đơn đã được đóng gói hoặc giao đi chưa
+            var isPacked = false;
+            if (pOrderIdIdx !== -1 && packingsData.length > 1) {
+              for (var p = 1; p < packingsData.length; p++) {
+                if (String(packingsData[p][pOrderIdIdx]).trim() === orderId.trim()) {
+                  var pSt = pStatusIdx !== -1 ? String(packingsData[p][pStatusIdx] || '').toUpperCase() : '';
+                  if (pSt === 'DONE' || pSt === 'HOÀN THÀNH' || pSt === 'ĐÃ XONG') {
+                    isPacked = true;
+                    break;
+                  }
+                }
+              }
+            }
+
+            var isHandedOver = ['ĐÃ BÀN GIAO', 'CHỜ BÀN GIAO', 'ĐÃ ĐÓNG GÓI'].indexOf(currentStatusUpper) > -1 || (isCarriedIndex !== -1 && (ordersData[j][isCarriedIndex] === true || String(ordersData[j][isCarriedIndex]).toUpperCase() === 'TRUE'));
+
+            var targetStatus = (isPacked || isHandedOver) ? 'Hàng Hoàn' : 'Đơn Huỷ';
+
+            updatedRows.push({ rowNum: j + 1, targetStatus: targetStatus, orderId: orderId });
+            matchedCodes.push(spxCode + '➔' + targetStatus);
+            break;
           }
         }
       }
     }
 
     if (updatedRows.length > 0) {
-      updatedRows.forEach(function (rowNum) {
-        ordersSheet.getRange(rowNum, statusIndex + 1).setValue('Hàng Hoàn');
+      updatedRows.forEach(function (item) {
+        ordersSheet.getRange(item.rowNum, statusIndex + 1).setValue(item.targetStatus);
+        processCascadeCancelOrder(item.orderId, item.targetStatus === 'Hàng Hoàn');
       });
-      console.log("Đã chuyển " + updatedRows.length + " đơn sang Hàng Hoàn từ SPX Email: " + matchedCodes.join(', '));
+      console.log("Đã tự động phân loại " + updatedRows.length + " đơn từ SPX Email: " + matchedCodes.join(', '));
     }
 
   } catch (e) {
@@ -2702,239 +3042,6 @@ function updateAccountBalance(ss, accountId, amount, type) {
   }
 }
 
-function autoAllocateStockFromServer(ss) {
-  try {
-    var activeSs = ss || SpreadsheetApp.getActiveSpreadsheet();
-
-    // 1. Đọc danh sách Hàng hóa (Products)
-    var prodSheet = activeSs.getSheetByName('Products');
-    if (!prodSheet) return;
-    var prodData = prodSheet.getDataRange().getValues();
-    var prodHeaders = prodData[0];
-    var pIdCol = prodHeaders.indexOf('id');
-    var pNameCol = prodHeaders.indexOf('name');
-    var pQtyCol = prodHeaders.indexOf('quantity');
-    var pCostCol = prodHeaders.indexOf('costPrice');
-    if (pNameCol === -1 || pQtyCol === -1) return;
-
-    // Tạo map hàng hóa khả dụng (chỉ lấy hàng hóa có quantity > 0)
-    var stockMap = {};
-    for (var i = 1; i < prodData.length; i++) {
-      var pName = String(prodData[i][pNameCol]).trim();
-      var pQty = Number(prodData[i][pQtyCol]) || 0;
-      var pCost = pCostCol !== -1 ? (Number(prodData[i][pCostCol]) || 0) : 0;
-      if (pName && pQty > 0) {
-        stockMap[pName] = { rowIndex: i + 1, qty: pQty, id: prodData[i][pIdCol], originalQty: pQty, costPrice: pCost };
-      }
-    }
-
-    // Nếu không có hàng hóa nào có sẵn trong kho thì dừng luôn
-    if (Object.keys(stockMap).length === 0) return;
-
-    // 2. Đọc danh sách Lệnh sản xuất (Production)
-    var productionSheet = activeSs.getSheetByName('Production');
-    if (!productionSheet) return;
-    var rawProdItems = readSheet('Production', null, activeSs);
-
-    // 3. Đọc danh sách Đơn hàng (Orders)
-    var ordersSheet = activeSs.getSheetByName('Orders');
-    if (!ordersSheet) return;
-    var rawOrders = readSheet('Orders', null, activeSs);
-
-    // Map đơn hàng bằng ID để tra cứu nhanh
-    var ordersMap = {};
-    rawOrders.forEach(function (o) {
-      ordersMap[o.id] = o;
-    });
-
-    // TÍNH TOÁN HÀNG ĐÃ ĐƯỢC GIỮ CHỖ (RESERVED STOCK)
-    // Hàng được giữ chỗ là hàng đã sản xuất xong, chưa bàn giao, và KHÔNG PHẢI fulfilledFromStock
-    var reservedQtyMap = {};
-    rawProdItems.forEach(function (p) {
-      if (!p.id || !p.orderId || !p.name) return;
-      var pStatus = String(p.status || '').toUpperCase().trim();
-      var isFulfilled = p.fulfilledFromStock === true || String(p.fulfilledFromStock).toUpperCase() === 'TRUE';
-
-      if (pStatus === 'DONE' && !isFulfilled) {
-        var o = ordersMap[p.orderId];
-        if (o) {
-          var oStatus = String(o.status || '').toUpperCase().trim();
-          var oChannel = String(o.channel || '').trim();
-          if (oStatus !== 'ĐÃ BÀN GIAO' && oStatus !== 'HÀNG HOÀN' && oStatus !== 'ĐƠN HUỶ' && oStatus !== 'ĐƠN HỦY' && oStatus !== 'HỦY' && oStatus !== 'HUỶ') {
-            if (oChannel !== 'Sản Xuất Tồn' && oChannel !== 'Sản Xuất Bù Kho') {
-              var pName = String(p.name).trim();
-              reservedQtyMap[pName] = (reservedQtyMap[pName] || 0) + 1;
-            }
-          }
-        }
-      }
-    });
-
-    // Cập nhật lại số lượng khả dụng thực tế sau khi trừ đi hàng đã giữ chỗ
-    Object.keys(stockMap).forEach(function (pName) {
-      var reserved = reservedQtyMap[pName] || 0;
-      stockMap[pName].qty = Math.max(0, stockMap[pName].qty - reserved);
-      stockMap[pName].originalQty = stockMap[pName].qty; // Reset originalQty để so sánh
-    });
-
-    // 4. Lọc các lệnh sản xuất thỏa mãn điều kiện:
-    var eligiblePendingProds = [];
-    rawProdItems.forEach(function (p) {
-      if (!p.id || !p.orderId || !p.name) return;
-      var pName = String(p.name).trim();
-      if (!stockMap[pName]) return; // Không có trong kho
-
-      var pStatus = String(p.status || '').toUpperCase().trim();
-      if (pStatus === 'DONE' || pStatus === 'ĐÃ XONG' || pStatus === 'ĐÃ HUỶ' || pStatus === 'HỦY' || pStatus === 'HỦY/VỠ' || pStatus === 'HOÀN KHO ĐẠT') return;
-
-      var isFulfilled = p.fulfilledFromStock === true || String(p.fulfilledFromStock).toUpperCase() === 'TRUE';
-      if (isFulfilled) return; // Đã được bốc rồi
-
-      var o = ordersMap[p.orderId];
-      if (!o) return; // Không tìm thấy đơn hàng
-
-      var oStatus = String(o.status || '').toUpperCase().trim();
-      if (oStatus === 'ĐÃ GIAO' || oStatus === 'HOÀN THÀNH' || oStatus === 'ĐÃ HỦY' || oStatus === 'HỦY' || oStatus === 'ĐƠN HUỶ' || oStatus === 'HÀNG HOÀN') return;
-
-      var oChannel = String(o.channel || '').trim();
-      if (oChannel === 'Sản Xuất Tồn' || oChannel === 'Sản Xuất Bù Kho') return;
-
-      // Lấy thời gian tạo đơn để sắp xếp FIFO (ưu tiên đơn cũ hơn)
-      var createdAt = o.createdAt || o.date || '0';
-      eligiblePendingProds.push({ prodItem: p, order: o, createdAt: createdAt });
-    });
-
-    // Sắp xếp các lệnh sản xuất theo thứ tự FIFO (cũ nhất trước)
-    eligiblePendingProds.sort(function (a, b) {
-      return String(a.createdAt).localeCompare(String(b.createdAt));
-    });
-
-    // Nếu không có lệnh nào chờ bốc, dừng luôn
-    if (eligiblePendingProds.length === 0) return;
-
-    var productionData = productionSheet.getDataRange().getValues();
-    var productionHeaders = productionData[0];
-    var prodIdColIndex = productionHeaders.indexOf('id');
-    var prodFulfilledColIndex = productionHeaders.indexOf('fulfilledFromStock');
-    var prodNoteColIndex = productionHeaders.indexOf('note');
-    if (prodIdColIndex === -1 || prodFulfilledColIndex === -1) return;
-
-    var orderUpdates = {}; // Để theo dõi các đơn hàng cần chuyển sang "Sẵn sàng đóng gói"
-    var allocatedCount = 0;
-    var prodModified = false;
-
-    // 5. Tiến hành phân bổ hàng từ kho cho các lệnh sản xuất
-    eligiblePendingProds.forEach(function (itemInfo) {
-      var pItem = itemInfo.prodItem;
-      var pName = String(pItem.name).trim();
-      var stockInfo = stockMap[pName];
-      if (!stockInfo || stockInfo.qty <= 0) return; // Hết hàng
-
-      // Bốc 1 sản phẩm
-      stockInfo.qty--;
-      allocatedCount++;
-
-      // Tìm dòng của lệnh sản xuất trong Sheet Production để cập nhật trực tiếp
-      for (var rowIdx = 1; rowIdx < productionData.length; rowIdx++) {
-        if (String(productionData[rowIdx][prodIdColIndex]) === String(pItem.id)) {
-          productionData[rowIdx][prodFulfilledColIndex] = true;
-          prodModified = true;
-
-          // Cập nhật cục bộ để lát kiểm tra trạng thái đơn hàng
-          pItem.fulfilledFromStock = true;
-          break;
-        }
-      }
-
-      orderUpdates[itemInfo.order.id] = itemInfo.order;
-    });
-
-    if (prodModified) {
-      productionSheet.getRange(1, 1, productionData.length, productionHeaders.length).setValues(productionData);
-    }
-
-    // 6. Cập nhật lại số lượng tồn kho trong Sheet Products
-    var productsModified = false;
-    var ieLogRows = [];
-    Object.keys(stockMap).forEach(function (pName) {
-      var info = stockMap[pName];
-      if (info.qty !== info.originalQty) {
-        prodData[info.rowIndex - 1][pQtyCol] = info.qty;
-        productsModified = true;
-
-        // Ghi log xuất kho tự động bốc sang đơn hàng
-        var cost = info.costPrice || 0;
-        var logId = 'IE_AUTO_ALLOC_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
-        var ieLogSheet = activeSs.getSheetByName('ImportExport');
-        if (ieLogSheet) {
-          var itemsDataStr = JSON.stringify([{ name: pName, qty: info.originalQty - info.qty, price: cost }]);
-          var ieRow = SCHEMA_ERP.ImportExport.map(function (h) {
-            if (h === 'id') return logId;
-            if (h === 'type') return 'Xuất';
-            if (h === 'target') return 'Tự động bốc kho';
-            if (h === 'totalAmount') return (info.originalQty - info.qty) * cost;
-            if (h === 'date') return Utilities.formatDate(new Date(), "Asia/Ho_Chi_Minh", "yyyy-MM-dd HH:mm:ss");
-            if (h === 'note') return 'Tự động bốc kho tồn cho đơn hàng chờ';
-            if (h === 'itemsData') return itemsDataStr;
-            return '';
-          });
-          ieLogRows.push(ieRow);
-        }
-      }
-    });
-
-    if (productsModified) {
-      prodSheet.getRange(1, 1, prodData.length, prodHeaders.length).setValues(prodData);
-    }
-    if (ieLogRows.length > 0) {
-      var ieLogSheet = activeSs.getSheetByName('ImportExport');
-      if (ieLogSheet) {
-        ieLogSheet.getRange(ieLogSheet.getLastRow() + 1, 1, ieLogRows.length, ieLogRows[0].length).setValues(ieLogRows);
-      }
-    }
-
-    // 7. Kiểm tra và chuyển trạng thái đơn hàng sang "Sẵn sàng đóng gói"
-    var ordersData = ordersSheet.getDataRange().getValues();
-    var oHeaders = ordersData[0];
-    var oIdColIdx = oHeaders.indexOf('id');
-    var oStatusColIdx = oHeaders.indexOf('status');
-    var ordersModified = false;
-
-    if (oIdColIdx !== -1 && oStatusColIdx !== -1) {
-      Object.keys(orderUpdates).forEach(function (oId) {
-        var order = orderUpdates[oId];
-
-        var orderProds = rawProdItems.filter(function (p) {
-          return String(p.orderId) === String(oId);
-        });
-
-        var isAllDoneOrFulfilled = orderProds.every(function (p) {
-          var pStatus = String(p.status || '').toUpperCase().trim();
-          var isDone = pStatus === 'DONE' || pStatus === 'ĐÃ XONG' || pStatus === 'HỦY/VỠ' || pStatus === 'HOÀN KHO ĐẠT';
-          var isFulfilled = p.fulfilledFromStock === true || String(p.fulfilledFromStock).toUpperCase() === 'TRUE';
-          return isDone || isFulfilled;
-        });
-
-        if (isAllDoneOrFulfilled && orderProds.length > 0) {
-          for (var r = 1; r < ordersData.length; r++) {
-            if (String(ordersData[r][oIdColIdx]) === String(oId)) {
-              ordersData[r][oStatusColIdx] = 'Sẵn sàng đóng gói';
-              ordersModified = true;
-              break;
-            }
-          }
-        }
-      });
-      if (ordersModified) {
-        ordersSheet.getRange(1, 1, ordersData.length, oHeaders.length).setValues(ordersData);
-      }
-    }
-
-    console.log("Đã tự động phân bổ " + allocatedCount + " sản phẩm từ kho tồn sang các đơn hàng đang chờ.");
-  } catch (e) {
-    console.error("Lỗi trong autoAllocateStockFromServer:", e);
-  }
-}
 
 function normalizeProdName(str) {
   return String(str || '').toLowerCase().replace(/[-\s]+/g, ' ').trim();
@@ -3479,24 +3586,6 @@ function setupEmailScannerTrigger() {
     .create();
 }
 
-function testBIDV() {
-  var threads = GmailApp.search('from:bidvsmartbanking@bidv.com.vn', 0, 1);
-  if (threads.length === 0) {
-    Logger.log('Không tìm thấy email BIDV nào.');
-    return;
-  }
-  var msg = threads[0].getMessages()[0];
-  var body = msg.getPlainBody();
-  Logger.log("=== NỘI DUNG EMAIL ===");
-  Logger.log(body);
-
-  var sourceMatch = body.match(/Tài khoản nguồn[^\d]*(\d+)/i) || body.match(/Debit account[^\d]*(\d+)/i);
-  var amountMatch = body.match(/Số tiền giao dịch[^\d]*([\d,]+)/i) || body.match(/Transaction amount[^\d]*([\d,]+)/i);
-
-  Logger.log("=== KẾT QUẢ QUÉT ===");
-  Logger.log("Tài khoản nguồn: " + (sourceMatch ? sourceMatch[1] : "Không tìm thấy"));
-  Logger.log("Số tiền: " + (amountMatch ? amountMatch[1] : "Không tìm thấy"));
-}
 
 // =========================================================================
 // HÀM TỰ ĐỘNG PHẠT NHÂN SỰ ĐÓNG GÓI CHẬM
@@ -3569,53 +3658,13 @@ function dailyCheckPackingsAndPenalize() {
         Logger.log("Tìm thấy đơn SẴN SÀNG ĐÓNG GÓI: " + ordersData[i][orderCodeColIdx] + " | Kênh: " + channelUpper);
       }
 
+      // BẢO VỆ LUỒNG ĐÓNG GÓI: Không tự động chuyển đơn sang 'Chờ Bàn Giao' khi chưa có ảnh đóng gói thực tế.
+      // Đơn hàng bắt buộc phải giữ ở 'Sẵn Sàng Đóng Gói' để nhân sự đóng gói chụp ảnh và bấm đóng đơn.
+      /* 
       if (statusUpper === 'SẴN SÀNG ĐÓNG GÓI' && channelUpper === 'SHOPEE VN') {
-        countMatchedOrders++;
-        var orderId = ordersData[i][idColIdx];
-        var orderCode = ordersData[i][orderCodeColIdx];
-
-        // Cập nhật trạng thái thành 'Chờ Bàn Giao'
-        ordersData[i][statusColIdx] = 'Chờ Bàn Giao';
-        ordersModified = true;
-
-        // Phạt mỗi nhân sự đóng gói 50.000đ
-        for (var k = 0; k < packingStaffs.length; k++) {
-          var penaltyId = Utilities.getUuid ? Utilities.getUuid() : new Date().getTime() + "_" + k;
-          var newPenalty = [penaltyId, packingStaffs[k], PENALTY_AMOUNT, 'Phạt Quy Định', 'Lỗi không hoàn thành thao tác đóng gói đơn ' + orderCode, todayStr, orderCode];
-          var rowObj = SCHEMA_ERP.BonusPenalty.map(function (col) {
-            var idx = ['id', 'user', 'amount', 'type', 'note', 'date', 'orderCode'].indexOf(col);
-            return idx !== -1 ? newPenalty[idx] : '';
-          });
-          penaltySheet.appendRow(rowObj);
-        }
-
-        // Cập nhật hoặc tạo mới bản ghi Packings
-        var foundPacking = false;
-        for (var j = 1; j < packingsData.length; j++) {
-          if (String(packingsData[j][pOrderIdCol]) === String(orderId)) {
-            packingsData[j][pPhotoCol] = WARNING_IMAGE_URL;
-            packingsData[j][pPhotoBeforeCol] = WARNING_IMAGE_URL;
-            foundPacking = true;
-            packingsSheet.getRange(j + 1, pPhotoCol + 1).setValue(WARNING_IMAGE_URL);
-            packingsSheet.getRange(j + 1, pPhotoBeforeCol + 1).setValue(WARNING_IMAGE_URL);
-            break;
-          }
-        }
-
-        if (!foundPacking) {
-          var newPackingId = Utilities.getUuid ? Utilities.getUuid() : "P_" + new Date().getTime();
-          var newPacking = SCHEMA.Packings.map(function (col) {
-            if (col === 'id') return newPackingId;
-            if (col === 'orderId') return orderId;
-            if (col === 'status') return 'Done';
-            if (col === 'photo') return WARNING_IMAGE_URL;
-            if (col === 'photoBefore') return WARNING_IMAGE_URL;
-            return '';
-          });
-          packingsSheet.appendRow(newPacking);
-          packingsData.push(newPacking);
-        }
+        // Tự động chuyển đơn & phạt đã bị vô hiệu hóa để tránh đứt gãy luồng đóng gói
       }
+      */
     }
 
     Logger.log("Tổng số đơn đã phạt và cập nhật: " + countMatchedOrders);
@@ -3655,6 +3704,8 @@ function scheduleNextPenaltyCheck() {
     .at(nextRun)
     .create();
 }
+
+
 
 // =========================================================================
 // CRON: 23:30 DAILY PENALTY FOR INCOMPLETE TASKS (PRODUCTION)
@@ -3777,173 +3828,7 @@ function uploadQCImage(base64Data, fileName) {
   }
 }
 
-function duplicateProdItem(originalId) {
-  try {
-    console.log("Bắt đầu nhân bản Item ID: " + originalId);
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getSheetByName('Production');
-    var data = sheet.getDataRange().getValues();
-    var headers = data[0];
-    var idIdx = headers.indexOf('id');
 
-    var targetRow = -1;
-    var rowData = null;
-    for (var i = 1; i < data.length; i++) {
-      if (data[i][idIdx] == originalId) {
-        targetRow = i;
-        rowData = data[i];
-        break;
-      }
-    }
-
-    if (!rowData) throw new Error("Không tìm thấy lệnh gốc để nhân đôi.");
-
-    var newRow = rowData.slice();
-    var newId = Utilities.getUuid();
-    newRow[idIdx] = newId;
-
-    var clearFields = ['qc_status', 'qc_front_photo', 'qc_side_photo', 'qc_note', 'p1_user', 'p1_start', 'p1_endTime', 'p1_photo', 'p1_reward_vnd', 'p2_user', 'p2_start', 'p2_endTime', 'p2_photo', 'p2_reward_vnd'];
-    clearFields.forEach(function (f) {
-      var idx = headers.indexOf(f);
-      if (idx > -1) newRow[idx] = '';
-    });
-
-    var pendingFields = ['status', 'p1_status', 'p2_status'];
-    pendingFields.forEach(function (f) {
-      var idx = headers.indexOf(f);
-      if (idx > -1) newRow[idx] = 'Pending';
-    });
-
-    var noteIdx = headers.indexOf('note');
-    if (noteIdx > -1) newRow[noteIdx] = '[BẢN SAO] ' + (newRow[noteIdx] || '');
-
-    sheet.appendRow(newRow);
-
-    return {
-      success: true,
-      message: "Đã nhân bản và reset QC thành công",
-      newId: newId
-    };
-
-  } catch (error) {
-    console.error("Lỗi tại duplicateProdItem: " + error.message);
-    return {
-      success: false,
-      error: error.message,
-      message: "Có lỗi xảy ra khi nhân bản. Vui lòng kiểm tra quyền xác thực (AUTH)."
-    };
-  }
-}
-
-// =========================================================================
-// HÀM SỬA LỖI VÀ CHUYỂN GIAO DỊCH SHOPEE VỀ ĐÚNG VÍ
-// =========================================================================
-function fixShopeeAcc() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var accSheet = ss.getSheetByName('Accounts');
-  var txSheet = ss.getSheetByName('Transactions');
-
-  if (!accSheet || !txSheet) return "Lỗi: Không tìm thấy sheet Accounts hoặc Transactions";
-
-  var accData = accSheet.getDataRange().getValues();
-  var accHeaders = accData[0];
-  var idCol = accHeaders.indexOf('id');
-  var nameCol = accHeaders.indexOf('accountName');
-  var balCol = accHeaders.indexOf('balance');
-
-  // 1. Tìm hoặc tạo Ví Shopee
-  var shopeeAccId = null;
-  for (var i = 1; i < accData.length; i++) {
-    if (String(accData[i][nameCol]).toLowerCase().includes('ví shopee')) {
-      shopeeAccId = String(accData[i][idCol]);
-      break;
-    }
-  }
-
-  if (!shopeeAccId) {
-    shopeeAccId = 'ACC_SHOPEE_FIX_' + Date.now();
-    var newRow = accHeaders.map(function (h) {
-      if (h === 'id') return shopeeAccId;
-      if (h === 'accountName') return 'Ví Shopee - 0945445497';
-      if (h === 'balance') return 0;
-      return '';
-    });
-    accSheet.appendRow(newRow);
-  }
-
-  // 2. Tìm Tài khoản đầu tư bị gắn nhầm (có chứa chuỗi 0048094544)
-  var wrongAccId = null;
-  for (var i = 1; i < accData.length; i++) {
-    if (String(accData[i][nameCol]).includes('0048094544')) {
-      wrongAccId = String(accData[i][idCol]);
-      break;
-    }
-  }
-
-  if (!wrongAccId) return "Không tìm thấy Tài Khoản Đầu Tư bị gán nhầm.";
-
-  // 3. Chuyển giao dịch Shopee từ tài khoản sai sang Ví Shopee
-  var txData = txSheet.getDataRange().getValues();
-  var tHeaders = txData[0];
-  var tIdCol = tHeaders.indexOf('id');
-  var tFromCol = tHeaders.indexOf('fromAccount');
-  var tToCol = tHeaders.indexOf('toAccount');
-  var tNoteCol = tHeaders.indexOf('note');
-  var tTitleCol = tHeaders.indexOf('title');
-  var tTypeCol = tHeaders.indexOf('type');
-  var tAmtCol = tHeaders.indexOf('amount');
-
-  var moved = 0;
-  for (var i = 1; i < txData.length; i++) {
-    var note = String(txData[i][tNoteCol]);
-    var title = String(txData[i][tTitleCol]);
-    if (note.includes('Doanh thu gộp') || note.includes('Tự động bóc tách') || note.includes('Phí ship Shopee') || title.includes('Shopee')) {
-      if (txData[i][tFromCol] === wrongAccId) {
-        txSheet.getRange(i + 1, tFromCol + 1).setValue(shopeeAccId);
-        txData[i][tFromCol] = shopeeAccId;
-        moved++;
-      }
-      if (txData[i][tToCol] === wrongAccId) {
-        txSheet.getRange(i + 1, tToCol + 1).setValue(shopeeAccId);
-        txData[i][tToCol] = shopeeAccId;
-        moved++;
-      }
-    }
-  }
-
-  // 4. Tính toán lại số dư cho toàn bộ các quỹ dựa trên các giao dịch
-  var balances = {};
-  for (var i = 1; i < txData.length; i++) {
-    var from = txData[i][tFromCol];
-    var to = txData[i][tToCol];
-    var type = txData[i][tTypeCol];
-    var amt = Number(txData[i][tAmtCol]) || 0;
-
-    if (!balances[from]) balances[from] = 0;
-    if (!balances[to]) balances[to] = 0;
-
-    if (type === 'Thu') {
-      if (to) balances[to] += amt;
-    } else if (type === 'Chi') {
-      if (from) balances[from] -= amt;
-    } else if (type === 'Chuyển') {
-      if (from) balances[from] -= amt;
-      if (to) balances[to] += amt;
-    }
-  }
-
-  // Cập nhật lại số dư vào sheet Accounts
-  accData = accSheet.getDataRange().getValues();
-  for (var i = 1; i < accData.length; i++) {
-    var accId = String(accData[i][idCol]);
-    if (balances[accId] !== undefined) {
-      accSheet.getRange(i + 1, balCol + 1).setValue(balances[accId]);
-    }
-  }
-
-  SpreadsheetApp.flush();
-  return "Đã chuyển " + (moved / 2) + " giao dịch Shopee về đúng Ví Shopee và cập nhật lại số dư các quỹ.";
-}
 
 // =========================================================================
 // CHỐT SỔ CUỐI THÁNG & LƯU TRỮ DỮ LIỆU LẠNH
@@ -4149,6 +4034,8 @@ function processReconciliationBatch(matchedOrders, targetAccountId) {
 
         var amt = Number(item.amount) || 0;
         if (amt > 0 && targetAccountId) {
+          var dateColIdx = headers.indexOf('createdAt') !== -1 ? headers.indexOf('createdAt') : headers.indexOf('date');
+          var orderTxDate = (dateColIdx !== -1 && oData[foundRowIndex][dateColIdx]) ? String(oData[foundRowIndex][dateColIdx]) : new Date().toISOString();
           financeTransactions.push([
             Utilities.getUuid(),
             'Thu',
@@ -4157,7 +4044,7 @@ function processReconciliationBatch(matchedOrders, targetAccountId) {
             '',
             targetAccountId,
             'Đối soát: ' + searchCode,
-            new Date().toISOString(),
+            orderTxDate,
             'Đối soát tự động (Batch)',
             true
           ]);
@@ -4506,6 +4393,7 @@ function autoCalculateGlassTankBOM() {
     const PRICE_PER_M2_GLASS = 180000;
     const PRICE_PER_M_SILICON = 5000;
     const LABOR_COST_PER_TANK = 15000; // Tiền công mài/dán khoán
+    const GLUE_COST_PER_TANK = 25000; // Tiền công keo tự động 25.000đ
 
     let updatedCount = 0;
 
@@ -4528,8 +4416,8 @@ function autoCalculateGlassTankBOM() {
           let glassArea = ((L * W) + 2 * (L * H) + 2 * (W * H)) * 1.1; // +10% hao hụt
           let siliconLength = (L * 2) + (W * 2) + (H * 4);
 
-          // Tính Giá vốn tuyệt đối (COGS)
-          let exactCOGS = Math.round((glassArea * PRICE_PER_M2_GLASS) + (siliconLength * PRICE_PER_M_SILICON) + LABOR_COST_PER_TANK);
+          // Tính Giá vốn tuyệt đối (COGS) bao gồm công keo 25.000đ
+          let exactCOGS = Math.round((glassArea * PRICE_PER_M2_GLASS) + (siliconLength * PRICE_PER_M_SILICON) + LABOR_COST_PER_TANK + GLUE_COST_PER_TANK);
 
           // 1. Cập nhật giá vốn vào bảng Products
           prodSheet.getRange(i + 1, costIdx + 1).setValue(exactCOGS);
@@ -4538,8 +4426,8 @@ function autoCalculateGlassTankBOM() {
           let bomId_Glass = "BOM_" + sku + "_GLASS";
           let bomId_Silicon = "BOM_" + sku + "_SILICON";
 
-          bomSheet.appendRow([bomId_Glass, sku, "KINH4LI", glassArea.toFixed(3), "m2"]);
-          bomSheet.appendRow([bomId_Silicon, sku, "SILICON", siliconLength.toFixed(2), "met"]);
+          bomSheet.appendRow([bomId_Glass, sku, "KINH4LI", Math.round(glassArea * 1000) / 1000, "m2"]);
+          bomSheet.appendRow([bomId_Silicon, sku, "SILICON", Math.round(siliconLength * 100) / 100, "met"]);
 
           updatedCount++;
         }
@@ -4591,7 +4479,11 @@ function getRealSupplierDebt(supplierName, fullIEData, fullTxData) {
 // HÀM CHỐNG TRỪ KÉP KHO HÀNG (SAFE DEDUCT INVENTORY ON HANDOVER)
 // =========================================================================
 function safeDeductInventoryOnHandover(ordersToHandover, ss) {
-  if (!ordersToHandover || ordersToHandover.length === 0) return;
+  if (!ordersToHandover) return;
+  if (!Array.isArray(ordersToHandover)) {
+    ordersToHandover = [ordersToHandover];
+  }
+  if (ordersToHandover.length === 0) return;
 
   var prodSheet = ss.getSheetByName('Production');
   var prodData = prodSheet ? readSheet('Production', null, ss) : [];
@@ -4605,12 +4497,15 @@ function safeDeductInventoryOnHandover(ordersToHandover, ss) {
   var pQtyCol = pHeaders.indexOf('quantity');
   var pCostCol = pHeaders.indexOf('costPrice');
 
-  var ieLogRows = [];
   var productsModified = false;
+  var totalExportValue = 0;
+  var allItemsToExport = [];
+  var orderCodes = [];
 
   ordersToHandover.forEach(function (order) {
-    var totalExportValue = 0;
-    var allItemsToExport = [];
+    if (!order) return;
+    var oCode = (order.orderCode || '').split(' | ')[0] || (order.id ? String(order.id).substring(0, 5) : '');
+    if (oCode) orderCodes.push(oCode);
 
     // 1. Phụ kiện đóng gói (luôn trừ kho)
     var accs = [];
@@ -4619,137 +4514,118 @@ function safeDeductInventoryOnHandover(ordersToHandover, ss) {
     } else {
       accs = order.accessories || [];
     }
-    accs.forEach(function (a) {
-      var qty = Number(a.quantity) || 1;
-      allItemsToExport.push({ name: a.name, qty: qty });
+    if (Array.isArray(accs)) {
+      accs.forEach(function (a) {
+        if (!a) return;
+        var aName = typeof a === 'string' ? a : (a.name || a.Name || '');
+        var qty = typeof a === 'object' ? (Number(a.quantity || a.qty) || 1) : 1;
+        if (aName) allItemsToExport.push({ name: aName, qty: qty });
+      });
+    }
+
+    // 2. Sản phẩm từ Production (Bể Kính / Layout): Trừ kho cho TẤT CẢ (dù lấy từ kho hay mới sản xuất)
+    var orderProds = prodData.filter(function (p) { return p && String(p.orderId) === String(order.id); });
+    orderProds.forEach(function (rp) {
+      if (rp && rp.name) allItemsToExport.push({ name: rp.name, qty: 1 });
+    });
+  });
+
+  // Gom nhóm và trừ kho cho TẤT CẢ các đơn
+  if (allItemsToExport.length > 0) {
+    var groupedItems = {};
+    allItemsToExport.forEach(function (item) {
+      var n = String(item.name).trim();
+      if (!groupedItems[n]) groupedItems[n] = { name: n, qty: 0, price: 0 };
+      groupedItems[n].qty += item.qty;
     });
 
-    // 2. Sản phẩm từ Production: CHỈ trừ kho khi fulfilledFromStock === false
-    var orderProds = prodData.filter(function (p) { return String(p.orderId) === String(order.id); });
-    orderProds.forEach(function (rp) {
-      var isFulfilledFromStock = String(rp.fulfilledFromStock).toUpperCase() === 'TRUE' || rp.fulfilledFromStock === true;
-      if (!isFulfilledFromStock) {
-        allItemsToExport.push({ name: rp.name, qty: 1 });
+    Object.keys(groupedItems).forEach(function (pName) {
+      var gItem = groupedItems[pName];
+      for (var i = 1; i < productsData.length; i++) {
+        if (String(productsData[i][pNameCol]).trim().toLowerCase() === pName.toLowerCase()) {
+          var cost = Number(productsData[i][pCostCol]) || 0;
+          gItem.price = cost;
+          var currentQty = Number(productsData[i][pQtyCol]) || 0;
+          var newQty = currentQty - gItem.qty;
+          var catColIdx = pHeaders.indexOf('category');
+          var category = catColIdx >= 0 ? String(productsData[i][catColIdx]).trim().toUpperCase() : '';
+
+          if ((category.indexOf('BỂ KÍNH') > -1 || category.indexOf('LAYOUT') > -1) && newQty < 0) {
+            newQty = 0;
+          }
+          productsData[i][pQtyCol] = newQty;
+          totalExportValue += gItem.qty * cost;
+          productsModified = true;
+          break;
+        }
       }
     });
 
-    // Gom nhóm và trừ kho
-    if (allItemsToExport.length > 0) {
-      var groupedItems = {};
-      allItemsToExport.forEach(function (item) {
-        var n = String(item.name).trim();
-        if (!groupedItems[n]) groupedItems[n] = { name: n, qty: 0, price: 0 };
-        groupedItems[n].qty += item.qty;
-      });
+    // Ghi note gom danh sách đơn
+    var codesStr = orderCodes.join(', ');
+    if (codesStr.length > 80) codesStr = codesStr.substring(0, 75) + '...';
 
-      Object.keys(groupedItems).forEach(function (pName) {
-        var gItem = groupedItems[pName];
-        for (var i = 1; i < productsData.length; i++) {
-          if (String(productsData[i][pNameCol]).trim().toLowerCase() === pName.toLowerCase()) {
-            var cost = Number(productsData[i][pCostCol]) || 0;
-            gItem.price = cost;
-            productsData[i][pQtyCol] = (Number(productsData[i][pQtyCol]) || 0) - gItem.qty;
-            totalExportValue += gItem.qty * cost;
-            productsModified = true;
-            break;
-          }
-        }
-      });
+    var logId = 'IE_SAFE_OUT_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+    var targetName = ordersToHandover.length > 1 ? 'Bàn Giao Khách Hàng (Hàng Loạt)' : 'Bàn Giao Khách Hàng';
 
-      var orderCode = (order.orderCode || '').split(' | ')[0] || order.id.substring(0, 5);
-      var logId = 'IE_SAFE_OUT_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
-      var ieRow = SCHEMA_ERP.ImportExport.map(function (h) {
-        if (h === 'id') return logId;
-        if (h === 'type') return 'Xuất';
-        if (h === 'target') return 'Bàn Giao Khách Hàng';
-        if (h === 'totalAmount') return totalExportValue;
-        if (h === 'date') return Utilities.formatDate(new Date(), "Asia/Ho_Chi_Minh", "yyyy-MM-dd HH:mm:ss");
-        if (h === 'note') return 'Xuất kho an toàn cho đơn bàn giao: ' + orderCode;
-        if (h === 'itemsData') return JSON.stringify(Object.values(groupedItems));
-        return '';
-      });
-      ieLogRows.push(ieRow);
+    var ieRow = SCHEMA_ERP.ImportExport.map(function (h) {
+      if (h === 'id') return logId;
+      if (h === 'type') return 'Xuất';
+      if (h === 'target') return targetName;
+      if (h === 'totalAmount') return totalExportValue;
+      if (h === 'date') return Utilities.formatDate(new Date(), "Asia/Ho_Chi_Minh", "yyyy-MM-dd HH:mm:ss");
+      if (h === 'note') return 'Xuất kho an toàn cho đơn: ' + codesStr;
+      if (h === 'itemsData') return JSON.stringify(Object.values(groupedItems));
+      return '';
+    });
+
+    var ieSheet = ss.getSheetByName('ImportExport');
+    if (ieSheet) {
+      ieSheet.getRange(ieSheet.getLastRow() + 1, 1, 1, ieRow.length).setValues([ieRow]);
     }
-  });
+  }
 
   if (productsModified && productsSheet) {
     productsSheet.getRange(1, 1, productsData.length, pHeaders.length).setValues(productsData);
   }
-  if (ieLogRows.length > 0) {
-    var ieSheet = ss.getSheetByName('ImportExport');
-    if (ieSheet) {
-      ieSheet.getRange(ieSheet.getLastRow() + 1, 1, ieLogRows.length, ieLogRows[0].length).setValues(ieLogRows);
+}
+
+function repairKPIProgressSheetHeaders() {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName('KPI_Progress');
+    if (!sheet) return;
+    
+    var expectedSchema = ['id', 'user', 'kpiName', 'current', 'target', 'unit', 'lastUpdated', 'startTime', 'endTime', 'reward', 'isClaimed', 'penalty', 'guide'];
+    
+    // Ghi chuẩn tiêu đề hàng 1 theo đúng Schema 23 bảng
+    sheet.getRange(1, 1, 1, expectedSchema.length).setValues([expectedSchema]);
+    sheet.getRange(1, 1, 1, expectedSchema.length).setFontWeight("bold");
+    
+    var lastRow = sheet.getLastRow();
+    if (lastRow >= 2) {
+      var lastCol = Math.max(sheet.getLastColumn(), 13);
+      var range = sheet.getRange(2, 1, lastRow - 1, lastCol);
+      var values = range.getValues();
+      var isChanged = false;
+      
+      for (var i = 0; i < values.length; i++) {
+        var row = values[i];
+        if (row[13] !== undefined && String(row[13]).trim() !== '' && (!row[12] || String(row[12]).trim() === '' || String(row[12]) === '0')) {
+          row[12] = row[13];
+          row[13] = '';
+          isChanged = true;
+        }
+      }
+      if (isChanged) {
+        range.setValues(values);
+      }
     }
+  } catch (err) {
+    Logger.log('Err repairKPIProgressSheetHeaders: ' + err.toString());
   }
 }
-/**
- * TỰ ĐỘNG CHUẨN HÓA GIÁ VỐN KÍNH THEO QUY CHUẨN MỚI CỦA SẾP
- * - Kính 4li: 180.000đ/m2
- * - Kính 3li: 165.000đ/m2
- * - Mài (Chỉ áp dụng cho Kính 4li MVT): Mài 1 cạnh trên (dài 1.8m) = 45.000đ/tấm (1.8m * 25.000đ)
- */
-function autoFixAllGlassCosts() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName("Products");
-  if (!sheet) return;
 
-  const data = sheet.getDataRange().getValues();
-  const headers = data[0];
-  const nameIdx = headers.indexOf("name");
-  const costIdx = headers.indexOf("costPrice");
-
-  let fixedCount = 0;
-
-  for (let i = 1; i < data.length; i++) {
-    let name = String(data[i][nameIdx] || "").toLowerCase();
-
-    // 1. NHÓM KÍNH 4LI MVT (CÓ MÀI 1 CẠNH 1.8M)
-    if (name.includes("kính 4li") && name.includes("mvt")) {
-      // Tìm kích thước 25cm, 20cm, 18cm...
-      let match = name.match(/(\d+)\s*cm/);
-      if (match) {
-        let width = parseFloat(match[1]); // Ví dụ: 25
-        let length = 180; // Dài tiêu chuẩn
-
-        let areaM2 = (width * length) / 10000;
-        let glassCost = areaM2 * 180000;
-        let grindCost = 1.8 * 25000; // Mài 1 cạnh dài 1.8m
-
-        sheet.getRange(i + 1, costIdx + 1).setValue(Math.round(glassCost + grindCost));
-        fixedCount++;
-      }
-    }
-
-    // 2. NHÓM KÍNH 4LI CẮT ĐÁY (KHÔNG MÀI)
-    else if (name.includes("kính 4li") && name.includes("cắt đáy")) {
-      let match = name.match(/(\d+)\s*x\s*(\d+)/);
-      if (match) {
-        let width = parseFloat(match[1]);
-        let length = parseFloat(match[2]);
-        let areaM2 = (width * length) / 10000;
-
-        sheet.getRange(i + 1, costIdx + 1).setValue(Math.round(areaM2 * 180000));
-        fixedCount++;
-      }
-    }
-
-    // 3. NHÓM KÍNH 3LI TERRA (KHÔNG MÀI)
-    else if (name.includes("kính 3li")) {
-      let match = name.match(/(\d+)\s*x\s*(\d+)/);
-      if (match) {
-        let width = parseFloat(match[1]);
-        let length = parseFloat(match[2]);
-        let areaM2 = (width * length) / 10000;
-
-        sheet.getRange(i + 1, costIdx + 1).setValue(Math.round(areaM2 * 165000));
-        fixedCount++;
-      }
-    }
-  }
-
-  SpreadsheetApp.flush();
-  return { status: "success", message: `Đã chuẩn hóa giá vốn chuẩn cho ${fixedCount} mã kính.` };
-}
 /**
  * =========================================================================
  * API NHẬN DỮ LIỆU TỪ MODAL: TẠO KPI THỦ CÔNG (Vào bảng KPI_Progress)
@@ -4813,20 +4689,25 @@ function api_insertManualTask(payload) {
     var startTime = payload.startTime ? new Date(payload.startTime) : new Date(now.getFullYear(), now.getMonth(), 1);
     var endTime = payload.endTime ? new Date(payload.endTime) : new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
-    // ['id', 'user', 'kpiName', 'current', 'target', 'unit', 'lastUpdated', 'startTime', 'endTime', 'reward', 'isClaimed', 'penalty']
+    var targetVal = Number(payload.target);
+    if (isNaN(targetVal) || targetVal <= 0) targetVal = 1;
+    var unitVal = payload.unit ? String(payload.unit).trim() : 'Xu';
+
+    // ['id', 'user', 'kpiName', 'current', 'target', 'unit', 'lastUpdated', 'startTime', 'endTime', 'reward', 'isClaimed', 'penalty', 'guide']
     var newRow = [
       'KPI_XU_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
       payload.user,
       payload.title || 'Nhiệm vụ Xu',
       0, // current
-      1, // target
-      'Xu', // Nhận diện Xu
+      targetVal, // target (chỉ tiêu mục tiêu)
+      unitVal, // unit (Bộ, Lần, SP, VNĐ...)
       now,
       startTime,
       endTime,
       Number(payload.amount) || 0, // Số Xu
       false, // Chưa claim
-      Number(payload.penalty) || 0 // Tiền phạt
+      Number(payload.penalty) || 0, // Tiền phạt
+      payload.note || '' // Mô tả / Hướng dẫn
     ];
 
     sheet.appendRow(newRow);
@@ -5024,13 +4905,6 @@ function processSmartGlassTankDispatch(ss, newProdItem) {
   }
 }
 
-function getOperationsHealth() {
-  try {
-    return { success: true, data: { sla: [], bottleneck: [], inventory: [] } };
-  } catch (err) {
-    return { success: false, message: err.toString() };
-  }
-}
 
 /**
  * CẬP NHẬT TIẾN ĐỘ KPI TỰ ĐỘNG DỰA TRÊN DỮ LIỆU ĐƠN HÀNG
@@ -5346,51 +5220,1386 @@ function updateKpiProgressData_Duong() {
   }
 }
 
+
+// =========================================================================
+// MODULE: RCA RESOLVER & AUTO-BOM / SLA / LOAD BALANCING AUTOMATION
+// Tác giả: AI Operations Leader - Rich Fish Aquarium
+// =========================================================================
+
+
+
 /**
- * HOTFIX (07-08-2026): Hàm chạy thủ công để sửa các lỗi sai giờ do UTC và chạy lại cập nhật KPI ngay lập tức
- * Hướng dẫn: Chọn hàm này trên Google Apps Script và bấm nút [Chạy / Run]
+ * 2. SLA AUTOMATION (processSlaAutomation)
+ * Tự động chuyển Orders.status sang 'Sẵn sàng đóng gói' khi KCS Passed và đủ phụ kiện
  */
-function HOTFIX_TIMEZONES_AND_RUN_KPI() {
+function processSlaAutomation(orderId) {
+  var lock = LockService.getScriptLock();
   try {
-    const lock = LockService.getScriptLock();
-    if (!lock.tryLock(15000)) return Logger.log('Hệ thống đang bận, vui lòng thử lại sau.');
-    
+    if (!lock.tryLock(15000)) return { success: false, message: 'Hệ thống bận.' };
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var oSheet = ss.getSheetByName('Orders');
+    var prodSheet = ss.getSheetByName('Products');
+    if (!oSheet || !prodSheet) return { success: false, message: 'Không tìm thấy sheet Orders hoặc Products!' };
+
+    var oData = oSheet.getDataRange().getValues();
+    var oHead = oData[0];
+    var idCol = oHead.indexOf('id');
+    var stCol = oHead.indexOf('status');
+    var accCol = oHead.indexOf('accessories');
+
+    var targetOrderRow = -1;
+    var targetOrder = null;
+    for (var i = 1; i < oData.length; i++) {
+      if (String(oData[i][idCol]) === String(orderId)) {
+        targetOrderRow = i + 1;
+        targetOrder = {
+          id: oData[i][idCol],
+          status: oData[i][stCol],
+          accessories: oData[i][accCol]
+        };
+        break;
+      }
+    }
+
+    if (!targetOrder) return { success: false, message: 'Không tìm thấy orderId: ' + orderId };
+
+    // Giải mã phụ kiện an toàn
+    var accList = [];
     try {
-      const ss = SpreadsheetApp.getActiveSpreadsheet();
-      const ieSheet = ss.getSheetByName('ImportExport');
-      const data = ieSheet.getDataRange().getValues();
-      const dateIdx = data[0].indexOf('date');
+      if (typeof targetOrder.accessories === 'string' && targetOrder.accessories.trim() !== '') {
+        accList = JSON.parse(targetOrder.accessories);
+      }
+    } catch (e) {
+      accList = [];
+    }
+
+    // Đọc tồn kho các phụ kiện từ Products
+    var prData = prodSheet.getDataRange().getValues();
+    var prHead = prData[0];
+    var prNameCol = prHead.indexOf('name');
+    var prQtyCol = prHead.indexOf('quantity');
+
+    var isAllAccAvailable = true;
+    if (Array.isArray(accList) && accList.length > 0) {
+      accList.forEach(function (acc) {
+        var accName = typeof acc === 'string' ? acc : (acc.name || acc.Name || '');
+        var accQty = typeof acc === 'object' ? (Number(acc.quantity || acc.qty) || 1) : 1;
+
+        var foundStock = 0;
+        for (var p = 1; p < prData.length; p++) {
+          if (String(prData[p][prNameCol]).trim().toLowerCase() === String(accName).trim().toLowerCase()) {
+            foundStock = Number(prData[p][prQtyCol]) || 0;
+            break;
+          }
+        }
+        if (foundStock < accQty) {
+          isAllAccAvailable = false;
+        }
+      });
+    }
+
+    if (isAllAccAvailable) {
+      oSheet.getRange(targetOrderRow, stCol + 1).setValue('Sẵn sàng đóng gói');
+      return { success: true, message: 'Đã tự động chuyển đơn ' + orderId + ' sang Sẵn sàng đóng gói' };
+    } else {
+      oSheet.getRange(targetOrderRow, stCol + 1).setValue('Chờ Phụ Kiện');
+      return { success: true, message: 'Đơn ' + orderId + ' đang Chờ Phụ Kiện' };
+    }
+  } catch (err) {
+    Logger.log('Lỗi processSlaAutomation: ' + err.toString());
+    return { success: false, message: err.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * 3. DYNAMIC LOAD BALANCING (processDynamicLoadBalancing)
+ * Quét Attendance để tự phân bổ nhân sự active tại xưởng cho p2_user khi Khâu 1 Done
+ */
+function processDynamicLoadBalancing(prodId) {
+  var lock = LockService.getScriptLock();
+  try {
+    if (!lock.tryLock(15000)) return { success: false, message: 'Hệ thống bận.' };
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var pSheet = ss.getSheetByName('Production');
+    var attSheet = ss.getSheetByName('Attendance');
+    if (!pSheet || !attSheet) return { success: false, message: 'Không tìm thấy sheet Production hoặc Attendance!' };
+
+    var pData = pSheet.getDataRange().getValues();
+    var pHead = pData[0];
+    var idCol = pHead.indexOf('id');
+    var p1StCol = pHead.indexOf('p1_status');
+    var p2StCol = pHead.indexOf('p2_status');
+    var p2UserCol = pHead.indexOf('p2_user');
+
+    var pRowIdx = -1;
+    for (var i = 1; i < pData.length; i++) {
+      if (String(pData[i][idCol]) === String(prodId)) {
+        pRowIdx = i + 1;
+        break;
+      }
+    }
+    if (pRowIdx === -1) return { success: false, message: 'Không tìm thấy prodId: ' + prodId };
+
+    // Đọc danh sách nhân sự đang có mặt tại xưởng hôm nay
+    var attData = attSheet.getDataRange().getValues();
+    var attHead = attData[0];
+    var userCol = attHead.indexOf('user');
+    var dateCol = attHead.indexOf('date');
+    var timeInCol = attHead.indexOf('timeIn');
+    var timeOutCol = attHead.indexOf('timeOut');
+    var stCol = attHead.indexOf('status');
+
+    var todayStr = Utilities.formatDate(new Date(), 'GMT+7', 'yyyy-MM-dd');
+    var activeWorkers = [];
+
+    for (var a = 1; a < attData.length; a++) {
+      var rDate = attData[a][dateCol];
+      var rDateStr = typeof rDate === 'object' ? Utilities.formatDate(rDate, 'GMT+7', 'yyyy-MM-dd') : String(rDate).slice(0, 10);
+
+      if (rDateStr === todayStr) {
+        var tIn = attData[a][timeInCol];
+        var tOut = attData[a][timeOutCol];
+        var aSt = String(attData[a][stCol] || '').toUpperCase();
+
+        if (tIn && (!tOut || String(tOut).trim() === '') && aSt !== 'NGHỈ') {
+          activeWorkers.push(String(attData[a][userCol]).trim());
+        }
+      }
+    }
+
+    if (activeWorkers.length === 0) {
+      return { success: false, message: 'Không có thợ nào đang điểm danh Active tại xưởng.' };
+    }
+
+    // Phân bổ nhân sự đầu tiên trong danh sách Active
+    var assignedUser = activeWorkers[0];
+    pSheet.getRange(pRowIdx, p2UserCol + 1).setValue(assignedUser);
+
+    return { success: true, message: 'Đã phân bổ động thợ ' + assignedUser + ' vào Khâu 2 cho lệnh ' + prodId };
+  } catch (err) {
+    Logger.log('Lỗi processDynamicLoadBalancing: ' + err.toString());
+    return { success: false, message: err.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * TỔNG HỢP RCA RESOLVER RUNNER (processRcaResolver)
+ * Tự động chạy cả 3 luồng tối ưu hóa cho lệnh sản xuất
+ */
+function processRcaResolver(payload) {
+  var results = {
+    autoBom: null,
+    slaAuto: null,
+    loadBalancing: null
+  };
+
+  try {
+    if (payload && payload.prodId) {
+      results.autoBom = processMaterialDeduction(payload.prodId, payload.materialUsageData);
+      results.loadBalancing = processDynamicLoadBalancing(payload.prodId);
+    }
+    if (payload && payload.orderId) {
+      results.slaAuto = processSlaAutomation(payload.orderId);
+    }
+    return { success: true, results: results, message: 'Đã hoàn thành chạy RCA Resolver thành công!' };
+  } catch (err) {
+    Logger.log('Lỗi processRcaResolver: ' + err.toString());
+    return { success: false, error: err.toString() };
+  }
+}
+
+/**
+ * THÊM KPI THỦ CÔNG VÀO BẢNG KPI_Progress
+ * Schema: id, user, kpiName, current, target, unit, lastUpdated, startTime, endTime, reward, isClaimed, penalty, guide
+ */
+function api_insertManualKPI(payload) {
+  var lock = LockService.getScriptLock();
+  try {
+    if (!lock.tryLock(15000)) {
+      return { success: false, message: 'Hệ thống đang bận, vui lòng thử lại sau vài giây!' };
+    }
+
+    if (!payload || !payload.user || !payload.kpiName) {
+      return { success: false, message: 'Thiếu thông tin bắt buộc (Nhân sự hoặc Tên KPI)!' };
+    }
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var kpiSheet = ss.getSheetByName('KPI_Progress');
+    if (!kpiSheet) {
+      return { success: false, message: 'Không tìm thấy bảng KPI_Progress trong CSDL!' };
+    }
+
+    var now = new Date();
+    var kpiId = 'KPI_' + Date.now();
+    var user = String(payload.user).trim();
+    var kpiName = String(payload.kpiName).trim();
+    var current = 0;
+    var target = Number(payload.target) || 0;
+    var unit = String(payload.unit || '%').trim();
+    var lastUpdated = Utilities.formatDate(now, 'GMT+7', 'yyyy-MM-dd HH:mm:ss');
+
+    // Ngày đầu tháng & cuối tháng hiện tại (GMT+7)
+    var year = now.getFullYear();
+    var month = now.getMonth();
+    var startDateObj = new Date(year, month, 1, 0, 0, 0);
+    var endDateObj = new Date(year, month + 1, 0, 23, 59, 59);
+
+    var startTime = Utilities.formatDate(startDateObj, 'GMT+7', 'yyyy-MM-dd HH:mm:ss');
+    var endTime = Utilities.formatDate(endDateObj, 'GMT+7', 'yyyy-MM-dd HH:mm:ss');
+
+    var reward = Number(payload.reward) || 0;
+    var isClaimed = false;
+    var penalty = 0;
+    var guide = String(payload.guide || '').trim();
+
+    // Map theo đúng cột trong Schema KPI_Progress:
+    // ['id', 'user', 'kpiName', 'current', 'target', 'unit', 'lastUpdated', 'startTime', 'endTime', 'reward', 'isClaimed', 'penalty', 'guide']
+    var rowData = [
+      kpiId,
+      user,
+      kpiName,
+      current,
+      target,
+      unit,
+      lastUpdated,
+      startTime,
+      endTime,
+      reward,
+      isClaimed,
+      penalty,
+      guide
+    ];
+
+    kpiSheet.appendRow(rowData);
+
+    return {
+      success: true,
+      message: 'Đã tạo KPI thành công cho ' + user + '!',
+      id: kpiId,
+      rowData: rowData
+    };
+
+  } catch (err) {
+    Logger.log('Lỗi api_insertManualKPI: ' + err.toString());
+    return { success: false, message: 'Lỗi Server: ' + err.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// =========================================================================
+// 🚀 ENGINE TỰ ĐỘNG HÓA REALTIME & BATCH UPDATE (ON-EDIT TRIGGER)
+// Schema match 100%: Orders, Production, Products, ImportExport, BOM_Config
+// =========================================================================
+
+/**
+ * Trigger tự động kích hoạt khi có thao tác sửa trực tiếp (onEdit) trên Google Sheets
+ */
+function onEdit(e) {
+  if (!e || !e.range) return;
+  try {
+    var sheet = e.range.getSheet();
+    var sheetName = sheet.getName();
+    var row = e.range.getRow();
+    var col = e.range.getColumn();
+    if (row < 2) return; // Bỏ qua dòng tiêu đề
+
+    // 1. Thao tác trên bảng Production
+    if (sheetName === 'Production') {
+      var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+      var p1StatusCol = headers.indexOf('p1_status') + 1;
+      var statusCol = headers.indexOf('status') + 1;
+      var idCol = headers.indexOf('id') + 1;
+      var orderIdCol = headers.indexOf('orderId') + 1;
+
+      var newVal = String(e.value || '').trim().toUpperCase();
+
+      // Nghiệp vụ A: Trừ Kho BOM khi p1_status = 'Done' hoặc status = 'Done'
+      if ((col === p1StatusCol || col === statusCol) && (newVal === 'DONE' || newVal === 'ĐÃ XONG')) {
+        var prodId = sheet.getRange(row, idCol).getValue();
+        if (prodId) {
+          processMaterialDeduction(prodId, null);
+        }
+      }
+
+      // Nghiệp vụ B: Kiểm tra Auto-Forward SLA khi status hoặc p1_status chuyển thành Done
+      if ((col === statusCol || col === p1StatusCol) && newVal === 'DONE') {
+        var orderId = sheet.getRange(row, orderIdCol).getValue();
+        if (orderId) {
+          processBatchAutoForwardSLA(orderId);
+        }
+      }
+    }
+
+    // 2. Thao tác trên bảng Orders
+    if (sheetName === 'Orders') {
+      var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+      var statusCol = headers.indexOf('status') + 1;
+      var idCol = headers.indexOf('id') + 1;
+
+      var newVal = String(e.value || '').trim().toUpperCase();
+
+      // Nghiệp vụ C: Xử lý Đơn Hủy khi status = 'Đơn Huỷ' hoặc 'Đã Huỷ'
+      if (col === statusCol && (newVal === 'ĐƠN HUỶ' || newVal === 'ĐÃ HỦY' || newVal === 'ĐƠN HỦY' || newVal === 'CANCELLED')) {
+        var orderId = sheet.getRange(row, idCol).getValue();
+        if (orderId) {
+          processCascadeCancelOrder(orderId, false);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Lỗi Realtime onEdit Trigger:", err);
+  }
+}
+
+
+
+/**
+ * Nâng cấp Batch-Update: Cập nhật SLA Đơn Hàng tự động
+ */
+function processBatchAutoForwardSLA(orderId) {
+  var lock = LockService.getScriptLock();
+  try {
+    if (!lock.tryLock(15000)) return;
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    var prodSheet = ss.getSheetByName('Production');
+    if (!prodSheet) return;
+    var prodData = prodSheet.getDataRange().getValues();
+    var pHeaders = prodData[0];
+    var pOrderIdIdx = pHeaders.indexOf('orderId');
+    var pStatusIdx = pHeaders.indexOf('status');
+    var pStockIdx = pHeaders.indexOf('fulfilledFromStock');
+
+    var childProds = [];
+    for (var i = 1; i < prodData.length; i++) {
+      if (String(prodData[i][pOrderIdIdx]).trim() === String(orderId).trim()) {
+        childProds.push({
+          status: String(prodData[i][pStatusIdx] || '').trim().toUpperCase(),
+          fulfilledFromStock: prodData[i][pStockIdx] === true || String(prodData[i][pStockIdx]).toUpperCase() === 'TRUE'
+        });
+      }
+    }
+    if (childProds.length === 0) return;
+
+    var isAllReady = childProds.every(function(p) {
+      return p.status === 'DONE' || p.status === 'ĐÃ XONG' || p.status === 'HOÀN KHO ĐẠT' || p.fulfilledFromStock;
+    });
+
+    if (isAllReady) {
+      var ordSheet = ss.getSheetByName('Orders');
+      if (!ordSheet) return;
+      var ordRange = ordSheet.getDataRange();
+      var ordData = ordRange.getValues();
+      var oHeaders = ordData[0];
+      var oIdIdx = oHeaders.indexOf('id');
+      var oStatusIdx = oHeaders.indexOf('status');
+
+      var isOrderChanged = false;
+      for (var o = 1; o < ordData.length; o++) {
+        if (String(ordData[o][oIdIdx]).trim() === String(orderId).trim()) {
+          var curSt = String(ordData[o][oStatusIdx] || '').trim();
+          if (['Chờ Sản Xuất', 'Đang Sản Xuất', 'Quét Tự Động'].indexOf(curSt) > -1) {
+            ordData[o][oStatusIdx] = 'Sẵn sàng đóng gói';
+            isOrderChanged = true;
+          }
+          break;
+        }
+      }
+      if (isOrderChanged) {
+        ordRange.setValues(ordData);
+      }
+    }
+  } catch (e) {
+    console.error("Lỗi processBatchAutoForwardSLA:", e);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Nâng cấp Batch-Update: Xử lý Đơn Hủy (Cascade Cancel) mượt mà không deadlock
+ * Khi Đơn hàng bị HỦY (Orders.status = 'Đơn Huỷ'):
+ * - Nếu p1_status = 'Pending' (chưa dán/làm): Hủy lệnh sản xuất (status = 'Đã Huỷ')
+ * - Nếu p1_status = 'Done' (đã hoàn thành): Ngắt orderId, chuyển lệnh thành 'SẢN XUẤT TỒN' để làm tài sản kho
+ */
+function processCascadeCancelOrder(orderId, isHandedOver) {
+  var lock = LockService.getScriptLock();
+  try {
+    if (!lock.tryLock(15000)) return { success: false, message: 'Hệ thống đang bận!' };
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ordSheet = ss.getSheetByName('Orders');
+    var prodSheet = ss.getSheetByName('Production');
+
+    if (!ordSheet || !prodSheet) return { success: false, message: 'Thiếu bảng CSDL Orders/Production' };
+
+    // 1. Cập nhật bảng Orders sang trạng thái 'Đơn Huỷ'
+    var ordRange = ordSheet.getDataRange();
+    var ordData = ordRange.getValues();
+    var oHeaders = ordData[0];
+    var oIdIdx = oHeaders.indexOf('id');
+    var oStatusIdx = oHeaders.indexOf('status');
+
+    var isOrdChanged = false;
+    for (var o = 1; o < ordData.length; o++) {
+      if (String(ordData[o][oIdIdx]).trim() === String(orderId).trim()) {
+        ordData[o][oStatusIdx] = 'Đơn Huỷ';
+        isOrdChanged = true;
+        break;
+      }
+    }
+    if (isOrdChanged) ordRange.setValues(ordData);
+
+    // 2. Quét và bẻ gãy liên kết / xử lý lệnh con trong Production
+    var prodRange = prodSheet.getDataRange();
+    var prodData = prodRange.getValues();
+    var pHeaders = prodData[0];
+    var orderIdIdx = pHeaders.indexOf('orderId');
+    var statusIdx = pHeaders.indexOf('status');
+    var p1StatusIdx = pHeaders.indexOf('p1_status');
+    var noteIdx = pHeaders.indexOf('note');
+
+    var isProdChanged = false;
+    var canceledCount = 0;
+    var stockConvertedCount = 0;
+
+    for (var i = 1; i < prodData.length; i++) {
+      if (String(prodData[i][orderIdIdx]).trim() === String(orderId).trim()) {
+        var p1Status = String(prodData[i][p1StatusIdx] || '').trim().toUpperCase();
+        var curNote = String(prodData[i][noteIdx] || '');
+
+        if (p1Status === 'DONE' || p1Status === 'ĐÃ XONG' || p1Status === 'HOÀN KHO ĐẠT') {
+          // Thợ đã dán xong -> Ngắt liên kết orderId, đổi thành tài sản tồn kho xưởng
+          prodData[i][orderIdIdx] = 'SẢN XUẤT TỒN';
+          prodData[i][noteIdx] = curNote + ' [Ngắt liên kết do đơn gốc ' + orderId + ' bị HỦY - Chuyển thành sản xuất bù tồn kho]';
+          stockConvertedCount++;
+        } else {
+          // Chưa dán xong -> Hủy lệnh để thợ không làm nữa
+          prodData[i][statusIdx] = 'Đã Huỷ';
+          prodData[i][noteIdx] = curNote + ' [Hủy tự động theo đơn gốc ' + orderId + ']';
+          canceledCount++;
+        }
+        isProdChanged = true;
+      }
+    }
+
+    if (isProdChanged) {
+      prodRange.setValues(prodData);
+    }
+
+    return {
+      success: true,
+      message: 'Đã hủy ' + canceledCount + ' lệnh chưa làm và chuyển ' + stockConvertedCount + ' lệnh hoàn thành thành tài sản bù kho!',
+      canceledCount: canceledCount,
+      stockConvertedCount: stockConvertedCount
+    };
+
+  } catch (e) {
+    console.error("Lỗi processCascadeCancelOrder:", e);
+    return { success: false, message: e.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+
+
+/**
+ * Cấn trừ Vật tư Tự động (BOM Deduction)
+ * Trừ số lượng vật tư trong bảng Products theo BOM_Config khi p1_status = 'Done' hoặc status = 'Done'
+ * Ghi log xuất kho vào bảng ImportExport
+ */
+function processMaterialDeduction(prodId, materialUsageData) {
+  var lock = LockService.getScriptLock();
+  try {
+    if (!lock.tryLock(30000)) {
+      return { success: false, message: 'Hệ thống đang bận, thử lại sau!' };
+    }
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var prodSheet = ss.getSheetByName('Production');
+    var bomSheet = ss.getSheetByName('BOM_Config');
+    var productSheet = ss.getSheetByName('Products');
+    var ieSheet = ss.getSheetByName('ImportExport');
+
+    if (!prodSheet || !productSheet || !bomSheet || !ieSheet) {
+      return { success: false, message: 'Thiếu bảng dữ liệu!' };
+    }
+
+    var prodData = prodSheet.getDataRange().getValues();
+    var prodHeaders = prodData[0];
+    var pIdIdx = prodHeaders.indexOf('id');
+    var pNameIdx = prodHeaders.indexOf('name');
+    var pOrderIdIdx = prodHeaders.indexOf('orderId');
+
+    var targetProd = null;
+    for (var i = 1; i < prodData.length; i++) {
+      if (String(prodData[i][pIdIdx]).trim() === String(prodId).trim()) {
+        targetProd = {
+          id: prodData[i][pIdIdx],
+          name: prodData[i][pNameIdx],
+          orderId: prodData[i][pOrderIdIdx]
+        };
+        break;
+      }
+    }
+
+    if (!targetProd) {
+      return { success: false, message: 'Không tìm thấy lệnh sản xuất: ' + prodId };
+    }
+
+    var layoutName = String(targetProd.name || '').trim();
+
+    // 1. Quét BOM_Config
+    var bomData = bomSheet.getDataRange().getValues();
+    var bHeaders = bomData[0];
+    var bLayoutIdx = bHeaders.indexOf('layoutCode');
+    var bSkuIdx = bHeaders.indexOf('materialSku');
+    var bQtyIdx = bHeaders.indexOf('defaultQty');
+    var bUnitIdx = bHeaders.indexOf('unit');
+
+    var bomMap = {};
+    for (var b = 1; b < bomData.length; b++) {
+      var layoutCode = String(bomData[b][bLayoutIdx] || '').trim();
+      // Tìm kiếm danh sách vật tư theo layoutCode khớp với Production.name HOẶC SKU
+      if (layoutCode && (layoutCode.toLowerCase() === layoutName.toLowerCase())) {
+        var sku = String(bomData[b][bSkuIdx] || '').trim();
+        var q = Number(bomData[b][bQtyIdx]) || 0;
+        var u = String(bomData[b][bUnitIdx] || '').trim();
+        if (sku && q > 0) {
+          if (!bomMap[sku]) bomMap[sku] = { qty: 0, unit: u };
+          bomMap[sku].qty += q;
+        }
+      }
+    }
+    
+    if (Object.keys(bomMap).length === 0) {
+       return { success: false, message: 'Không tìm thấy BOM cho Layout: ' + layoutName };
+    }
+
+    // 2. Trừ tồn kho trong Products
+    var pRange = productSheet.getDataRange();
+    var pData = pRange.getValues();
+    var prHeaders = pData[0];
+    var prSkuIdx = prHeaders.indexOf('sku');
+    var prNameIdx = prHeaders.indexOf('name');
+    var prQtyIdx = prHeaders.indexOf('quantity');
+    var prCostIdx = prHeaders.indexOf('costPrice');
+    var prUnitIdx = prHeaders.indexOf('unit');
+
+    var itemsDeducted = [];
+    var totalCost = 0;
+    var isProductChanged = false;
+
+    for (var p = 1; p < pData.length; p++) {
+      var pSku = String(pData[p][prSkuIdx] || '').trim();
+      var pName = String(pData[p][prNameIdx] || '').trim();
       
-      let fixedCount = 0;
+      // Khớp theo SKU hoặc Tên (nếu được map)
+      var deductQty = 0;
+      var bomUnit = '';
+      var matchedSkuKey = pSku;
+      if (bomMap[pSku]) {
+        deductQty = bomMap[pSku].qty;
+        bomUnit = bomMap[pSku].unit;
+      } else if (bomMap[pName]) {
+        deductQty = bomMap[pName].qty;
+        bomUnit = bomMap[pName].unit;
+        matchedSkuKey = pName;
+      }
       
-      // Sửa giờ trong sheet ImportExport
-      for (let i = 1; i < data.length; i++) {
-        const rowDate = data[i][dateIdx];
-        if (typeof rowDate === 'string' && rowDate.includes('2026-08-07')) {
-          const match = rowDate.match(/^2026-08-07 0([0-6]):(\d{2}):(\d{2})/);
-          if (match) {
-            const hour = parseInt(match[1]);
-            const newHour = hour + 7;
-            const newHourStr = newHour < 10 ? '0' + newHour : String(newHour);
-            const fixedDate = rowDate.replace(`0${hour}:`, `${newHourStr}:`);
-            ieSheet.getRange(i + 1, dateIdx + 1).setValue(fixedDate);
-            fixedCount++;
+      if (deductQty > 0) {
+        var curQty = Number(pData[p][prQtyIdx]);
+        if (isNaN(curQty)) curQty = 0; // Trừ kho với ô rỗng được coi là 0
+        var cost = Number(pData[p][prCostIdx]) || 0;
+        var matUnit = String(pData[p][prUnitIdx] || '').toLowerCase().trim();
+        bomUnit = bomUnit ? bomUnit.toLowerCase().trim() : matUnit;
+        
+        var convertedDeductQty = deductQty;
+        var convertedCost = cost;
+        
+        if ((matUnit === 'kg' || matUnit === 'cân') && (bomUnit === 'gam' || bomUnit === 'g' || bomUnit === 'gram')) {
+            convertedDeductQty = deductQty / 1000;
+            convertedCost = cost / 1000;
+        } else if ((matUnit === 'lít' || matUnit === 'l' || matUnit === 'lit') && (bomUnit === 'ml' || bomUnit === 'mililit')) {
+            convertedDeductQty = deductQty / 1000;
+            convertedCost = cost / 1000;
+        } else if ((matUnit === 'm' || matUnit === 'mét' || matUnit === 'met') && (bomUnit === 'cm' || bomUnit === 'centimet')) {
+            convertedDeductQty = deductQty / 100;
+            convertedCost = cost / 100;
+        }
+        
+        var newQty = Math.max(0, curQty - convertedDeductQty);
+        
+        pData[p][prQtyIdx] = newQty;
+        isProductChanged = true;
+
+        var lineTotal = deductQty * convertedCost;
+        totalCost += lineTotal;
+        itemsDeducted.push({
+          sku: pSku,
+          name: pName || pSku,
+          quantity: deductQty + ' ' + (bomUnit || ''),
+          costPrice: cost,
+          amount: lineTotal
+        });
+        
+        // Trừ xong thì xóa để biết là đã xử lý
+        delete bomMap[matchedSkuKey];
+      }
+    }
+
+    if (isProductChanged) {
+      pRange.setValues(pData);
+    }
+
+    // 3. Ghi Log vào ImportExport
+    if (itemsDeducted.length > 0) {
+      var safeDate = Utilities.formatDate(new Date(), 'GMT+7', 'yyyy-MM-dd HH:mm:ss');
+      var logId = 'IE_BOM_' + Date.now();
+      var note = 'Trừ vật tư BOM đơn ' + (targetProd.orderId || 'Không xác định');
+      
+      // 'id', 'type', 'target', 'totalAmount', 'date', 'note', 'itemsData'
+      ieSheet.appendRow([
+        logId,
+        'Xuất',
+        'Sản Xuất Layout',
+        totalCost,
+        safeDate,
+        note,
+        JSON.stringify(itemsDeducted)
+      ]);
+    }
+
+    return {
+      success: true,
+      message: 'Đã cấn trừ vật tư BOM tự động cho lệnh sản xuất ' + layoutName,
+      deducted: itemsDeducted
+    };
+
+  } catch (err) {
+    console.error("Lỗi processMaterialDeduction:", err);
+    return { success: false, message: 'Lỗi: ' + err.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Auto-Allocation (Bơm Đơn & Định Tuyến Tự Động)
+ * Khi có đơn hàng mới hoặc chạy tự động:
+ * Quét Products.quantity. Nếu quantity >= 1:
+ * Đặt fulfilledFromStock = true ở Production và chuyển Orders.status = 'Sẵn sàng đóng gói'
+ */
+function processAutoAllocation(orderId) {
+  var lock = LockService.getScriptLock();
+  try {
+    if (!lock.tryLock(15000)) return { success: false, message: 'Script locked' };
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ordSheet = ss.getSheetByName('Orders');
+    var prodSheet = ss.getSheetByName('Production');
+    var pSheet = ss.getSheetByName('Products');
+
+    if (!ordSheet || !prodSheet || !pSheet) return { success: false, message: 'Thiếu bảng CSDL!' };
+
+    var pData = pSheet.getDataRange().getValues();
+    var pHeaders = pData[0];
+    var pNameIdx = pHeaders.indexOf('name');
+    var pSkuIdx = pHeaders.indexOf('sku');
+    var pQtyIdx = pHeaders.indexOf('quantity');
+    var pCostIdx = pHeaders.indexOf('costPrice');
+
+    var stockMap = {};
+    for (var p = 1; p < pData.length; p++) {
+      var nameKey = String(pData[p][pNameIdx] || '').trim().toLowerCase();
+      var skuKey = String(pData[p][pSkuIdx] || '').trim().toLowerCase();
+      var qty = Number(pData[p][pQtyIdx] || 0);
+      var cost = Number(pData[p][pCostIdx] || 0);
+      
+      var stockObj = { qty: qty, rowIndex: p, sku: String(pData[p][pSkuIdx] || ''), name: String(pData[p][pNameIdx] || ''), cost: cost };
+      if (nameKey) stockMap[nameKey] = stockObj;
+      if (skuKey) stockMap[skuKey] = stockObj;
+    }
+
+    var prodRange = prodSheet.getDataRange();
+    var prodData = prodRange.getValues();
+    var prHeaders = prodData[0];
+    var prOrderIdIdx = prHeaders.indexOf('orderId');
+    var prNameIdx = prHeaders.indexOf('name');
+    var prStockIdx = prHeaders.indexOf('fulfilledFromStock');
+    var prStatusIdx = prHeaders.indexOf('status');
+    var prP1StatusIdx = prHeaders.indexOf('p1_status');
+
+    var isProdChanged = false;
+    var isProductChanged = false;
+    var allocatedCount = 0;
+    var itemsDeducted = [];
+    var totalCost = 0;
+
+    for (var i = 1; i < prodData.length; i++) {
+      var rowOrdId = String(prodData[i][prOrderIdIdx] || '').trim();
+      if (!orderId || rowOrdId === String(orderId).trim()) {
+        var itemProdName = String(prodData[i][prNameIdx] || '').trim().toLowerCase();
+        var isStockFulfilled = prodData[i][prStockIdx] === true || String(prodData[i][prStockIdx]).toUpperCase() === 'TRUE';
+        
+        var stockObj = stockMap[itemProdName];
+        if (!isStockFulfilled && stockObj && stockObj.qty >= 1) {
+          prodData[i][prStockIdx] = true;
+          prodData[i][prStatusIdx] = 'Done';
+          prodData[i][prP1StatusIdx] = 'HOÀN KHO ĐẠT';
+          isProdChanged = true;
+          allocatedCount++;
+          
+          // Trừ trực tiếp số lượng để các đơn sau không lấy được nữa
+          stockObj.qty -= 1;
+          pData[stockObj.rowIndex][pQtyIdx] = stockObj.qty;
+          isProductChanged = true;
+          
+          totalCost += stockObj.cost;
+          itemsDeducted.push({
+            sku: stockObj.sku,
+            name: stockObj.name,
+            quantity: 1,
+            costPrice: stockObj.cost,
+            amount: stockObj.cost
+          });
+        }
+      }
+    }
+
+    if (isProdChanged) {
+      prodRange.setValues(prodData);
+    }
+    
+    if (isProductChanged) {
+      pSheet.getDataRange().setValues(pData);
+      
+      var ieSheet = ss.getSheetByName('ImportExport');
+      if (ieSheet && itemsDeducted.length > 0) {
+        var safeDate = Utilities.formatDate(new Date(), 'GMT+7', 'yyyy-MM-dd HH:mm:ss');
+        var logId = 'IE_ALLOC_' + Date.now();
+        var logNote = 'Xuất kho thành phẩm bù đơn ' + (orderId || 'hàng loạt');
+        ieSheet.appendRow([
+          logId,
+          'Xuất',
+          'Xuất Đơn Hàng',
+          totalCost,
+          safeDate,
+          logNote,
+          JSON.stringify(itemsDeducted)
+        ]);
+      }
+    }
+
+    if (orderId) {
+      processBatchAutoForwardSLA(orderId);
+    }
+
+    return { success: true, message: 'Đã tự động bơm đơn và xuất kho cho ' + allocatedCount + ' sản phẩm!' };
+
+  } catch (err) {
+    console.error("Lỗi processAutoAllocation:", err);
+    return { success: false, message: err.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * TỰ ĐỘNG CHUẨN HÓA BOM KÍNH ĐÁY + KÍNH MVT VÀ GIÁ VỐN CHUẨN
+ * Tác giả: AI Operations Leader - Rich Fish Aquarium
+ */
+function autoCalculateGlassTankBOM_Dual() {
+  const lock = LockService.getScriptLock();
+  
+  try {
+    // 1. Kỷ luật An Toàn: Khóa tiến trình 15s để chống đè dữ liệu (Concurrency)
+    lock.waitLock(15000);
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const prodSheet = ss.getSheetByName("Products");
+    const bomSheet = ss.getSheetByName("BOM_Config");
+
+    if (!prodSheet || !bomSheet) {
+      throw new Error("Không tìm thấy sheet 'Products' hoặc 'BOM_Config'!");
+    }
+
+    const prodData = prodSheet.getDataRange().getValues();
+    const prodHeaders = prodData[0];
+
+    const skuIdx = prodHeaders.indexOf("sku");
+    const nameIdx = prodHeaders.indexOf("name");
+    const costIdx = prodHeaders.indexOf("costPrice");
+
+    const PRICE_GLASS_BOTTOM = 165000;  // Kính đáy 4li không mài
+    const PRICE_GLASS_SIDE = 180000;    // Kính thành 4li MVT
+    const PRICE_GRINDING_PER_M = 25000; // Phí mài 25k/m dài miệng bể
+    const PRICE_SILICON_PER_M = 5000;   // Keo 5k/m
+    const LABOR_COST = 15000;           // Công khoán
+
+    // 2. Đọc dữ liệu BOM cũ để thực hiện Upsert (chống trùng lặp)
+    const bomData = bomSheet.getDataRange().getValues();
+    const bomHeaders = bomData[0];
+    const bomIdIdx = bomHeaders.indexOf("id");
+    const bomQtyIdx = bomHeaders.indexOf("defaultQty");
+    const bomMatIdx = bomHeaders.indexOf("materialSku"); // Lấy thêm cột mã vật tư
+
+    const bomRowMap = {};
+    for (let j = 1; j < bomData.length; j++) {
+      const bomId = String(bomData[j][bomIdIdx]).trim();
+      if (bomId) bomRowMap[bomId] = j + 1;
+    }
+
+    let updatedCount = 0;
+
+    for (let i = 1; i < prodData.length; i++) {
+      const sku = String(prodData[i][skuIdx] || "").trim();
+      const name = String(prodData[i][nameIdx] || "").trim();
+
+      if (sku.startsWith("BE") || sku.startsWith("TERA")) {
+        const match = name.toLowerCase().match(/(\d+)\s*x\s*(\d+)\s*x\s*(\d+)/);
+
+        if (match) {
+          const L = parseFloat(match[1]); // cm
+          const W = parseFloat(match[2]);
+          const H = parseFloat(match[3]);
+
+          const l_m = L / 100;
+          const w_m = W / 100;
+          const h_m = H / 100;
+
+          // Tính toán định mức từng loại kính
+          const bottomArea = (l_m * w_m) * 1.1; // 1 mặt đáy (+10% hao hụt)
+          const sideArea = (2 * (l_m * h_m) + 2 * (w_m * h_m)) * 1.1; // 4 mặt thành (+10% hao hụt)
+          const grindingLength = 2 * (l_m + w_m); // Mài chu vi miệng bể
+          const siliconLength = (2 * l_m) + (2 * w_m) + (4 * h_m);
+
+          // Tính tổng giá vốn COGS
+          const bottomCost = bottomArea * PRICE_GLASS_BOTTOM;
+          const sideCost = sideArea * PRICE_GLASS_SIDE;
+          const grindingCost = grindingLength * PRICE_GRINDING_PER_M;
+          const siliconCost = siliconLength * PRICE_SILICON_PER_M;
+
+          const totalCOGS = Math.round(bottomCost + sideCost + grindingCost + siliconCost + LABOR_COST);
+
+          // Bước 1. Ghi đè Giá Vốn chuẩn vào Products
+          prodSheet.getRange(i + 1, costIdx + 1).setValue(totalCOGS);
+
+          // Bước 2. Cập nhật BOM_Config (3 dòng: Kính Đáy + Kính Thành + Silicon)
+          const itemsToUpdate = [
+            { id: `BOM_${sku}_BOTTOM`, mat: "KINH4LI_DAY", qty: parseFloat(bottomArea.toFixed(4)), unit: "m2" },
+            { id: `BOM_${sku}_SIDE`, mat: "KINH4LI_MVT", qty: parseFloat(sideArea.toFixed(4)), unit: "m2" },
+            { id: `BOM_${sku}_SILICON`, mat: "SILICON", qty: parseFloat(siliconLength.toFixed(2)), unit: "met" }
+          ];
+
+          itemsToUpdate.forEach(item => {
+            if (bomRowMap[item.id]) {
+              const row = bomRowMap[item.id];
+              // VÁ LỖ HỔNG: Phải cập nhật lại cả Số lượng VÀ Mã vật tư phòng khi mã cũ sai
+              bomSheet.getRange(row, bomQtyIdx + 1).setValue(item.qty);
+              if (bomMatIdx >= 0) {
+                bomSheet.getRange(row, bomMatIdx + 1).setValue(item.mat);
+              }
+            } else {
+              bomSheet.appendRow([item.id, sku, item.mat, item.qty, item.unit]);
+            }
+          });
+
+          updatedCount++;
+        }
+      }
+    }
+
+    SpreadsheetApp.flush();
+    const msg = `🟢 Đã chuẩn hóa thành công Giá vốn & Kính Đáy/MVT cho ${updatedCount} mã bể.`;
+    Logger.log(msg);
+    return { success: true, message: msg };
+    
+  } catch (e) {
+    Logger.log("Lỗi hệ thống: " + e.message);
+    throw e;
+  } finally {
+      // Luôn nhả Lock dù có báo lỗi
+      lock.releaseLock();
+    }
+  }
+
+/**
+ * CRONJOB: Kiểm tra phạt trễ đóng gói (19:30 hằng ngày)
+ * Lọc các đơn đang ở trạng thái 'Sẵn sàng đóng gói' nhưng chưa có Packings DONE
+ * Phạt 50,000 VND vào quỹ của Nguyễn Thị Diệu Hương
+ */
+function cronCheckUnpackedOrdersAt1930() {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ordSheet = ss.getSheetByName('Orders');
+    const packSheet = ss.getSheetByName('Packings');
+    const bpSheet = ss.getSheetByName('BonusPenalty');
+
+    if (!ordSheet || !packSheet || !bpSheet) return;
+
+    const ordData = ordSheet.getDataRange().getValues();
+    const ordHeaders = ordData[0];
+    const oIdIdx = ordHeaders.indexOf('id');
+    const oStatusIdx = ordHeaders.indexOf('status');
+    const oCodeIdx = ordHeaders.indexOf('orderCode');
+
+    const packData = packSheet.getDataRange().getValues();
+    const packHeaders = packData[0];
+    const pOrderIdIdx = packHeaders.indexOf('orderId');
+    const pStatusIdx = packHeaders.indexOf('status');
+    const pNoteIdx = packHeaders.indexOf('note');
+
+    // Lọc ra danh sách Order ID đã đóng gói xong
+    const donePacks = {};
+    for (let i = 1; i < packData.length; i++) {
+      const pStat = String(packData[i][pStatusIdx] || '').toUpperCase();
+      const pNote = String(packData[i][pNoteIdx] || '').toLowerCase();
+      if (pStat === 'DONE' && !pNote.includes('kho')) {
+        donePacks[String(packData[i][pOrderIdIdx] || '').trim()] = true;
+      }
+    }
+
+    const safeDate = new Date().toISOString().replace('T', ' ').slice(0, 10);
+    let penaltyCount = 0;
+
+    for (let i = 1; i < ordData.length; i++) {
+      const oId = String(ordData[i][oIdIdx] || '').trim();
+      const oCode = String(ordData[i][oCodeIdx] || '').trim();
+      const oStat = String(ordData[i][oStatusIdx] || '').toUpperCase().trim();
+
+      if (oStat === 'SẴN SÀNG ĐÓNG GÓI' || oStat === 'CHỜ SẢN XUẤT') {
+          // Verify if it's REALLY ready using backend rules? 
+          // Frontend dynamically calculates "Sẵn Sàng Đóng Gói". 
+          // For backend, if it explicitly has that status but not packed.
+          if (oStat === 'SẴN SÀNG ĐÓNG GÓI' && !donePacks[oId]) {
+              // Ghi phạt
+              const bpId = 'PENALTY_SLA_' + Date.now() + '_' + penaltyCount;
+              bpSheet.appendRow([
+                  bpId,
+                  'Nguyễn Thị Diệu Hương',
+                  -50000,
+                  'Penalty',
+                  'Phạt trễ đóng gói trước 19:30 - Đơn ' + (oCode || oId),
+                  safeDate,
+                  oCode || oId
+              ]);
+              penaltyCount++;
+          }
+      }
+    }
+
+    if (penaltyCount > 0) {
+      Logger.log('Đã phạt ' + penaltyCount + ' đơn trễ đóng gói SLA lúc 19:30');
+    }
+
+  } catch (e) {
+    Logger.log('Lỗi cronCheckUnpackedOrdersAt1930: ' + e.message);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * THUẬT TOÁN GỘP LỆNH BỂ KÍNH THÔNG MINH
+ * Quét toàn bộ Production đang Pending có chứa từ khoá "Bể kính" (hoặc type là Bể kính).
+ * Gom các lệnh cùng name (kích thước) vào và phân công cho cùng một thợ (tự động chọn thợ đang active).
+ * Đổi trạng thái p1_status = 'In Progress'.
+ */
+function batchDispatchSmartGlassTanks() {
+  // YÊU CẦU CỦA USER: "không gộp lệnh như này. làm logic bên bể kính giống bên layout ấy"
+  // Áp dụng triết lý One-Piece Flow, vô hiệu hoá thuật toán gộp và tự động giao việc.
+  // Bể Kính sẽ do thợ tự vào ứng dụng bấm "Nhận làm" cho từng lệnh đơn lẻ giống Layout.
+  return { success: true, message: 'Đã chuyển sang One-Piece Flow. Lệnh bể kính không còn tự động gộp.' };
+}
+
+/**
+ * RICH FISH AQUARIUM - ENGINE TỰ ĐỘNG TÍNH ĐỊNH MỨC & ĐỒNG BỘ BOM LAYOUT
+ * Tác giả: AI Operations Leader
+ */
+function autoGenerateAndSyncLayoutBOM() {
+  const notifyUi = function (msg) {
+    Logger.log(msg);
+    try {
+      SpreadsheetApp.getUi().alert(msg);
+    } catch (e) {
+      // Chạy từ Apps Script Editor, Trigger hoặc WebApp không có container UI
+    }
+  };
+
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) {
+    notifyUi('⚠️ Hệ thống đang bận, vui lòng thử lại sau vài giây!');
+    return { success: false, message: 'Hệ thống đang bận' };
+  }
+
+  try {
+    const activeSs = SpreadsheetApp.getActiveSpreadsheet();
+    let sheetEstimate = null;
+
+    // 1. Tìm trong chính file hiện tại (active spreadsheet)
+    const activeSheets = activeSs.getSheets();
+    sheetEstimate = activeSheets.find(s => {
+      const n = s.getName().toLowerCase().trim();
+      return n.includes('bản để làm') || n.includes('định mức bom') || n === 'layout';
+    });
+
+    // 2. Nếu không có, mở file BẢNG GIÁ HÀNG HOÁ RF AQUARIUM bên ngoài
+    if (!sheetEstimate) {
+      const extFileId = '1485FsgYjTXA1EkqsaEQ-kCI1EyFUsVueAd9GirhFis';
+      try {
+        const extSs = SpreadsheetApp.openById(extFileId);
+        const extSheets = extSs.getSheets();
+        sheetEstimate = extSheets.find(s => {
+          const n = s.getName().toLowerCase().trim();
+          return n.includes('bản để làm') || n.includes('app') || n.includes('định mức');
+        }) || extSheets[extSheets.length - 1];
+      } catch (extErr) {
+        Logger.log('Lỗi mở file Bảng Giá ngoài (' + extFileId + '): ' + extErr.toString());
+      }
+    }
+
+    if (!sheetEstimate) {
+      const guideMsg = "⚠️ Không tìm thấy bảng định mức!\n\nCách xử lý đơn giản nhất:\nAnh hãy mở file 'BẢNG GIÁ HÀNG HOÁ RF AQUARIUM', nhấp chuột phải vào tab 'Bản để làm appp không sài đến' -> Chọn 'Sao chép vào (Copy to)' -> Chọn file 'RF Workspace Pro (Bản Chính Thức Chuẩn)' này, sau đó bấm Chạy lại là xong ngay!";
+      notifyUi(guideMsg);
+      return { success: false, message: guideMsg };
+    }
+
+    const data = sheetEstimate.getDataRange().getValues();
+    if (data.length < 5) {
+      throw new Error("Bảng định mức '" + sheetEstimate.getName() + "' không đủ số dòng dữ liệu!");
+    }
+
+    // 1. Ánh xạ các cột trên bảng tính định mức (Dòng 2 & 4: Cột C đến T)
+    const COL = {
+      SAN_MIENG: 2,   // C - Lũa San Miếng (gam)
+      TAI_MEO: 3,     // D - Đá Tai Mèo (gam)
+      NHAM_XANH: 4,   // E - Đá Nham Xanh (gam)
+      CUOI: 5,        // F - Đá Cuội (gam)
+      SAN: 6,         // G - Đá San (gam)
+      VIA: 7,         // H - Đá Vỉa (gam)
+      DA_VOI: 8,      // I - Đá Da Voi (gam)
+      SAN_CANH: 9,    // J - Lũa San Cành (gam)
+      DO_QUYEN: 10,   // K - Lũa Đỗ Quyên (gam)
+      RE_RUNG: 11,    // L - Rễ Rừng (gam)
+      THACH_SUNG: 12, // M - Lũa Thạch Sùng (gam)
+      NHO_NOI: 13,    // N - Lũa Nhọ Nồi (gam)
+      REU_XANH: 14,   // O - Rêu Xanh A04 (gam)
+      REU_DO: 15,     // P - Rêu Đỏ (gam)
+      FOMEX_8LI: 16,  // Q - Fomex 8li (m²)
+      FOMEX_10LI: 17, // R - Fomex 10li (m²)
+      KEO_DK: 18,     // S - Keo Dựng Khung (Chai 162g / gam)
+      KEO_GC: 19      // T - Keo Gia Cố (Chai 162g / gam)
+    };
+
+    const woodCols = [COL.SAN_MIENG, COL.SAN_CANH, COL.DO_QUYEN, COL.RE_RUNG, COL.THACH_SUNG, COL.NHO_NOI];
+    const stoneCols = [COL.TAI_MEO, COL.NHAM_XANH, COL.CUOI, COL.SAN, COL.VIA, COL.DA_VOI];
+    const mossCols = [COL.REU_XANH, COL.REU_DO];
+
+    // Hệ số chuẩn hóa (Từ Size 30 làm mốc chuẩn)
+    const SCALE_FROM_30 = {
+      TO_20: { stone: 0.8000, wood: 0.4286, moss: 0.8000, fomex8li: 0.0255, fomex10li: 0, keoDK: 40, keoGC: 120 },
+      TO_40: { stone: 1.4667, wood: 1.5714, moss: 1.6000, fomex8li: 0, fomex10li: 0.0920, keoDK: 140, keoGC: 230 }
+    };
+
+    // Hệ số chuẩn hóa (Từ Size 20 làm mốc chuẩn)
+    const SCALE_FROM_20 = {
+      TO_30: { stone: 1.2500, wood: 2.3333, moss: 1.2500, fomex8li: 0.0405, fomex10li: 0, keoDK: 60, keoGC: 190 },
+      TO_40: { stone: 1.8333, wood: 3.6667, moss: 2.0000, fomex8li: 0, fomex10li: 0.0920, keoDK: 140, keoGC: 230 }
+    };
+
+    // Xử lý ô trống là 0
+    for (let r = 4; r < data.length; r++) {
+      for (let c = 2; c <= 19; c++) {
+        if (data[r][c] === '' || data[r][c] === null || isNaN(Number(data[r][c]))) {
+          data[r][c] = 0;
+        } else {
+          data[r][c] = Number(data[r][c]);
+        }
+      }
+    }
+
+    // 2. Thuật toán tự động sinh số liệu cho Size 20, Size 30, Size 40
+    let updatedRowsCount = 0;
+    for (let r = 4; r < data.length; r++) {
+      const sku = String(data[r][0] || '').trim();
+      if (!sku) continue;
+
+      // TRƯỜNG HỢP A: Có sẵn mẫu Size 30 (-302020)
+      if (sku.endsWith('-302020')) {
+        const prefix = sku.replace('-302020', '');
+        const row30 = data[r];
+        const hasData = woodCols.concat(stoneCols, mossCols).some(c => Number(row30[c]) > 0);
+        if (!hasData) continue;
+
+        // Điền cố định Fomex & Keo cho Size 30 nếu chưa có
+        if (row30[COL.FOMEX_8LI] === 0) row30[COL.FOMEX_8LI] = 0.0405;
+        if (row30[COL.KEO_DK] === 0) row30[COL.KEO_DK] = 40;
+        if (row30[COL.KEO_GC] === 0) row30[COL.KEO_GC] = 120;
+
+        for (let targetR = 4; targetR < data.length; targetR++) {
+          const targetSku = String(data[targetR][0] || '').trim();
+
+          // Tính Size 20
+          if (targetSku === `${prefix}-202020`) {
+            woodCols.forEach(c => { data[targetR][c] = Math.round(Number(row30[c]) * SCALE_FROM_30.TO_20.wood); });
+            stoneCols.forEach(c => { data[targetR][c] = Math.round(Number(row30[c]) * SCALE_FROM_30.TO_20.stone); });
+            mossCols.forEach(c => { data[targetR][c] = Math.round(Number(row30[c]) * SCALE_FROM_30.TO_20.moss); });
+
+            data[targetR][COL.FOMEX_8LI] = SCALE_FROM_30.TO_20.fomex8li;
+            data[targetR][COL.FOMEX_10LI] = SCALE_FROM_30.TO_20.fomex10li;
+            data[targetR][COL.KEO_DK] = SCALE_FROM_30.TO_20.keoDK;
+            data[targetR][COL.KEO_GC] = SCALE_FROM_30.TO_20.keoGC;
+            updatedRowsCount++;
+          }
+
+          // Tính Size 40
+          if (targetSku === `${prefix}-402325`) {
+            woodCols.forEach(c => { data[targetR][c] = Math.round(Number(row30[c]) * SCALE_FROM_30.TO_40.wood); });
+            stoneCols.forEach(c => { data[targetR][c] = Math.round(Number(row30[c]) * SCALE_FROM_30.TO_40.stone); });
+            mossCols.forEach(c => { data[targetR][c] = Math.round(Number(row30[c]) * SCALE_FROM_30.TO_40.moss); });
+
+            data[targetR][COL.FOMEX_8LI] = SCALE_FROM_30.TO_40.fomex8li;
+            data[targetR][COL.FOMEX_10LI] = SCALE_FROM_30.TO_40.fomex10li;
+            data[targetR][COL.KEO_DK] = SCALE_FROM_30.TO_40.keoDK;
+            data[targetR][COL.KEO_GC] = SCALE_FROM_30.TO_40.keoGC;
+            updatedRowsCount++;
           }
         }
       }
-      
-      Logger.log(`Đã sửa thành công ${fixedCount} dòng bị lệch giờ (thành giờ Việt Nam GMT+7).`);
-      
-      // Chạy cập nhật lại KPI ngay lập tức
-      Logger.log('Bắt đầu chạy quét và cập nhật lại toàn bộ tiến độ KPI...');
-      updateKpiProgressData();
-      updateKpiProgressData_Duong();
-      Logger.log('Cập nhật KPI thành công!');
-      
-    } finally {
-      lock.releaseLock();
     }
-  } catch (e) {
-    Logger.log('Lỗi khi chạy hotfix: ' + e.toString());
+
+    // Ghi lại toàn bộ bảng tính định mức 1 lần duy nhất (Batch Write)
+    if (sheetEstimate.getMaxColumns() >= data[0].length) {
+      sheetEstimate.getRange(1, 1, data.length, data[0].length).setValues(data);
+    }
+
+    // 3. ĐỒNG BỘ TRỰC TIẾP VÀO BẢNG BOM_Config
+    const BOM_HEADERS = ['id', 'layoutCode', 'materialSku', 'defaultQty', 'unit'];
+    let bomSheet = activeSs.getSheetByName('BOM_Config');
+    if (!bomSheet) {
+      bomSheet = activeSs.insertSheet('BOM_Config');
+      bomSheet.appendRow(BOM_HEADERS);
+      bomSheet.setFrozenRows(1);
+    }
+
+    // Bảng SKU & Đơn Vị Tính Mapping chuẩn khớp 100% Dòng 4
+    const SKU_MAP = {
+      [COL.SAN_MIENG]: { sku: 'NLSX-LUASANMIENG', unit: 'gam' },
+      [COL.TAI_MEO]: { sku: 'NLSX-TAIMEO', unit: 'gam' },
+      [COL.NHAM_XANH]: { sku: 'NLSX-NHAM', unit: 'gam' },
+      [COL.CUOI]: { sku: 'NLSX-CUOI', unit: 'gam' },
+      [COL.SAN]: { sku: 'NLSX-SAN', unit: 'gam' },
+      [COL.VIA]: { sku: 'NLSX-VIA', unit: 'gam' },
+      [COL.DA_VOI]: { sku: 'NLSX-DAVOI', unit: 'gam' },
+      [COL.SAN_CANH]: { sku: 'NLSX-LUASANCANH', unit: 'gam' },
+      [COL.DO_QUYEN]: { sku: 'NLSX-DOQUYEN', unit: 'gam' },
+      [COL.RE_RUNG]: { sku: 'NLSX-RE', unit: 'gam' },
+      [COL.THACH_SUNG]: { sku: 'NLSX-THACHSUNG', unit: 'gam' },
+      [COL.NHO_NOI]: { sku: 'NLSX-NOIN', unit: 'gam' },
+      [COL.REU_XANH]: { sku: 'NLSX-REU-A04', unit: 'gam' },
+      [COL.REU_DO]: { sku: 'NLSX-REU-A11', unit: 'gam' },
+      [COL.FOMEX_8LI]: { sku: 'NLSX-FOMEX-8li', unit: 'm²' },
+      [COL.FOMEX_10LI]: { sku: 'NLSX-FOMEX10-54', unit: 'm²' }
+    };
+
+    // Giữ lại các BOM Bể Kính đã có sẵn
+    const existingBomData = bomSheet.getDataRange().getValues();
+    const newBomRows = [BOM_HEADERS];
+
+    if (existingBomData && existingBomData.length > 1) {
+      for (let b = 1; b < existingBomData.length; b++) {
+        const row = existingBomData[b];
+        const code = String(row[1] || '').trim();
+        if (code.startsWith('BE') || code.startsWith('TERA') || code.includes('Bể Kính')) {
+          newBomRows.push([
+            row[0] || `BOM_${code}`,
+            code,
+            row[2] || '',
+            Number(row[3]) || 0,
+            row[4] || ''
+          ]);
+        }
+      }
+    }
+
+    // Nạp toàn bộ định mức Layout mới vào
+    for (let r = 4; r < data.length; r++) {
+      const layoutSku = String(data[r][0] || '').trim();
+      const layoutName = String(data[r][1] || '').trim();
+      if (!layoutSku) continue;
+
+      const targetCodes = [layoutSku];
+      if (layoutName && layoutName !== layoutSku) targetCodes.push(layoutName);
+
+      targetCodes.forEach(targetCode => {
+        // Gom Keo 502 (Dựng Khung + Gia Cố)
+        const totalKeoGrams = (Number(data[r][COL.KEO_DK]) || 0) + (Number(data[r][COL.KEO_GC]) || 0);
+        if (totalKeoGrams > 0) {
+          const bottleQty = Number((totalKeoGrams / 162).toFixed(2));
+          newBomRows.push([
+            `BOM_${targetCode}_502`,
+            targetCode,
+            'NLSX-502-1CHAI',
+            bottleQty,
+            'Chai 162g'
+          ]);
+        }
+
+        // Nạp các nguyên liệu còn lại (Giữ nguyên giá trị gam / m2 chuẩn từ bảng tính)
+        Object.keys(SKU_MAP).forEach(colIdx => {
+          const c = Number(colIdx);
+          const val = Number(data[r][c]) || 0;
+          if (val > 0) {
+            const mat = SKU_MAP[c];
+            newBomRows.push([
+              `BOM_${targetCode}_${mat.sku}`,
+              targetCode,
+              mat.sku,
+              val,
+              mat.unit
+            ]);
+          }
+        });
+      });
+    }
+
+    // Ghi đè BOM_Config an toàn (Cố định đúng 5 cột)
+    bomSheet.clearContents();
+    bomSheet.getRange(1, 1, newBomRows.length, 5).setValues(newBomRows);
+
+    // 4. ĐỒNG BỘ GIÁ VỐN TỪ DÒNG SỐ 3 VÀO BẢNG Products (ERP)
+    let priceSyncCount = 0;
+    try {
+      const prodSheet = activeSs.getSheetByName('Products');
+      if (prodSheet) {
+        const prodData = prodSheet.getDataRange().getValues();
+        const priceMap = {};
+        
+        // Parse giá từ dòng 3 (index 2) - Lọc lấy phần số (ví dụ: "35000 / 1kg" -> 35000)
+        Object.keys(SKU_MAP).forEach(colIdx => {
+          const c = Number(colIdx);
+          const rawPriceStr = String(data[2][c] || '');
+          const cleanStr = rawPriceStr.replace(/\./g, '').replace(/,/g, '');
+          const match = cleanStr.match(/\d+/);
+          if (match) priceMap[SKU_MAP[c].sku] = Number(match[0]);
+        });
+        
+        // Đặc thù Keo 502
+        const keoRaw = String(data[2][COL.KEO_DK] || '');
+        const keoMatch = keoRaw.replace(/\./g, '').replace(/,/g, '').match(/\d+/);
+        if (keoMatch) priceMap['NLSX-502-1CHAI'] = Number(keoMatch[0]);
+
+        let costPriceColIdx = -1;
+        let skuColIdx = -1;
+        for (let i = 0; i < prodData[0].length; i++) {
+            if (prodData[0][i] === 'costPrice') costPriceColIdx = i;
+            if (prodData[0][i] === 'sku') skuColIdx = i;
+        }
+
+        if (costPriceColIdx !== -1 && skuColIdx !== -1) {
+            let hasChanges = false;
+            for (let r = 1; r < prodData.length; r++) {
+                const rowSku = String(prodData[r][skuColIdx] || '').trim();
+                if (priceMap[rowSku] !== undefined && priceMap[rowSku] > 0) {
+                    if (Number(prodData[r][costPriceColIdx]) !== priceMap[rowSku]) {
+                        prodData[r][costPriceColIdx] = priceMap[rowSku];
+                        hasChanges = true;
+                        priceSyncCount++;
+                    }
+                }
+            }
+            if (hasChanges) {
+                prodSheet.getRange(1, 1, prodData.length, prodData[0].length).setValues(prodData);
+            }
+        }
+      }
+    } catch (err) {
+      Logger.log('Lỗi đồng bộ giá vốn: ' + err.message);
+    }
+
+    SpreadsheetApp.flush();
+    const successMsg = `✅ Thành công!\n- Đã tự động tính toán hoàn tất ${updatedRowsCount} phân loại kích thước.\n- Đã đồng bộ ${newBomRows.length - 1} bản ghi định mức vào bảng BOM_Config.\n- Đã tự động cập nhật Giá Vốn cho ${priceSyncCount} mã vật tư từ Bảng Chuẩn sang Kho!`;
+    notifyUi(successMsg);
+    return { success: true, message: successMsg, updatedRows: updatedRowsCount, bomRecords: newBomRows.length - 1 };
+
+
+  } catch (err) {
+    const errMsg = '❌ Lỗi xử lý: ' + err.toString();
+    notifyUi(errMsg);
+    return { success: false, error: errMsg };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// =========================================================================
+// API DASHBOARD LỖI KCS & TỒN KHO
+// =========================================================================
+function api_getDashboardErrors() {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    
+    // 1. Lấy lỗi KCS (Từ chối)
+    var prodSheet = ss.getSheetByName('Production');
+    var kcsErrors = [];
+    if (prodSheet) {
+      var pData = prodSheet.getDataRange().getValues();
+      var pHead = pData[0];
+      var qcStatusCol = pHead.indexOf('qc_status');
+      if (qcStatusCol > -1) {
+        for (var i = 1; i < pData.length; i++) {
+          var qc = String(pData[i][qcStatusCol] || '').toUpperCase();
+          if (qc.indexOf('TỪ CHỐI') > -1 || qc.indexOf('BÁO LỖI') > -1 || qc === 'LỖI') {
+            var rowObj = {};
+            pHead.forEach(function(h, idx) {
+              rowObj[h] = pData[i][idx];
+            });
+            kcsErrors.push(rowObj);
+          }
+        }
+      }
+    }
+    
+    // 2. Lấy lỗi Tồn Kho (Lệch Tồn hoặc Cảnh Báo)
+    var invSheet = ss.getSheetByName('Products');
+    var invErrors = [];
+    if (invSheet) {
+      var iData = invSheet.getDataRange().getValues();
+      var iHead = iData[0];
+      var qtyCol = iHead.indexOf('quantity');
+      var minCol = iHead.indexOf('minStock');
+      var maxCol = iHead.indexOf('maxStock');
+      if (qtyCol > -1 && minCol > -1) {
+        for (var j = 1; j < iData.length; j++) {
+          var qty = Number(iData[j][qtyCol]) || 0;
+          var min = Number(iData[j][minCol]) || 0;
+          var max = Number(iData[j][maxCol]) || 0;
+          // Phát hiện lỗi tồn: âm kho, dưới mức tối thiểu quá sâu, hoặc trên mức tối đa
+          if (qty < 0 || (min > 0 && qty < min) || (max > 0 && qty > max)) {
+            var rObj = {};
+            iHead.forEach(function(h, idx) {
+              rObj[h] = iData[j][idx];
+            });
+            rObj._errorType = qty < 0 ? 'ÂM KHO' : (qty < min ? 'DƯỚI ĐỊNH MỨC' : 'VƯỢT ĐỊNH MỨC');
+            invErrors.push(rObj);
+          }
+        }
+      }
+    }
+    
+    return { success: true, data: { kcsErrors: kcsErrors, invErrors: invErrors } };
+  } catch (err) {
+    return { success: false, message: 'Lỗi tải Dashboard: ' + err.message };
   }
 }

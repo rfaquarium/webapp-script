@@ -12,7 +12,7 @@ const SuppliersTab = React.memo(function SuppliersTab({ data, pushData, isAdmin,
     const [isSaving, setIsSaving] = React.useState(false);
     const [historyFilters, setHistoryFilters] = React.useState({}); // supId -> ALL, UNPAID
 
-    const [newSup, setNewSup] = React.useState({ id: null, name: '', phone: '', category: 'HÀNG HOÁ', note: '' });
+    const [newSup, setNewSup] = React.useState({ id: null, name: '', phone: '', category: 'HÀNG HOÁ', note: '', totalDebt: 0 });
     const [payingLog, setPayingLog] = React.useState(null);
     const [payAccId, setPayAccId] = React.useState('');
     const [payAmount, setPayAmount] = React.useState('');
@@ -99,11 +99,12 @@ const SuppliersTab = React.memo(function SuppliersTab({ data, pushData, isAdmin,
         if (!newSup.name.trim()) return triggerToast('Vui lòng nhập Tên Nhà Cung Cấp!', 'fa-exclamation', 'warning');
         setIsSaving(true);
         try {
+            const debtInputVal = Number(newSup.totalDebt || 0);
             if (newSup.id) {
                 const existing = suppliers.find(s => s.id === newSup.id);
-                const payload = { Suppliers: [{ ...existing, name: newSup.name, phone: newSup.phone, category: newSup.category, note: newSup.note }] };
+                const payload = { Suppliers: [{ ...existing, name: newSup.name, phone: newSup.phone, category: newSup.category, note: newSup.note, totalDebt: debtInputVal }] };
                 
-                // CRITICAL FIX: If name changed, update all associated ImportExport logs
+                // QUÉT & ĐỒNG BỘ KHÓA NGOẠI: Cập nhật lại mục tiêu (target) của ImportExport nếu Nhà cung cấp bị đổi tên
                 if (existing.name !== newSup.name) {
                     const relatedLogs = (data.ImportExport || []).filter(log => log.type === 'Nhập' && log.target === existing.name);
                     if (relatedLogs.length > 0) {
@@ -114,11 +115,11 @@ const SuppliersTab = React.memo(function SuppliersTab({ data, pushData, isAdmin,
                 await pushData(payload);
                 triggerToast('Cập nhật Nhà Cung Cấp thành công!', 'fa-check', 'success');
             } else {
-                await pushData({ Suppliers: [{ id: 'SUP_' + Date.now(), name: newSup.name, phone: newSup.phone, category: newSup.category, note: newSup.note, totalDebt: 0 }] });
+                await pushData({ Suppliers: [{ id: 'SUP_' + Date.now(), name: newSup.name, phone: newSup.phone, category: newSup.category, note: newSup.note, totalDebt: debtInputVal }] });
                 triggerToast('Tạo Nhà Cung Cấp thành công!', 'fa-check', 'success');
             }
             setShowAddModal(false);
-            setNewSup({ id: null, name: '', phone: '', category: 'HÀNG HOÁ', note: '' });
+            setNewSup({ id: null, name: '', phone: '', category: 'HÀNG HOÁ', note: '', totalDebt: 0 });
         } catch (e) { triggerToast('Gặp lỗi khi lưu Nhà Cung Cấp: ' + e.message, 'fa-times', 'danger'); }
         setIsSaving(false);
     };
@@ -427,7 +428,7 @@ const SuppliersTab = React.memo(function SuppliersTab({ data, pushData, isAdmin,
                         <input type="text" placeholder="Tìm kiếm nhà cung cấp..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl pl-9 pr-4 py-2.5 text-[12px] font-bold text-white outline-none focus:border-[#10b981] shadow-inner transition-colors" />
                         {searchTerm && <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white text-xs"><i className="fas fa-times-circle"></i></button>}
                     </div>
-                    <button onClick={() => { setNewSup({ id: null, name: '', phone: '', category: 'HÀNG HOÁ', note: '' }); setShowAddModal(true); }} className="px-5 py-3 bg-[#10b981] hover:bg-emerald-500 text-[#0a0a0a] font-black text-[11px] tracking-wider rounded-xl transition-all shadow-[0_0_15px_rgba(16,185,129,0.2)] active:scale-95 whitespace-nowrap uppercase flex items-center gap-1.5">
+                    <button onClick={() => { setNewSup({ id: null, name: '', phone: '', category: 'HÀNG HOÁ', note: '', totalDebt: 0 }); setShowAddModal(true); }} className="px-5 py-3 bg-[#10b981] hover:bg-emerald-500 text-[#0a0a0a] font-black text-[11px] tracking-wider rounded-xl transition-all shadow-[0_0_15px_rgba(16,185,129,0.2)] active:scale-95 whitespace-nowrap uppercase flex items-center gap-1.5">
                         <i className="fas fa-plus"></i> Mới
                     </button>
                 </div>
@@ -492,14 +493,36 @@ const SuppliersTab = React.memo(function SuppliersTab({ data, pushData, isAdmin,
                                                 <div className="flex items-center gap-3 shrink-0">
                                                     <div className="text-right">
                                                         <div className="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-0.5">CÔNG NỢ</div>
-                                                        <div className={`text-[15px] font-black leading-none ${hasDebt ? 'text-rose-500' : 'text-emerald-500'}`}>
-                                                            {displayMoney(sup.totalDebt)}đ
-                                                        </div>
+                                                        {(() => {
+                                                            const debtVal = Number(sup.totalDebt || 0);
+                                                            if (debtVal > 0) {
+                                                                return (
+                                                                    <div className="text-[15px] font-black leading-none text-rose-500 font-mono" title="Nợ cần trả nhà cung cấp">
+                                                                        {displayMoney(debtVal)}đ
+                                                                    </div>
+                                                                );
+                                                            } else if (debtVal < 0) {
+                                                                return (
+                                                                    <div className="flex flex-col items-end">
+                                                                        <div className="text-[14px] font-black leading-none text-sky-400 font-mono" title="Đã trả thừa / ứng tiền trước cho NCC">
+                                                                            {displayMoney(debtVal)}đ
+                                                                        </div>
+                                                                        <span className="text-[8px] font-black bg-sky-500/10 text-sky-400 border border-sky-500/20 px-1 py-0.5 rounded mt-1 uppercase tracking-wider">Đã trả thừa</span>
+                                                                    </div>
+                                                                );
+                                                            } else {
+                                                                return (
+                                                                    <div className="text-[15px] font-black leading-none text-gray-400 font-mono" title="Không có công nợ">
+                                                                        0đ
+                                                                    </div>
+                                                                );
+                                                            }
+                                                        })()}
                                                     </div>
 
                                                     {/* NÚT SỬA */}
                                                     {isAdmin && (
-                                                        <button onClick={(e) => { e.stopPropagation(); setNewSup({ id: sup.id, name: sup.name, phone: sup.phone || '', category: sup.category || 'HÀNG HOÁ', note: sup.note || '' }); setShowAddModal(true); }} className="w-8 h-8 rounded-lg bg-[#0a0a0a] border border-[#2a2a2a] text-gray-500 hover:text-amber-500 hover:border-amber-500/20 transition-all flex items-center justify-center active:scale-95" title="Sửa nhà cung cấp">
+                                                        <button onClick={(e) => { e.stopPropagation(); setNewSup({ id: sup.id, name: sup.name, phone: sup.phone || '', category: sup.category || 'HÀNG HOÁ', note: sup.note || '', totalDebt: Number(sup.totalDebt || 0) }); setShowAddModal(true); }} className="w-8 h-8 rounded-lg bg-[#0a0a0a] border border-[#2a2a2a] text-gray-500 hover:text-amber-500 hover:border-amber-500/20 transition-all flex items-center justify-center active:scale-95" title="Sửa nhà cung cấp">
                                                             <i className="fas fa-edit text-[11px]"></i>
                                                         </button>
                                                     )}
@@ -645,6 +668,24 @@ const SuppliersTab = React.memo(function SuppliersTab({ data, pushData, isAdmin,
                             <div>
                                 <label className="text-[10px] font-black text-gray-500 uppercase block mb-1.5">GHI CHÚ LƯU Ý</label>
                                 <textarea rows="2" value={newSup.note} onChange={e => setNewSup({...newSup, note: e.target.value})} disabled={isSaving} className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-3 text-[12px] text-white font-medium outline-none focus:border-[#10b981] shadow-inner" placeholder="Ghi chú nhân viên lấy gì ở đâu của ai..."></textarea>
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-black text-gray-500 uppercase block mb-1.5 flex items-center justify-between">
+                                    <span>CÔNG NỢ ĐIỀU CHỈNH</span>
+                                    <span className="text-[9px] text-[#10b981] font-mono font-bold">VND</span>
+                                </label>
+                                <input 
+                                    type="number" 
+                                    value={newSup.totalDebt ?? 0} 
+                                    onChange={e => setNewSup({...newSup, totalDebt: e.target.value})} 
+                                    disabled={isSaving} 
+                                    className="w-full bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-3 text-[13px] text-amber-400 font-mono font-black outline-none focus:border-[#10b981]" 
+                                    placeholder="0" 
+                                />
+                                <div className="text-[9px] text-gray-500 mt-1 italic leading-tight">
+                                    • Số dương (vd: 500000) = Ta nợ nhà cung cấp.<br/>
+                                    • Số âm (vd: -250000) = Ta đã trả thừa/đang ứng tiền cho NCC.
+                                </div>
                             </div>
                         </div>
                         <div className="pt-5 mt-2 border-t border-[#222]">

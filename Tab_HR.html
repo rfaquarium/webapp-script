@@ -14,8 +14,8 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
   
   // PHÂN QUYỀN CHUẨN CHỈ: Chỉ Quản lý Nhân sự mới được Sửa Công. Các nút Tiền/KPI đều là isBoss.
   const canEditAttendance = (hasPerm && hasPerm('HR_PAYROLL')) || isBoss || currentRole === 'NHÂN SỰ' || currentRole === 'QUẢN LÝ';
-  const canManagePayroll = (hasPerm && (hasPerm('HR_PAYROLL') || hasPerm('FINANCE'))) || isBoss || currentRole === 'KẾ TOÁN' || currentRole === 'NHÂN SỰ' || currentRole === 'QUẢN LÝ';
-
+  const canManagePayroll = isBoss || String(currentRole).toUpperCase() === 'KẾ TOÁN' || String(currentRole).toUpperCase() === 'TỐI CAO';
+  const canPenalize = isBoss || ['QUẢN LÝ NHÂN SỰ', 'QUẢN LÝ KHO', 'QUẢN LÝ BÁN HÀNG', 'TỐI CAO'].includes(String(currentRole).toUpperCase());
 
   const formatMoney = (val) => Math.ceil(Number(val || 0)).toLocaleString('vi-VN');
   const cleanNumber = (val) => typeof val === 'number' ? val : Number(String(val || '').replace(/[^0-9]/g, '')) || 0;
@@ -53,70 +53,137 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
   const [viewingPayslip, setViewingPayslip] = React.useState(null);
   
   const sharedTasks = React.useMemo(() => {
-    return (safeProdItems || []).filter(i => i.orderId === 'SHARED_TASK');
-  }, [safeProdItems]);
+    return (safeProdItems || []).filter(i => i.orderId === 'SHARED_TASK' && isDateInRange(i.createdAt || i.deadline || i.date || i.startTime, filter, customMonth));
+  }, [safeProdItems, filter, customMonth]);
   // --------------------------
 
   const handleDirectEdit = (e, p, fieldName, displayLabel, currentVal) => {
       e.stopPropagation();
-      const newVal = prompt(`Sửa ${displayLabel} (Dữ liệu gốc) cho ${p.user}:\nNhập số tiền mới (VND):`, currentVal);
-      if (newVal === null) return;
-      
-      const cleanVal = newVal.replace(/[^0-9]/g, '');
-      const numSalary = Number(cleanVal) || 0;
-      
-      let updatedSalaries = { ...(userConfigs?.salaries || {}) };
-      updatedSalaries[p.user] = {
-          ...(updatedSalaries[p.user] || {})
-      };
-      
-      if (fieldName === 'baseSalary') {
-          updatedSalaries[p.user].baseSalary = numSalary;
-          updatedSalaries[p.user]['Lương Cơ Bản'] = numSalary;
-      } else if (fieldName === 'funcSalary') {
-          updatedSalaries[p.user].funcSalary = numSalary;
-          updatedSalaries[p.user]['Lương Chức Vụ'] = numSalary;
-      } else if (fieldName === 'allowance') {
-          updatedSalaries[p.user].allowance = numSalary;
-          updatedSalaries[p.user]['Phụ Cấp Xăng Xe'] = numSalary;
-      }
+      Swal.fire({
+          title: `Chỉnh Sửa Lương`,
+          html: `
+              <div class="text-left mb-2">
+                  <div class="text-xs text-gray-400">Nhân sự: <span class="text-amber-400 font-bold">${p.user}</span></div>
+                  <div class="text-xs text-gray-400">Khoản mục: <span class="text-amber-400 font-bold">${displayLabel}</span></div>
+              </div>
+              <input id="swal-salary-input" type="number" class="w-full bg-[#111] border border-[#333] text-white p-3 rounded-xl outline-none focus:border-amber-500" value="${currentVal}" placeholder="Nhập số tiền mới (VND)">
+              <div class="text-[10px] text-gray-500 mt-2"><i class="fas fa-info-circle"></i> Hành động này sẽ được lưu Log bảo mật.</div>
+          `,
+          showCancelButton: true,
+          confirmButtonText: 'Lưu thay đổi',
+          cancelButtonText: 'Hủy',
+          background: '#1a1a1a',
+          color: '#fff',
+          confirmButtonColor: '#10b981',
+          cancelButtonColor: '#333',
+          preConfirm: () => {
+              return document.getElementById('swal-salary-input').value;
+          }
+      }).then((result) => {
+          if (result.isConfirmed) {
+              const newVal = result.value;
+              const cleanVal = newVal.replace(/[^0-9]/g, '');
+              const numSalary = Number(cleanVal) || 0;
+              
+              let updatedSalaries = { ...(userConfigs?.salaries || {}) };
+              updatedSalaries[p.user] = {
+                  ...(updatedSalaries[p.user] || {})
+              };
+              
+              const oldSalary = Number(updatedSalaries[p.user][fieldName] || updatedSalaries[p.user][displayLabel] || 0);
 
-      const newUserConfigs = {
-          ...userConfigs,
-          salaries: updatedSalaries
-      };
+              if (fieldName === 'baseSalary') {
+                  updatedSalaries[p.user].baseSalary = numSalary;
+                  updatedSalaries[p.user]['Lương Cơ Bản'] = numSalary;
+              } else if (fieldName === 'funcSalary') {
+                  updatedSalaries[p.user].funcSalary = numSalary;
+                  updatedSalaries[p.user]['Lương Chức Vụ'] = numSalary;
+              } else if (fieldName === 'allowance') {
+                  updatedSalaries[p.user].allowance = numSalary;
+                  updatedSalaries[p.user]['Phụ Cấp Xăng Xe'] = numSalary;
+              }
 
-      if (pushDeltas) {
-          pushDeltas({ UserConfigs: [newUserConfigs] }, `Đã lưu ${displayLabel} cho ${p.user}!`, 'fa-check');
-      } else {
-          triggerToast('Lỗi: Thiếu quyền đồng bộ', 'fa-times', 'danger');
-      }
+              const newUserConfigs = {
+                  ...userConfigs,
+                  salaries: updatedSalaries
+              };
+
+              // TẠO AUDIT LOG BẢO MẬT
+              const auditLog = {
+                  id: `AUDIT_SALARY_${Date.now()}_${Math.floor(Math.random()*1000)}`,
+                  user: p.user,
+                  amount: 0,
+                  type: 'Điều Chỉnh Lương',
+                  date: new Date().toISOString().slice(0, 10),
+                  note: `[BẢO MẬT] ${currentUser} đổi ${displayLabel}: ${formatMoney(oldSalary)}đ -> ${formatMoney(numSalary)}đ`,
+                  orderCode: 'SYS_AUDIT'
+              };
+
+              if (pushDeltas) {
+                  pushDeltas({ UserConfigs: [newUserConfigs], BonusPenalty: [auditLog] }, `Đã lưu ${displayLabel} cho ${p.user}!`, 'fa-check');
+              } else {
+                  triggerToast('Lỗi: Thiếu quyền đồng bộ', 'fa-times', 'danger');
+              }
+          }
+      });
   };
 
   const handleDirectBonusEdit = (e, p, type, currentAmount) => {
       e.stopPropagation();
-      const newVal = prompt(`Sửa [${type}] cho ${p.user}:\nNhập số tiền mới (VND):`, currentAmount);
-      if (newVal === null) return;
-      
-      const cleanVal = newVal.replace(/[^0-9-]/g, '');
-      const numVal = Number(cleanVal) || 0;
-      
-      const bpId = `BP_${type.replace(/ /g, '')}_${p.user}_${filterMonth}`;
-      const newBP = {
-          id: bpId,
-          user: p.user,
-          amount: numVal,
-          type: type,
-          date: payrollTargetDate,
-          note: 'Sửa trực tiếp',
-          isResolved: true
-      };
-      
-      if (pushDeltas) {
-          pushDeltas({ BonusPenalty: [newBP] }, `Đã lưu ${type} cho ${p.user}!`, 'fa-check');
-      } else {
-          triggerToast('Lỗi: Thiếu quyền đồng bộ', 'fa-times', 'danger');
-      }
+      Swal.fire({
+          title: `Sửa ${type}`,
+          html: `
+              <div class="text-left mb-2">
+                  <div class="text-xs text-gray-400">Nhân sự: <span class="text-blue-400 font-bold">${p.user}</span></div>
+              </div>
+              <input id="swal-bonus-input" type="number" class="w-full bg-[#111] border border-[#333] text-white p-3 rounded-xl outline-none focus:border-blue-500" value="${currentAmount}" placeholder="Nhập số tiền mới (VND)">
+              <div class="text-[10px] text-gray-500 mt-2"><i class="fas fa-history"></i> Có lưu vết (Audit Log).</div>
+          `,
+          showCancelButton: true,
+          confirmButtonText: 'Lưu thay đổi',
+          cancelButtonText: 'Hủy',
+          background: '#1a1a1a',
+          color: '#fff',
+          confirmButtonColor: '#3b82f6',
+          cancelButtonColor: '#333',
+          preConfirm: () => {
+              return document.getElementById('swal-bonus-input').value;
+          }
+      }).then((result) => {
+          if (result.isConfirmed) {
+              const newVal = result.value;
+              const cleanVal = newVal.replace(/[^0-9-]/g, '');
+              const numVal = Number(cleanVal) || 0;
+              
+              const bpId = `BP_${type.replace(/ /g, '')}_${p.user}_${filterMonth}`;
+              const newBP = {
+                  id: bpId,
+                  user: p.user,
+                  amount: numVal,
+                  type: type,
+                  date: payrollTargetDate,
+                  note: 'Sửa trực tiếp',
+                  isResolved: true
+              };
+              
+              // LOG AUDIT
+              const auditLog = {
+                  id: `AUDIT_BONUS_${Date.now()}_${Math.floor(Math.random()*1000)}`,
+                  user: p.user,
+                  amount: 0,
+                  type: 'Điều Chỉnh Lương',
+                  date: new Date().toISOString().slice(0, 10),
+                  note: `[BẢO MẬT] ${currentUser} đổi ${type}: ${formatMoney(currentAmount)}đ -> ${formatMoney(numVal)}đ`,
+                  orderCode: 'SYS_AUDIT'
+              };
+
+              if (pushDeltas) {
+                  pushDeltas({ BonusPenalty: [newBP, auditLog] }, `Đã lưu ${type} cho ${p.user}!`, 'fa-check');
+              } else {
+                  triggerToast('Lỗi: Thiếu quyền đồng bộ', 'fa-times', 'danger');
+              }
+          }
+      });
   };
 
   const handleAddPrintComment = (e, p) => {
@@ -193,6 +260,181 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
 
   const [editingPayroll, setEditingPayroll] = React.useState(null);
   const [directPenalty, setDirectPenalty] = React.useState(null);
+  const [expandedTaskMap, setExpandedTaskMap] = React.useState({});
+
+  const formatExactDateTime = (dateStr) => {
+      if (!dateStr) return '---';
+      try {
+          const d = new Date(dateStr);
+          if (isNaN(d.getTime())) return String(dateStr);
+          const hours = String(d.getHours()).padStart(2, '0');
+          const mins = String(d.getMinutes()).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          const month = String(d.getMonth() + 1).padStart(2, '0');
+          const year = d.getFullYear();
+          return `${hours}:${mins} ngày ${day}/${month}/${year}`;
+      } catch(e) {
+          return String(dateStr);
+      }
+  };
+
+  const getLevelColorStyle = (lvl) => {
+      const tier = Math.floor((Math.max(1, lvl) - 1) / 5);
+      const styles = [
+          /* Tier 0: Lvl 1-5 (Slate Rookie) */
+          { 
+              cardBg: 'bg-[#0f1115] border-[#222]',
+              badge: 'bg-slate-800 text-slate-300 border-slate-600',
+              bar: 'from-slate-600 to-slate-400',
+              border: 'border-l-slate-600',
+              avatarRing: 'border-slate-600'
+          },
+          /* Tier 1: Lvl 6-10 (Amber Apprentice) */
+          { 
+              cardBg: 'bg-gradient-to-br from-[#16120b] to-[#0d0c0a] border-amber-900/50 shadow-[0_0_15px_rgba(217,119,6,0.15)]',
+              badge: 'bg-amber-950/90 text-amber-400 border-amber-600/70 shadow-[0_0_8px_rgba(245,158,11,0.3)]',
+              bar: 'from-amber-600 to-yellow-400',
+              border: 'border-l-amber-500',
+              avatarRing: 'border-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.4)]'
+          },
+          /* Tier 2: Lvl 11-15 (Cyber Emerald) */
+          { 
+              cardBg: 'bg-gradient-to-br from-[#0a1813] to-[#080f0c] border-emerald-600/60 shadow-[0_0_20px_rgba(16,185,129,0.2)]',
+              badge: 'bg-emerald-950/90 text-emerald-300 border-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.5)]',
+              bar: 'from-emerald-500 to-teal-300',
+              border: 'border-l-emerald-400',
+              avatarRing: 'border-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.6)]'
+          },
+          /* Tier 3: Lvl 16-20 (Neon Cyan) */
+          { 
+              cardBg: 'bg-gradient-to-br from-[#081825] to-[#060e17] border-cyan-500/70 shadow-[0_0_25px_rgba(6,182,212,0.25)]',
+              badge: 'bg-cyan-950/90 text-cyan-300 border-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.6)]',
+              bar: 'from-cyan-500 to-blue-300',
+              border: 'border-l-cyan-400',
+              avatarRing: 'border-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.7)]'
+          },
+          /* Tier 4: Lvl 21-25 (Royal Cobalt) */
+          { 
+              cardBg: 'bg-gradient-to-br from-[#0b132b] to-[#070a18] border-blue-500/80 shadow-[0_0_30px_rgba(59,130,246,0.3)]',
+              badge: 'bg-blue-950/90 text-blue-200 border-blue-400 shadow-[0_0_18px_rgba(96,165,250,0.7)]',
+              bar: 'from-blue-600 to-indigo-300',
+              border: 'border-l-blue-400',
+              avatarRing: 'border-blue-400 shadow-[0_0_18px_rgba(96,165,250,0.8)]'
+          },
+          /* Tier 5: Lvl 26-30 (Mystic Purple) */
+          { 
+              cardBg: 'bg-gradient-to-br from-[#180c2c] to-[#0e061b] border-purple-500/80 shadow-[0_0_35px_rgba(168,85,247,0.35)]',
+              badge: 'bg-purple-950/90 text-purple-200 border-purple-400 shadow-[0_0_20px_rgba(192,132,252,0.8)]',
+              bar: 'from-purple-600 to-fuchsia-300',
+              border: 'border-l-purple-400',
+              avatarRing: 'border-purple-400 shadow-[0_0_20px_rgba(192,132,252,0.8)]'
+          },
+          /* Tier 6: Lvl 31-35 (Cyber Fuchsia) */
+          { 
+              cardBg: 'bg-gradient-to-br from-[#240822] to-[#120411] border-fuchsia-500/80 shadow-[0_0_40px_rgba(217,70,239,0.4)]',
+              badge: 'bg-fuchsia-950/90 text-fuchsia-200 border-fuchsia-400 shadow-[0_0_22px_rgba(232,121,249,0.85)]',
+              bar: 'from-fuchsia-600 to-pink-300',
+              border: 'border-l-fuchsia-400',
+              avatarRing: 'border-fuchsia-400 shadow-[0_0_22px_rgba(232,121,249,0.9)]'
+          },
+          /* Tier 7: Lvl 36-40 (Blood Crimson) */
+          { 
+              cardBg: 'bg-gradient-to-br from-[#260808] to-[#130303] border-rose-500 shadow-[0_0_45px_rgba(244,63,94,0.45)]',
+              badge: 'bg-rose-950/95 text-rose-200 border-rose-500 shadow-[0_0_25px_rgba(244,63,94,0.9)] animate-pulse',
+              bar: 'from-rose-600 to-red-400',
+              border: 'border-l-rose-500',
+              avatarRing: 'border-rose-500 shadow-[0_0_25px_rgba(244,63,94,1)] animate-pulse'
+          },
+          /* Tier 8: Lvl 41-45 (Flame Phoenix) */
+          { 
+              cardBg: 'bg-gradient-to-br from-[#2c1005] to-[#150602] border-orange-500 shadow-[0_0_50px_rgba(249,115,22,0.5)]',
+              badge: 'bg-gradient-to-r from-orange-600 to-amber-500 text-black border-amber-300 font-black shadow-[0_0_25px_rgba(251,146,60,0.9)]',
+              bar: 'from-orange-500 via-amber-400 to-yellow-300',
+              border: 'border-l-orange-400',
+              avatarRing: 'border-orange-400 shadow-[0_0_25px_rgba(251,146,60,1)] animate-pulse'
+          },
+          /* Tier 9: Lvl 46-50 (Solar Gold Warlord) */
+          { 
+              cardBg: 'bg-gradient-to-br from-[#2c2005] to-[#150f02] border-yellow-400 shadow-[0_0_55px_rgba(234,179,8,0.55)]',
+              badge: 'bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-500 text-black border-yellow-200 font-black shadow-[0_0_30px_rgba(250,204,21,1)] animate-pulse',
+              bar: 'from-yellow-400 via-amber-300 to-yellow-100',
+              border: 'border-l-yellow-300',
+              avatarRing: 'border-yellow-300 shadow-[0_0_30px_rgba(250,204,21,1)] animate-pulse'
+          },
+          /* Tier 10: Lvl 51-55 (Celestial Prism Overlord) */
+          { 
+              cardBg: 'bg-gradient-to-br from-[#1a1c2e] via-[#09152b] to-[#1a0a2a] border-cyan-400 shadow-[0_0_60px_rgba(6,182,212,0.6)]',
+              badge: 'bg-gradient-to-r from-cyan-400 via-amber-300 to-fuchsia-500 text-black border-2 border-white font-black shadow-[0_0_35px_rgba(255,255,255,1)] animate-bounce',
+              bar: 'from-cyan-400 via-amber-300 to-fuchsia-400',
+              border: 'border-l-cyan-300',
+              avatarRing: 'border-cyan-300 shadow-[0_0_35px_rgba(6,182,212,1)] animate-bounce'
+          },
+          /* Tier 11+: Lvl 56-100 (Godlike Supreme) */
+          { 
+              cardBg: 'bg-gradient-to-br from-[#2a0e2e] via-[#1a0a2a] to-[#0a1e2e] border-amber-300 shadow-[0_0_70px_rgba(251,191,36,0.7)] animate-pulse',
+              badge: 'bg-gradient-to-r from-amber-300 via-rose-400 via-cyan-400 to-amber-300 text-black border-2 border-amber-200 font-black shadow-[0_0_40px_rgba(251,191,36,1)] animate-bounce',
+              bar: 'from-amber-300 via-cyan-300 to-white',
+              border: 'border-l-amber-300',
+              avatarRing: 'border-amber-300 shadow-[0_0_40px_rgba(251,191,36,1)] animate-bounce'
+          }
+      ];
+      return styles[Math.min(tier, styles.length - 1)];
+  };
+
+  const get100LevelInfo = (totalExp) => {
+      const exp = Math.max(0, Number(totalExp) || 0);
+      const MAX_EXP = 2000000000; // 2 Tỷ EXP (20 năm cống hiến)
+      
+      if (exp >= MAX_EXP) {
+          return {
+              level: 100,
+              currentBaseExp: MAX_EXP,
+              nextBaseExp: MAX_EXP,
+              expInLevel: 0,
+              neededForNext: 0,
+              progressPct: 100,
+              title: 'TỐI CAO GRANDMASTER',
+              colorStyle: getLevelColorStyle(100)
+          };
+      }
+
+      let level = Math.floor(Math.pow(exp / MAX_EXP, 1 / 2.25) * 99) + 1;
+      level = Math.max(1, Math.min(99, level));
+
+      const getExpForLevel = (l) => {
+          if (l <= 1) return 0;
+          if (l >= 100) return MAX_EXP;
+          return Math.round(MAX_EXP * Math.pow((l - 1) / 99, 2.25));
+      };
+
+      const currentBaseExp = getExpForLevel(level);
+      const nextBaseExp = getExpForLevel(level + 1);
+      const expInLevel = exp - currentBaseExp;
+      const neededForNext = Math.max(1, nextBaseExp - currentBaseExp);
+      const progressPct = Math.min(100, Math.max(0, (expInLevel / neededForNext) * 100));
+
+      let title = 'Tân Thủ';
+      if (level >= 90) title = 'Huyền Thoại Xưởng';
+      else if (level >= 80) title = 'Đại Tôn Tự';
+      else if (level >= 70) title = 'Táo Quân Xưởng';
+      else if (level >= 60) title = 'Cao Thủ Kỳ Cựu';
+      else if (level >= 50) title = 'Trụ Cột Doanh Nghiệp';
+      else if (level >= 40) title = 'Chuyên Gia Tinh Anh';
+      else if (level >= 30) title = 'Thợ Lành Nghề';
+      else if (level >= 20) title = 'Nhân Sự Vững Vàng';
+      else if (level >= 10) title = 'Thành Viên Tích Cực';
+
+      return {
+          level,
+          currentBaseExp,
+          nextBaseExp,
+          expInLevel,
+          neededForNext,
+          progressPct,
+          title,
+          colorStyle: getLevelColorStyle(level)
+      };
+  };
 
   const extractTimeLocal = (str) => {
       if (!str) return null;
@@ -223,14 +465,12 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
   const isDateInRange = (dateStr, filterStr = filter, customM = customMonth) => {
       if (!dateStr) return false;
       const d = new Date(dateStr); const today = new Date();
-      if (filterStr === 'Hôm Nay') return d.toDateString() === today.toDateString();
-      if (filterStr === 'Hôm Qua') { const y = new Date(today); y.setDate(y.getDate() - 1); return d.toDateString() === y.toDateString(); }
       if (filterStr === 'Tháng Này') return d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
       if (filterStr === 'Tháng Trước') { 
           const m = new Date(today); m.setMonth(m.getMonth() - 1);
           return d.getMonth() === m.getMonth() && d.getFullYear() === m.getFullYear(); 
       }
-      if (filterStr === 'Tuỳ Chỉnh') {
+      if (filterStr === 'Tuỳ Chỉnh' || filterStr === 'Chọn Tháng') {
           if (!customM) return true;
           const [year, month] = customM.split('-');
           return d.getFullYear() === parseInt(year, 10) && d.getMonth() === (parseInt(month, 10) - 1);
@@ -318,6 +558,7 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
   const [leaveForm, setLeaveForm] = React.useState({ date: currentDate, shift: 'Cả Ngày', note: '' });
   const [showHistoryUser, setShowHistoryUser] = React.useState(null);
   const [expandedPayroll, setExpandedPayroll] = React.useState(null);
+  const [userInnerTab, setUserInnerTab] = React.useState({});
   const [editAtt, setEditAtt] = React.useState(null);
   const [payrollAction, setPayrollAction] = React.useState(null);
 
@@ -436,10 +677,26 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
 
   const submitLeave = async () => {
       if(!leaveForm.date || !leaveForm.shift) return triggerToast('Thiếu thông tin!', 'fa-exclamation', 'warning');
+      
+      const targetUser = leaveForm.user || currentUser;
+
+      // KIỂM TRA QUY ĐỊNH 1 NGƯỜI NGHỈ/NGÀY
+      const someoneElseOnLeave = attData.find(a => 
+          a.date === leaveForm.date && 
+          String(a.shift).includes('Nghỉ Phép') && 
+          String(a.user).trim() !== String(targetUser).trim() &&
+          !String(a.status).toLowerCase().includes('hủy') &&
+          !String(a.status).toLowerCase().includes('từ chối')
+      );
+
+      if (someoneElseOnLeave && !canEditAttendance) {
+          return triggerToast(`Từ chối! Đã có ${someoneElseOnLeave.user} báo nghỉ vào ngày ${leaveForm.date.split('-').reverse().join('/')}. Quy định chỉ 1 người được nghỉ/ngày.`, 'fa-ban', 'danger');
+      }
+
       const sDate = new Date(leaveForm.date + 'T00:00:00');
       const hoursNotice = (sDate.getTime() - new Date().getTime()) / 3600000;
       
-      const leavesThisPeriod = attData.filter(a => String(a.user).trim() === currentUser.trim() && a.date && isDateInRange(a.date) && String(a.shift).includes('Nghỉ Phép'));
+      const leavesThisPeriod = attData.filter(a => String(a.user).trim() === String(targetUser).trim() && a.date && isDateInRange(a.date) && String(a.shift).includes('Nghỉ Phép'));
       let totalLeaveDays = 0;
       leavesThisPeriod.forEach(l => {
           if (l.leaveShift === 'Cả Ngày' || !l.leaveShift) totalLeaveDays += 1;
@@ -456,7 +713,7 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
       
       const payload = { 
           id: `ATT_LEAVE_${Date.now()}`, 
-          user: currentUser, 
+          user: targetUser, 
           date: leaveForm.date, 
           shift: 'Nghỉ Phép', 
           leaveShift: leaveForm.shift,
@@ -481,14 +738,38 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
 
       const phase = String(k.kpiName || '').toLowerCase();
 
-      if (phase.includes('phase1') || phase.includes('cắt') || phase.includes('dán') || phase.includes('dựng') || phase.includes('khâu 1')) {
+      // 1. KPI BÁN HÀNG / DOANH THU
+      if (phase.includes('doanh thu') || phase.includes('bán hàng') || phase.includes('sale') || phase.includes('chốt đơn') || phase.includes('thanh lý')) {
+          let revTotal = 0;
+          let revPending = 0;
+          const allOrders = orders || erpData?.orders || erpData?.Orders || [];
+          allOrders.forEach(o => {
+              const oUser = o.responsibleUser || o.updatedBy || o.user;
+              const oDate = o.reconciledAt || o.createdAt || o.date;
+              const oStatus = String(o.status || '').trim();
+              if (String(oUser).trim() === String(u).trim() && inR(oDate)) {
+                  // Doanh thu thực nhận (KPI chính thức)
+                  if (oStatus === 'Đối Soát Thành Công' || oStatus === 'Hoàn Thành' || (o.isReconciled === true || o.isReconciled === 'true')) {
+                      revTotal += Number(o.revenue || 0);
+                  }
+                  // Doanh thu tạm tính (Đơn đang xử lý, chưa Hủy/Hoàn)
+                  else if (!oStatus.includes('Hủy') && !oStatus.includes('Huỷ') && !oStatus.includes('Hoàn') && !oStatus.includes('Thất bại') && oStatus !== 'Cancelled' && oStatus !== 'Returned') {
+                      revPending += Number(o.revenue || 0);
+                  }
+              }
+          });
+          if (revTotal > 0 || revPending > 0) return { current: Math.round(revTotal), pending: Math.round(revPending) };
+      }
+
+      // 2. KPI SẢN XUẤT THEO TỪNG KHÂU HOẶC TỔNG SỐ KHÂU
+      if (phase.includes('khâu 1') || phase.includes('cắt') || phase.includes('dán') || phase.includes('dựng khung') || phase.includes('phase1')) {
           safeProdItems.forEach(p => { 
               const user = p.p1_user || p.phases?.phase1?.user;
               const status = p.p1_status || p.phases?.phase1?.status;
               const endTime = p.p1_endTime || p.phases?.phase1?.endTime || p.date;
               if (String(user).trim() === String(u).trim() && status === 'Done' && inR(endTime)) count++; 
           });
-      } else if (phase.includes('phase2') || phase.includes('gọt') || phase.includes('keo') || phase.includes('gia cố') || phase.includes('khâu 2')) {
+      } else if (phase.includes('khâu 2') || phase.includes('gọt') || phase.includes('keo') || phase.includes('gia cố') || phase.includes('phase2')) {
           safeProdItems.forEach(p => { 
               const user = p.p2_user || p.phases?.phase2?.user;
               const status = p.p2_status || p.phases?.phase2?.status;
@@ -498,16 +779,28 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
       } else if (phase.includes('đóng gói') || phase.includes('pack')) {
           safePackings.forEach(pk => { 
               if (String(pk.user).trim() === String(u).trim() && pk.status === 'Done' && inR(pk.endTime || pk.date)) {
-                  const orderMatch = (erpData?.orders || erpData?.Orders || [])?.find(x => x.id === pk.orderId);
-                  const orderStatus = String(orderMatch?.status || '').toUpperCase().trim();
-                  if (!orderStatus.includes('HỦY') && !orderStatus.includes('HUỶ') && !orderStatus.includes('HOÀN') && orderStatus !== 'CANCELLED') {
-                      count++;
-                  }
+                  // Ghi nhận KPI ngay khi đóng gói xong, không phụ thuộc vào khách hàng Hủy/Hoàn sau đó
+                  count++;
               }
           });
-      } else if (phase.includes('bán hàng') || phase.includes('sale')) {
-          bpData.forEach(bp => { if (String(bp.user).trim() === String(u).trim() && bp.type === 'Thưởng Bán Hàng' && inR(bp.date)) count += (Number(bp.amount) / 0.05); });
+      } else if (phase.includes('sản xuất') || phase.includes('sản lượng') || phase.includes('khâu hoàn thành') || phase.includes('tổng khâu')) {
+          // Tổng hợp tất cả các khâu hoàn thành của nhân sự
+          safeProdItems.forEach(p => {
+              const u1 = p.p1_user || p.phases?.phase1?.user;
+              const s1 = p.p1_status || p.phases?.phase1?.status;
+              const t1 = p.p1_endTime || p.phases?.phase1?.endTime || p.date;
+              if (String(u1).trim() === String(u).trim() && s1 === 'Done' && inR(t1)) count++;
+
+              const u2 = p.p2_user || p.phases?.phase2?.user;
+              const s2 = p.p2_status || p.phases?.phase2?.status;
+              const t2 = p.p2_endTime || p.phases?.phase2?.endTime || p.date;
+              if (String(u2).trim() === String(u).trim() && s2 === 'Done' && inR(t2)) count++;
+          });
+          safePackings.forEach(pk => {
+              if (String(pk.user).trim() === String(u).trim() && pk.status === 'Done' && inR(pk.endTime || pk.date)) count++;
+          });
       }
+
       return Math.round(count > 0 ? count : (Number(k.current) || 0));
   };
 
@@ -518,7 +811,13 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
       const payload = {
           KPI_Progress: [{ ...k, isClaimed: true }]
       };
-      try { await pushDeltas(payload, 'Nhận thưởng thành công!', 'fa-coins');
+      try { 
+          if (String(k.unit).toLowerCase() === 'xu' && typeof google !== 'undefined') {
+              await new Promise((resolve) => {
+                  google.script.run.withSuccessHandler(resolve).withFailureHandler(resolve).api_recordXuTransaction(k.user, k.reward, 'Thưởng nhiệm vụ', k.kpiName, k.id);
+              });
+          }
+          await pushDeltas(payload, 'Nhận thưởng thành công!', 'fa-coins');
       } catch(e) { triggerToast('Lỗi nhận thưởng, thử lại sau', 'fa-times', 'danger');
       } finally { setClaimingIds(prev => prev.filter(id => id !== k.id)); }
   };
@@ -545,10 +844,93 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
           await pushDeltas({ KPI_Progress: payloads }, 'Đã giao nhiệm vụ phát triển!', 'fa-seedling');
       } else {
           if (!kpiForm.kpiName || !kpiForm.kpiName.trim()) return triggerToast('Vui lòng nhập hoặc chọn tên nhiệm vụ!', 'fa-exclamation', 'warning');
-          const payload = { id: editKPI ? editKPI.id : `KPI_${Date.now()}`, user: kpiForm.user, kpiName: kpiForm.kpiName.trim(), current: editKPI ? editKPI.current : 0, target: kpiForm.target, unit: kpiForm.unit, startTime: kpiForm.startTime, endTime: kpiForm.endTime, reward: Number(kpiForm.reward) || 0, penalty: Number(kpiForm.penalty) || 0, isClaimed: editKPI ? editKPI.isClaimed : false, lastUpdated: new Date().toISOString() };
+          const payload = { 
+              id: editKPI ? editKPI.id : `KPI_${Date.now()}`, 
+              user: kpiForm.user, 
+              kpiName: kpiForm.kpiName.trim(), 
+              current: editKPI ? (editKPI.current !== undefined ? editKPI.current : 0) : 0, 
+              target: kpiForm.target, 
+              unit: kpiForm.unit, 
+              startTime: kpiForm.startTime, 
+              endTime: kpiForm.endTime, 
+              reward: Number(kpiForm.reward) || 0, 
+              penalty: Number(kpiForm.penalty) || 0, 
+              isClaimed: editKPI ? editKPI.isClaimed : false, 
+              guide: String(kpiForm.note || '').trim(),
+              lastUpdated: new Date().toISOString() 
+          };
           await pushDeltas({ KPI_Progress: [payload] }, 'Lưu nhiệm vụ thành công!', 'fa-check');
       }
       setShowKPIModal(false); setEditKPI(null);
+  };
+
+  const handleManualProgressUpdate = async (k) => {
+      if (!isBoss) return triggerToast('Chỉ phân quyền Tối Cao mới được nhập thủ công số liệu KPI!', 'fa-lock', 'warning');
+      const currentVal = k.current !== undefined ? k.current : getDynamicKPIProgress(k, k.user);
+      const targetVal = Number(k.target) || 100;
+      const unitStr = k.unit || '%';
+      
+      const inputVal = window.prompt(
+          `[PHÂN QUYỀN TỐI CAO - CẬP NHẬT TIẾN ĐỘ KPI]\n` +
+          `Nhiệm vụ: ${k.kpiName} (${k.user})\n` +
+          `Mục tiêu chỉ tiêu: ${formatMoney(targetVal)} ${unitStr}\n` +
+          `Nhập số liệu tiến độ hiện tại:`,
+          currentVal
+      );
+      if (inputVal === null || inputVal.trim() === '') return;
+      const num = parseFloat(inputVal.replace(/,/g, '.'));
+      if (isNaN(num)) return triggerToast('Vui lòng nhập số hợp lệ!', 'fa-exclamation', 'warning');
+
+      const payload = {
+          ...k,
+          current: num,
+          lastUpdated: new Date().toISOString()
+      };
+      await pushDeltas({ KPI_Progress: [payload] }, `Tối Cao cập nhật tiến độ: ${num}/${targetVal} ${unitStr} cho ${k.kpiName}`, 'fa-percentage');
+      triggerToast(`Đã cập nhật tiến độ cho ${k.kpiName} thành ${num} ${unitStr}!`, 'fa-check', 'success');
+  };
+
+  const handleEditKPI = (k) => {
+      try {
+          if (!k) return;
+          setEditKPI(k);
+          const formatDateInput = (dateStr) => {
+              if (!dateStr) return '';
+              const str = String(dateStr).trim();
+              if (str.includes('T')) return str.split('T')[0];
+              if (str.includes('-')) return str.substring(0, 10);
+              if (str.includes('/')) {
+                  const parts = str.split('/');
+                  if (parts.length === 3) return `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
+              }
+              return str.substring(0, 10);
+          };
+          const sTime = formatDateInput(k.startTime);
+          const eTime = formatDateInput(k.endTime);
+
+          setKpiForm({
+              user: k.user || '',
+              kpiName: k.kpiName || '',
+              target: k.target !== undefined ? k.target : '',
+              unit: k.unit || 'Lần',
+              startTime: sTime,
+              endTime: eTime,
+              reward: k.reward || '',
+              penalty: k.penalty || '',
+              note: k.guide || k.Guide || k.note || ''
+          });
+          setKpiType('task');
+          const isCustom = !['Dựng khung', 'Gia cố', 'Cắt Dán', 'Gọt Keo', 'Đóng Gói', 'Bán Hàng'].includes(k.kpiName || '');
+          setKpiTrackingType(isCustom ? 'manual' : 'auto');
+          const dStart = new Date(sTime).getTime();
+          const dEnd = new Date(eTime).getTime();
+          const isDaily = sTime === eTime || (dEnd - dStart) <= 24 * 60 * 60 * 1000;
+          setKpiPeriodType(isDaily ? 'Daily' : 'Custom');
+          setShowKPIModal(true);
+      } catch (err) {
+          console.error('Lỗi mở modal sửa KPI:', err);
+          if (typeof triggerToast === 'function') triggerToast('Không thể mở chỉnh sửa KPI này!', 'fa-exclamation-triangle', 'danger');
+      }
   };
 
   const toggleDevGoal = async (k) => { 
@@ -838,34 +1220,90 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
       safeProdItems.forEach(p => {
           const k1Time = p.phases?.phase1?.endTime || p.date || p.deadline; 
           const k2Time = p.phases?.phase2?.endTime || p.date || p.deadline;
-          const orderMatch = (erpData?.orders || erpData?.Orders || [])?.find(x => x.id === p.orderId);
-          const channel = orderMatch?.channel || orderMatch?.orderCode || '';
-          const isIntl = /SG|MY|TH|PH|MA|TW|Quốc Tế|Xuất Khẩu/i.test(channel);
+          
+          const allOrders = orders || erpData?.orders || erpData?.Orders || [];
+          const orderMatch = allOrders.find(o => {
+              if (!o) return false;
+              const pOrd = String(p.orderId || '').trim();
+              const oId = String(o.id || '').trim();
+              const oCode = String(o.orderCode || '').trim();
+              if (!pOrd) return false;
+              if (oId && (pOrd === oId || pOrd.startsWith(oId + '_') || pOrd.includes(oId))) return true;
+              if (oCode && (pOrd === oCode || pOrd.startsWith(oCode + '_') || pOrd.includes(oCode) || oCode.includes(pOrd))) return true;
+              const parts = pOrd.split('|').map(x => x.trim());
+              return parts.some(part => (oId && (part === oId || part.startsWith(oId + '_'))) || (oCode && (part === oCode || part.startsWith(oCode + '_'))));
+          });
 
-          const isItemCompleted = p.status === 'Done' || String(p.status).toUpperCase() === 'ĐÃ XONG' || String(p.status).toUpperCase() === 'HOÀN KHO ĐẠT' || p.fulfilledFromStock;
-          if (String(p.phases?.phase1?.user).trim() === String(u).trim() && p.phases.phase1.status === 'Done' && isItemCompleted && k1Time && isDateInRange(k1Time, filter, customMonth)) { 
-              let amt = Number(p.phases.phase1.reward_vnd || 0); 
-              if (amt === 0 && typeof getSopAndReward === 'function') {
-                  const kInfo = getSopAndReward(p, p.phases.phase1.name || 'phase1', window.kpiConfig || [], channel);
-                  if (kInfo && kInfo.reward) amt = kInfo.reward;
+          const channel = String(p.channel || p.orderChannel || orderMatch?.channel || '').toUpperCase().trim();
+          const isIntl = (typeof isExportChannel === 'function' && isExportChannel(channel)) || (
+              channel.includes('XUẤT KHẨU') || channel.includes('EXPORT') || channel.includes('QUỐC TẾ') ||
+              /\bSHOPEE\s*[-_]?\s*(TH|MA|MY|SG|TW|PH|MALAYSIA|THAILAND|PHILIPPINES|SINGAPORE|TAIWAN)\b/i.test(channel) ||
+              /\b(SHOPEE_TH|SHOPEE_MA|SHOPEE_MY|SHOPEE_SG|SHOPEE_TW|SHOPEE_PH)\b/i.test(channel) ||
+              (/\b(MY|TH|PH|SG|TW|MA)\b/i.test(channel) && channel.includes('SHOPEE'))
+          );
+
+          const isStockItem = p.fulfilledFromStock === true || String(p.fulfilledFromStock).toUpperCase() === 'TRUE';
+          if (isStockItem) return; // Đơn hàng lấy từ tồn kho có sẵn không tính lại KPI sản xuất (tránh tính trùng)
+
+          const isItemCompleted = p.status === 'Done' || String(p.status).toUpperCase() === 'ĐÃ XONG' || String(p.status).toUpperCase() === 'HOÀN KHO ĐẠT';
+          
+          if (String(p.phases?.phase1?.user).trim() === String(u).trim() && p.phases?.phase1?.status === 'Done' && isItemCompleted && k1Time && isDateInRange(k1Time, filter, customMonth)) { 
+              let amt = 0;
+              let isAppliedX3 = false;
+              if (typeof getSopAndReward === 'function') {
+                  const kInfo = getSopAndReward(p, p.phases?.phase1?.name || 'phase1', window.kpiConfig || erpData?.Config_KPI || [], channel);
+                  if (kInfo && kInfo.reward) {
+                      amt = kInfo.reward;
+                      isAppliedX3 = isIntl;
+                  }
+              }
+              if (amt === 0) {
+                  amt = Number(p.phases?.phase1?.reward_vnd || 0);
+                  if (isIntl && amt > 0) {
+                      amt = amt * 3;
+                      isAppliedX3 = true;
+                  }
               }
               prodSalary += amt; 
-              if (amt > 0) kpiSanXuatDetails.push({ name: `[K1] ${p.name} ${isIntl ? '(x3)' : ''}`, amount: amt, time: k1Time, isX3: isIntl });
+              if (amt > 0) kpiSanXuatDetails.push({ name: `[K1] ${p.name}`, amount: amt, time: k1Time, isX3: isAppliedX3 });
           }
-          if (String(p.phases?.phase2?.user).trim() === String(u).trim() && p.phases.phase2.status === 'Done' && isItemCompleted && k2Time && isDateInRange(k2Time, filter, customMonth)) { 
-              let amt = Number(p.phases.phase2.reward_vnd || 0);
-              if (amt === 0 && typeof getSopAndReward === 'function') {
-                  const kInfo = getSopAndReward(p, p.phases.phase2.name || 'phase2', window.kpiConfig || [], channel);
-                  if (kInfo && kInfo.reward) amt = kInfo.reward;
+
+          if (String(p.phases?.phase2?.user).trim() === String(u).trim() && p.phases?.phase2?.status === 'Done' && isItemCompleted && k2Time && isDateInRange(k2Time, filter, customMonth)) { 
+              let amt = 0;
+              let isAppliedX3 = false;
+              if (typeof getSopAndReward === 'function') {
+                  const kInfo = getSopAndReward(p, p.phases?.phase2?.name || 'phase2', window.kpiConfig || erpData?.Config_KPI || [], channel);
+                  if (kInfo && kInfo.reward) {
+                      amt = kInfo.reward;
+                      isAppliedX3 = isIntl;
+                  }
+              }
+              if (amt === 0) {
+                  amt = Number(p.phases?.phase2?.reward_vnd || 0);
+                  if (isIntl && amt > 0) {
+                      amt = amt * 3;
+                      isAppliedX3 = true;
+                  }
               }
               prodSalary += amt; 
-              if (amt > 0) kpiSanXuatDetails.push({ name: `[K2] ${p.name} ${isIntl ? '(x3)' : ''}`, amount: amt, time: k2Time, isX3: isIntl });
+              if (amt > 0) kpiSanXuatDetails.push({ name: `[K2] ${p.name}`, amount: amt, time: k2Time, isX3: isAppliedX3 });
           }
       });
       
       safePackings.forEach(pk => {
           if (String(pk.user).trim() === String(u).trim() && pk.status === 'Done' && (pk.endTime || pk.date) && isDateInRange(pk.endTime || pk.date, filter, customMonth)) { 
-              const orderMatch = (erpData?.orders || erpData?.Orders || [])?.find(x => x.id === pk.orderId);
+              const allOrders = orders || erpData?.orders || erpData?.Orders || [];
+              const orderMatch = allOrders.find(o => {
+                  if (!o) return false;
+                  const pOrd = String(pk.orderId || '').trim();
+                  const oId = String(o.id || '').trim();
+                  const oCode = String(o.orderCode || '').trim();
+                  if (!pOrd) return false;
+                  if (oId && (pOrd === oId || pOrd.startsWith(oId + '_') || pOrd.includes(oId))) return true;
+                  if (oCode && (pOrd === oCode || pOrd.startsWith(oCode + '_') || pOrd.includes(oCode) || oCode.includes(pOrd))) return true;
+                  const parts = pOrd.split('|').map(x => x.trim());
+                  return parts.some(part => (oId && (part === oId || part.startsWith(oId + '_'))) || (oCode && (part === oCode || part.startsWith(oCode + '_'))));
+              });
               
               // Bỏ qua KPI Đóng gói nếu đơn hàng bị HỦY hoặc HÀNG HOÀN
               const orderStatus = String(orderMatch?.status || '').toUpperCase().trim();
@@ -873,13 +1311,27 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
                   return;
               }
 
-              const channel = orderMatch?.channel || orderMatch?.orderCode || '';
-              const isIntl = /SG|MY|TH|PH|MA|TW|Quốc Tế|Xuất Khẩu/i.test(channel);
-              let amt = Number(pk.reward_vnd || 0);
-              
-              if (amt === 0 && typeof getPackingReward === 'function' && !String(pk.id).includes('PK_WH_')) {
+              const channel = String(pk.channel || pk.orderChannel || orderMatch?.channel || '').toUpperCase().trim();
+              const isIntl = (typeof isExportChannel === 'function' && isExportChannel(channel)) || (
+                  channel.includes('XUẤT KHẨU') || channel.includes('EXPORT') || channel.includes('QUỐC TẾ') ||
+                  /\bSHOPEE\s*[-_]?\s*(TH|MA|MY|SG|TW|PH|MALAYSIA|THAILAND|PHILIPPINES|SINGAPORE|TAIWAN)\b/i.test(channel) ||
+                  /\b(SHOPEE_TH|SHOPEE_MA|SHOPEE_MY|SHOPEE_SG|SHOPEE_TW|SHOPEE_PH)\b/i.test(channel) ||
+                  (/\b(MY|TH|PH|SG|TW|MA)\b/i.test(channel) && channel.includes('SHOPEE'))
+              );
+
+              let amt = 0;
+              let isAppliedX3 = false;
+              if (typeof getPackingReward === 'function' && !String(pk.id).includes('PK_WH_')) {
                   const itemsStr = orderMatch?.items?.map(i => i.name).join(', ') || '';
-                  amt = getPackingReward(itemsStr, window.kpiConfig || [], channel);
+                  amt = getPackingReward(itemsStr, window.kpiConfig || erpData?.Config_KPI || [], channel);
+                  if (amt > 0) isAppliedX3 = isIntl;
+              }
+              if (amt === 0) {
+                  amt = Number(pk.reward_vnd || 0);
+                  if (isIntl && amt > 0 && !String(pk.id).includes('PK_WH_')) {
+                      amt = amt * 3;
+                      isAppliedX3 = true;
+                  }
               }
               
               prodSalary += amt;
@@ -887,26 +1339,39 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
               if (String(pk.id).includes('PK_WH_')) {
                   if (amt > 0) kpiDongGoiDetails.push({ name: 'Chở ra kho', amount: amt, time: pk.endTime || pk.date });
               } else {
-                  if (amt > 0) kpiDongGoiDetails.push({ name: `Đóng gói ${isIntl ? '(x3)' : ''}`, amount: amt, time: pk.endTime || pk.date, isX3: isIntl });
+                  if (amt > 0) kpiDongGoiDetails.push({ name: `Đóng gói`, amount: amt, time: pk.endTime || pk.date, isX3: isAppliedX3 });
               }
           }
       });
       
       const hoaHongSanXuat = prodSalary;
 
-      const devKpis = (erpData?.KPI_Progress || []).filter(k => 
+      const devKpisClaimed = (erpData?.KPI_Progress || []).filter(k => 
           k.user === u && 
           String(k.unit).toLowerCase() !== 'xu' &&
           (k.isClaimed === true || String(k.isClaimed).toLowerCase() === 'true') &&
           k.endTime && String(k.endTime).startsWith(filterMonth)
       );
-      const dynamicFuncSalary = devKpis.reduce((sum, k) => sum + (Number(k.reward) || 0), 0);
+      const dynamicFuncSalary = devKpisClaimed.reduce((sum, k) => sum + (Number(k.reward) || 0), 0);
       const ceilingFuncSalary = cleanNumber(sal.funcSalary) || cleanNumber(sal['Lương Chức Vụ']) || 0;
       const funcSalary = ceilingFuncSalary > 0 ? Math.min(dynamicFuncSalary, ceilingFuncSalary) : dynamicFuncSalary;
+
+      // Tính tổng KPI mục tiêu (cộng tất cả KPI giao cho nhân sự trong kỳ để tạo động lực)
+      const allAssignedKpis = (erpData?.KPI_Progress || []).filter(k => 
+          k.user === u && 
+          String(k.unit).toLowerCase() !== 'xu' &&
+          k.endTime && String(k.endTime).startsWith(filterMonth)
+      );
+      const potentialFuncSalary = allAssignedKpis.length > 0 
+          ? allAssignedKpis.reduce((sum, k) => sum + (Number(k.reward) || 0), 0)
+          : (dynamicFuncSalary > 0 ? dynamicFuncSalary : ceilingFuncSalary);
+      const funcSalaryTarget = ceilingFuncSalary > 0 ? Math.min(potentialFuncSalary, ceilingFuncSalary) : potentialFuncSalary;
       
       const allowanceConfig = cleanNumber(sal.allowance) || cleanNumber(sal['Phụ Cấp Xăng Xe']) || 0;
       const phuCapKhac = userBPs.filter(b => b.type === 'Phụ Cấp Khác').reduce((sum, b) => sum + Number(b.amount || 0), 0);
       const tongPhuCap = funcSalary + allowanceConfig + phuCapKhac;
+      const tongPhuCapTarget = funcSalaryTarget + allowanceConfig + phuCapKhac;
+
       if (phuCapKhac > 0) thuongDetails.push({ name: 'Phụ Cấp Khác', amount: phuCapKhac });
 
       const thuongNong = userBPs.filter(b => b.type === 'Thưởng Nóng' || b.type === 'Thưởng').reduce((sum, b) => sum + Number(b.amount || 0), 0);
@@ -922,6 +1387,7 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
       const cacKhoanThuKhacNote = cacKhoanThuKhacRec ? cacKhoanThuKhacRec.note : '';
       if (cacKhoanThuKhac > 0) thuongDetails.push({ name: 'Các Khoản Thu Khác', amount: cacKhoanThuKhac });
 
+      const tongThuNhapTarget = luongChinh + luongLamThemGio + hoaHongSanXuat + hoTroSanLuong + tongPhuCapTarget + tongThuong + hoaHongBanHang + cacKhoanThuKhac;
       const tongThuNhap = luongChinh + luongLamThemGio + hoaHongSanXuat + hoTroSanLuong + tongPhuCap + tongThuong + hoaHongBanHang + cacKhoanThuKhac;
 
       // II. CÁC KHOẢN GIẢM TRỪ
@@ -974,14 +1440,29 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
       thuongDetails.sort((a, b) => new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime());
       penaltyDetails.sort((a, b) => new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime());
 
+      const currentMonthStr = filter === 'Tuỳ Chỉnh' ? customMonth : (typeof getLocalISODate === 'function' ? getLocalISODate().slice(0,7) : new Date().toISOString().slice(0,7));
+      const allSnapshots = erpData?.monthlySnapshots || erpData?.Monthly_Snapshots || [];
+      const userLockedSnap = allSnapshots.find(s => String(s.user).trim() === String(u).trim() && String(s.month).trim() === String(currentMonthStr).trim());
+      const isLocked = !!userLockedSnap;
+      let snapDetails = null;
+      if (userLockedSnap && userLockedSnap.snapshotData) {
+          try { snapDetails = typeof userLockedSnap.snapshotData === 'string' ? JSON.parse(userLockedSnap.snapshotData) : userLockedSnap.snapshotData; } catch (e) {}
+      }
+
+      const finalTongThuNhap = (isLocked && snapDetails?.tongThuNhap !== undefined) ? Number(snapDetails.tongThuNhap) : tongThuNhap;
+      const finalTongGiamTru = (isLocked && snapDetails?.tongGiamTru !== undefined) ? Number(snapDetails.tongGiamTru) : tongGiamTru;
+      const finalTotalSalary = (isLocked && userLockedSnap?.totalSalary !== undefined) ? Number(userLockedSnap.totalSalary) : totalSalary;
+      const finalDaTra = (isLocked && snapDetails?.daTraNhanVien !== undefined) ? Number(snapDetails.daTraNhanVien) : daTraNhanVien;
+      const finalConCanTra = finalTotalSalary - finalDaTra;
+
       return { 
           user: u, role: userConfigs?.titles?.[u] || 'Thợ', hoursWorked: hoursWorked.toFixed(1), totalGateHours, totalIdleHours, soGioNghiKhongPhep, baseSalary,
-          soLanDiMuon, soLanPhat, lastLeave, soNgayNghi,
+          soLanDiMuon, soLanPhat, lastLeave, soNgayNghi, isLocked, lockedAt: userLockedSnap?.createdAt || '',
           luongChinh, luongLamThemGio, hoaHongSanXuat, hoTroSanLuong, tongPhuCap, tongThuong, hoaHongBanHang, cacKhoanThuKhac, cacKhoanThuKhacNote,
-          tongThuNhap, phatQuyDinh, phatQuyDinhNote, phiCongDoan, chiPhiBaoHanh, tamUng, giamTruKhac, tongGiamTru,
-          totalSalary, daTraNhanVien, conCanTra, nhanXetText, atts: userAttsWithRealTime, penaltyDetails, userTasks: [],
+          tongThuNhapTarget: tongThuNhapTarget, tongThuNhap: finalTongThuNhap, phatQuyDinh, phatQuyDinhNote, phiCongDoan, chiPhiBaoHanh, tamUng, giamTruKhac, tongGiamTru: finalTongGiamTru,
+          totalSalary: finalTotalSalary, daTraNhanVien: finalDaTra, conCanTra: finalConCanTra, nhanXetText, atts: userAttsWithRealTime, penaltyDetails, userTasks: [],
           kpiSanXuatDetails, kpiDongGoiDetails, kpiBanHangDetails, thuongDetails,
-          thuongNong, chuyenCan, funcSalary, dynamicFuncSalary, ceilingFuncSalary, allowanceConfig, phuCapKhac,
+          thuongNong, chuyenCan, funcSalary, funcSalaryTarget, dynamicFuncSalary, ceilingFuncSalary, allowanceConfig, phuCapKhac,
           
           renderPrintDiv: () => (
               <div id={`payslip-print-${u}`} style={{ display: 'none' }}>
@@ -1247,10 +1728,12 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
           
           // TỰ ĐỘNG CHỐT BẢNG LƯƠNG VÀO TÀI LIỆU (DOCUMENTS) SAU KHI IN
           if (documents && pushDeltas) {
-              const docId = `PS_${p.user}_${filter.replace(/\//g,'')}`;
-              const docIndex = documents.findIndex(d => d.id === docId);
+              const normalizedFilter = filter === 'Tuỳ Chỉnh' ? customMonth.replace(/-/g, '') : filter.replace(/[^a-zA-Z0-9]/g, '');
+              const docId = `PS_${p.user}_${normalizedFilter}`;
+              const docIndex = documents.findIndex(d => d.id === docId || (d.category === 'Phiếu Lương' && d.title?.includes(p.user) && d.title?.includes(periodLabel)));
+              const targetId = docIndex !== -1 ? documents[docIndex].id : docId;
               const newDoc = {
-                  id: docId,
+                  id: targetId,
                   category: 'Phiếu Lương',
                   title: `Phiếu Lương - ${p.user} - ${periodLabel}`,
                   description: printContents,
@@ -1301,32 +1784,35 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
         <button onClick={() => setSubTab('KPI')} className={`flex-1 py-2 rounded-xl text-[12px] font-black uppercase transition-all duration-300 flex items-center justify-center gap-2 ${subTab === 'KPI' ? 'bg-[#00a8e8] text-white shadow-[0_0_15px_rgba(0,168,232,0.3)] scale-[1.02]' : 'bg-transparent text-gray-400 hover:text-white hover:bg-white/5'}`}>NHIỆM VỤ</button>
         <button onClick={() => setSubTab('PAYROLL')} className={`flex-1 py-2 rounded-xl text-[12px] font-black uppercase transition-all duration-300 flex items-center justify-center gap-2 ${subTab === 'PAYROLL' ? 'bg-[#00a8e8] text-white shadow-[0_0_15px_rgba(0,168,232,0.3)] scale-[1.02]' : 'bg-transparent text-gray-400 hover:text-white hover:bg-white/5'}`}>BẢNG LƯƠNG</button>
       </div>
-
       <RFCard noPadding className="p-2 flex flex-col md:flex-row gap-2 items-center mb-4 shrink-0">
           <div className="flex items-center gap-2 pl-2 border-r border-[#333] pr-3 shrink-0">
               <i className="fas fa-calendar-alt text-[#00a8e8]"></i>
               <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">KỲ BÁO CÁO</span>
           </div>
-          <select value={filter} onChange={e => setFilter(e.target.value)} className="h-[42px] px-3 bg-[#0a0a0a] rounded-xl border border-[#333] text-[11px] font-black uppercase tracking-wider outline-none text-white shadow-sm focus:border-[#00a8e8] transition-colors appearance-none cursor-pointer shrink-0">
-              <option value="Hôm Nay">Hôm Nay</option>
+          <select value={filter} onChange={e => { setFilter(e.target.value); if (e.target.value !== 'Chọn Tháng') setCustomMonth(''); }} className="h-[42px] px-3 bg-[#0a0a0a] rounded-xl border border-[#333] text-[11px] font-black uppercase tracking-wider outline-none text-white shadow-sm focus:border-[#00a8e8] transition-colors cursor-pointer shrink-0">
               <option value="Tháng Này">Tháng Này</option>
               <option value="Tháng Trước">Tháng Trước</option>
-              <option value="Tuỳ Chỉnh">Tuỳ Chỉnh Tháng</option>
+              <option value="Chọn Tháng">Chọn Tháng</option>
           </select>
-          {filter === 'Tuỳ Chỉnh' && (
+          {filter === 'Chọn Tháng' && (
               <input type="month" value={customMonth} onChange={e => setCustomMonth(e.target.value)} className="h-[42px] px-3 bg-[#0a0a0a] rounded-xl border border-[#333] text-[12px] font-black uppercase outline-none text-[#00a8e8] shadow-sm focus:border-[#00a8e8] transition-colors shrink-0" />
           )}
           <div className="flex-1"></div>
-          {isBoss && (
-              <div className="flex gap-2 shrink-0">
-                  <RFButton variant="outline" onClick={() => typeof openKpiModalStandalone === 'function' ? openKpiModalStandalone() : (window.openKpiModalStandalone && window.openKpiModalStandalone())} className="!border-amber-500/50 text-amber-500 hover:bg-amber-500 hover:text-white !h-[42px]" title="Tạo KPI">
-                      <i className="fas fa-fire mr-1"></i> TẠO KPI
-                  </RFButton>
-                  <RFButton variant="outline" onClick={() => typeof openTaskModalStandalone === 'function' ? openTaskModalStandalone() : (window.openTaskModalStandalone && window.openTaskModalStandalone())} className="!border-emerald-500/50 text-emerald-500 hover:bg-emerald-500 hover:text-white !h-[42px]" title="Giao Việc">
-                      <i className="fas fa-tasks mr-1"></i> GIAO VIỆC
-                  </RFButton>
-              </div>
-          )}
+          <div className="flex gap-2 shrink-0 flex-wrap">
+              {isBoss && (
+                  <>
+                      <RFButton variant="outline" onClick={() => typeof openKpiModalStandalone === 'function' ? openKpiModalStandalone() : (window.openKpiModalStandalone && window.openKpiModalStandalone())} className="!border-amber-500/50 text-amber-500 hover:bg-amber-500 hover:text-white !h-[42px]" title="Tạo KPI">
+                          <i className="fas fa-fire mr-1"></i> TẠO KPI
+                      </RFButton>
+                      <RFButton variant="outline" onClick={() => typeof openTaskModalStandalone === 'function' ? openTaskModalStandalone() : (window.openTaskModalStandalone && window.openTaskModalStandalone())} className="!border-emerald-500/50 text-emerald-500 hover:bg-emerald-500 hover:text-white !h-[42px]" title="Giao Việc">
+                          <i className="fas fa-tasks mr-1"></i> GIAO VIỆC
+                      </RFButton>
+                  </>
+              )}
+              <RFButton variant="outline" onClick={() => setShowLeaveModal(true)} className="!border-rose-500/50 text-rose-500 hover:bg-rose-500 hover:text-white !h-[42px]" title="Báo Nghỉ">
+                  <i className="fas fa-calendar-minus mr-1"></i> BÁO NGHỈ
+              </RFButton>
+          </div>
       </RFCard>
 
       {subTab === 'ATTENDANCE' && (
@@ -1373,7 +1859,7 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
                   </div>
 
                   {/* Action buttons */}
-                  <div className="grid grid-cols-2 gap-3 mb-3 relative z-10">
+                  <div className="grid grid-cols-2 gap-3 mb-4 relative z-10">
                       <button 
                           onClick={() => handleCheckInOut('IN', selectedShiftTab)} 
                           disabled={currentSelectedRecord?.timeIn} 
@@ -1397,14 +1883,6 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
                           <i className="fas fa-sign-out-alt"></i> RA VỀ
                       </button>
                   </div>
-
-                  {/* Leave Request Button */}
-                  <button 
-                      onClick={() => setShowLeaveModal(true)} 
-                      className="w-full py-3 bg-[#d4af37]/10 hover:bg-[#d4af37]/20 text-[#d4af37] border border-[#d4af37]/30 font-black text-[10px] uppercase tracking-widest rounded-2xl shadow-[0_0_15px_rgba(212,175,55,0.1)] flex items-center justify-center gap-2 transition-all active:scale-[0.98] mb-4 relative z-10"
-                  >
-                      <i className="fas fa-calendar-alt"></i> XIN NGHỈ PHÉP
-                  </button>
 
                   {/* GIỜ LÀM THỰC TẾ HÔM NAY */}
                   <div className="bg-[#0b0b0c]/80 border border-zinc-800/80 rounded-2xl p-4 space-y-3">
@@ -1541,7 +2019,7 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
                                               <div className="text-zinc-500">Đi muộn/Phạt: <span className={`font-black ${p.soLanDiMuon + p.soLanPhat > 0 ? 'text-rose-400' : 'text-white'}`}>{p.soLanDiMuon + p.soLanPhat}</span> lần</div>
                                           </div>
                                           <div className="flex flex-col gap-2">
-                                              {canEditAttendance && (
+                                              {canPenalize && (
                                                   <button onClick={(e) => { e.stopPropagation(); setDirectPenalty({user: p.user, amount: '', note: ''}); }} className={"w-7 h-7 rounded-lg bg-[#222] text-rose-500 hover:bg-rose-500 hover:text-white flex items-center justify-center transition-colors shadow-sm shrink-0"} title="Phạt trực tiếp">
                                                       <i className={"fas fa-gavel text-[10px]"}></i>
                                                   </button>
@@ -1580,8 +2058,8 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
           <div className={"space-y-4"}>
               {/* ==================== 2. NHIỆM VỤ CHUNG CỦA XƯỞNG ==================== */}
               {(() => {
-                  const allXuTasksBP = bpData.filter(b => b.type === 'XU_REWARD').map(b => ({id: b.id, name: b.note || 'Nhiệm vụ', amount: b.amount, date: b.date, user: b.user, isDone: true, desc: '', startTime: b.date, endTime: b.date}));
-                  const allXuTasksKPI = kpiData.filter(k => String(k.unit).toLowerCase() === 'xu').map(k => ({id: k.id, name: k.kpiName, amount: k.reward, date: formatDR(k.startTime, k.endTime), user: k.user, isDone: (k.isClaimed === 'true' || k.isClaimed === true), desc: k.desc, startTime: k.startTime, endTime: k.endTime}));
+                  const allXuTasksBP = bpData.filter(b => b.type === 'XU_REWARD' && isDateInRange(b.date, filter, customMonth)).map(b => ({id: b.id, name: b.note || 'Nhiệm vụ', amount: b.amount, date: b.date, user: b.user, isDone: true, desc: '', startTime: b.date, endTime: b.date}));
+                  const allXuTasksKPI = kpiData.filter(k => (String(k.unit).toLowerCase() === 'xu' || String(k.id).startsWith('KPI_XU_')) && isDateInRange(k.startTime || k.endTime || k.lastUpdated, filter, customMonth)).map(k => ({id: k.id, name: k.kpiName, amount: k.reward, date: formatDR(k.startTime, k.endTime), user: k.user, isDone: (k.isClaimed === 'true' || k.isClaimed === true), desc: k.guide || k.Guide || k.desc || k.note, startTime: k.startTime, endTime: k.endTime}));
                   const globalXuTasks = [...allXuTasksBP, ...allXuTasksKPI].sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0));
 
                   return (
@@ -1590,75 +2068,118 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
                               <h2 className={"text-[#f5f5f5] font-black text-[15px] uppercase tracking-wider"}><i className={"fas fa-users mr-2 text-cyan-500"}></i>Nhiệm Vụ Chung</h2>
                           </div>
                           
-                          <div className={"grid grid-cols-1 md:grid-cols-2 gap-3 relative z-10"}>
+                          <div className={"grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 relative z-10"}>
                               {sharedTasks.map(t => {
                                   const isDone = t.status === 'DONE' || t.status === 'Hoàn thành';
+                                  const isExp = expandedTaskMap[t.id];
                                   return (
-                                      <div key={t.id} className={`p-4 rounded-xl border ${isDone ? 'bg-emerald-900/10 border-emerald-500/30' : 'bg-[#111] border-[#333] hover:border-cyan-500/30'}`}>
-                                          <div className="flex justify-between items-start mb-2">
-                                              <div className={`font-black text-[14px] ${isDone ? 'text-emerald-400' : 'text-[#f5f5f5]'}`}>{t.sku}</div>
+                                      <div 
+                                          key={t.id} 
+                                          onClick={() => setExpandedTaskMap(prev => ({ ...prev, [t.id]: !prev[t.id] }))}
+                                          className={`p-3.5 rounded-xl border cursor-pointer transition-all duration-300 ${isDone ? 'bg-emerald-900/10 border-emerald-500/30' : 'bg-[#111] border-[#333] hover:border-cyan-500/50 hover:bg-[#141414]'}`}
+                                      >
+                                          <div className="flex justify-between items-start mb-1.5 gap-2">
+                                              <div className={`font-black text-[13px] line-clamp-1 ${isDone ? 'text-emerald-400' : 'text-[#f5f5f5]'}`}>{t.sku}</div>
                                               {isDone ? (
-                                                  <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded font-bold uppercase"><i className="fas fa-check mr-1"></i>Hoàn thành</span>
+                                                  <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded font-bold uppercase shrink-0"><i className="fas fa-check mr-1"></i>Xong</span>
                                               ) : (
-                                                  <span className="text-[10px] bg-amber-500/20 text-amber-500 px-2 py-0.5 rounded font-bold uppercase"><i className="fas fa-clock mr-1"></i>Đang xử lý</span>
+                                                  <span className="text-[9px] bg-amber-500/20 text-amber-500 px-1.5 py-0.5 rounded font-bold uppercase shrink-0"><i className="fas fa-clock mr-1"></i>Đang làm</span>
                                               )}
                                           </div>
-                                          {t.note && <div className="text-gray-400 text-[11px] mb-2"><i className="fas fa-info-circle mr-1 text-gray-500"></i>HD: {t.note}</div>}
-                                          <div className="flex gap-4 text-[10px] text-gray-500 mb-2">
-                                              <div>Bắt đầu: {t.createdAt ? new Date(t.createdAt).toLocaleDateString('vi-VN') : '---'}</div>
-                                              <div>Kết thúc: {t.deadline ? new Date(t.deadline).toLocaleDateString('vi-VN') : '---'}</div>
-                                          </div>
-                                          {Number(t.price) > 0 && <div className="text-amber-500 text-[11px] font-bold mt-1"><i className="fas fa-coins mr-1"></i>Thưởng: {formatMoney(t.price)}đ</div>}
                                           
-                                          {!isDone && (canEditAttendance) && (
-                                              <button onClick={() => {
-                                                  if(window.confirm(`Xác nhận hoàn thành nhiệm vụ chung: ${t.sku}?`)) {
-                                                      triggerToast('Đang cập nhật...', 'fa-spinner fa-spin', 'info');
-                                                      google.script.run
-                                                          .withSuccessHandler((res) => { if(res.success) { triggerToast('Đã hoàn thành!', 'fa-check', 'success'); window.dispatchEvent(new CustomEvent('triggerReloadData')); } else alert(res.message); })
-                                                          .withFailureHandler(err => alert("Lỗi: " + err))
-                                                          .updateRowAPI('ProductionLog', t.id, {status: 'DONE', updatedBy: currentUser});
-                                                  }
-                                              }} className="mt-3 w-full py-1.5 bg-emerald-500/10 text-emerald-500 border border-emerald-500/30 rounded-lg text-[10px] font-black uppercase hover:bg-emerald-500 hover:text-white transition-colors">Xác nhận xong</button>
+                                          <div className="flex justify-between items-center text-[10px] text-gray-400 mb-1">
+                                              <span className="truncate"><i className="fas fa-user-circle mr-1 text-gray-500"></i> {t.user || 'Nhân sự'}</span>
+                                              {Number(t.price) > 0 && <span className="text-amber-400 font-black"><i className="fas fa-coins mr-1"></i>+{formatMoney(t.price)}đ</span>}
+                                          </div>
+
+                                          <div className="flex justify-between items-center text-[9px] text-gray-500 border-t border-[#222] pt-1.5 mt-1.5">
+                                              <span><i className="far fa-clock mr-1 text-cyan-400"></i> Hạn: {t.deadline ? new Date(t.deadline).toLocaleDateString('vi-VN') : '---'}</span>
+                                              <span className="text-cyan-400 font-bold hover:underline">{isExp ? 'Thu gọn ▲' : 'Chi tiết ▼'}</span>
+                                          </div>
+
+                                          {/* CHI TIẾT HƯỚNG DẪN VÀ GIỜ THỜI GIAN KHI BẤM MỞ RỘNG */}
+                                          {isExp && (
+                                              <div className="mt-2.5 pt-2.5 border-t border-zinc-800 space-y-2 text-[11px] animate-fade-in" onClick={e => e.stopPropagation()}>
+                                                  <div className="bg-[#0c0c0e] p-2.5 rounded-lg border border-zinc-800 text-gray-300">
+                                                      <div className="text-[9px] font-black text-cyan-400 uppercase mb-1"><i className="fas fa-book-open mr-1"></i> Hướng Dẫn Nhiệm Vụ:</div>
+                                                      <div className="leading-relaxed whitespace-pre-wrap">{t.note || t.guide || t.desc || 'Thực hiện theo chỉ đạo trực tiếp của Quản lý.'}</div>
+                                                  </div>
+                                                  <div className="bg-[#0c0c0e] p-2 rounded-lg border border-zinc-800 text-[10px] text-gray-400 space-y-1">
+                                                      <div><i className="far fa-calendar-check mr-1.5 text-emerald-400"></i> <b>Bắt đầu:</b> {formatExactDateTime(t.createdAt || t.startTime)}</div>
+                                                      <div><i className="far fa-hourglass mr-1.5 text-amber-400"></i> <b>Kết thúc / Hạn:</b> {formatExactDateTime(t.deadline || t.endTime)}</div>
+                                                  </div>
+                                                  {!isDone && (canEditAttendance) && (
+                                                      <button onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          if(window.confirm(`Xác nhận hoàn thành nhiệm vụ chung: ${t.sku}?`)) {
+                                                              triggerToast('Đang cập nhật...', 'fa-spinner fa-spin', 'info');
+                                                              google.script.run
+                                                                  .withSuccessHandler((res) => { if(res.success) { triggerToast('Đã hoàn thành!', 'fa-check', 'success'); window.dispatchEvent(new CustomEvent('triggerReloadData')); } else alert(res.message); })
+                                                                  .withFailureHandler(err => alert("Lỗi: " + err))
+                                                                  .updateRowAPI('ProductionLog', t.id, {status: 'DONE', updatedBy: currentUser});
+                                                          }
+                                                      }} className="w-full py-1.5 bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-600 hover:text-white rounded-lg text-[10px] font-black uppercase transition-colors">Xác Nhận Xong Nhiệm Vụ</button>
+                                                  )}
+                                              </div>
                                           )}
                                       </div>
                                   )
                               })}
-                              {globalXuTasks.map(t => (
-                                  <div key={t.id} className={`p-4 rounded-xl border flex flex-col justify-between ${t.isDone ? 'bg-amber-900/10 border-amber-500/30' : 'bg-[#111] border-[#333] hover:border-amber-500/30'}`}>
-                                      <div>
-                                          <div className="flex justify-between items-start mb-2">
-                                              <div className={`font-black text-[14px] ${t.isDone ? 'text-amber-500' : 'text-[#f5f5f5]'}`}>{t.name}</div>
+                              {globalXuTasks.map(t => {
+                                  const isExp = expandedTaskMap[t.id];
+                                  return (
+                                      <div 
+                                          key={t.id} 
+                                          onClick={() => setExpandedTaskMap(prev => ({ ...prev, [t.id]: !prev[t.id] }))}
+                                          className={`p-3.5 rounded-xl border cursor-pointer transition-all duration-300 ${t.isDone ? 'bg-amber-900/10 border-amber-500/30' : 'bg-[#111] border-[#333] hover:border-amber-500/50 hover:bg-[#141414]'}`}
+                                      >
+                                          <div className="flex justify-between items-start mb-1.5 gap-2">
+                                              <div className={`font-black text-[13px] line-clamp-1 ${t.isDone ? 'text-amber-400' : 'text-[#f5f5f5]'}`}>{t.name}</div>
                                               {t.isDone ? (
-                                                  <span className="text-[10px] bg-amber-500/20 text-amber-500 px-2 py-0.5 rounded font-bold uppercase"><i className="fas fa-check mr-1"></i>Đã nhận Xu</span>
+                                                  <span className="text-[9px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded font-bold uppercase shrink-0"><i className="fas fa-check mr-1"></i>Đã nhận Xu</span>
                                               ) : (
-                                                  <span className="text-[10px] bg-gray-500/20 text-gray-400 px-2 py-0.5 rounded font-bold uppercase"><i className="fas fa-clock mr-1"></i>Đang làm</span>
+                                                  <span className="text-[9px] bg-gray-500/20 text-gray-400 px-1.5 py-0.5 rounded font-bold uppercase shrink-0"><i className="fas fa-clock mr-1"></i>Đang làm</span>
                                               )}
                                           </div>
-                                          <div className="text-gray-400 text-[11px] mb-2 flex items-center gap-1.5"><i className="fas fa-user-circle text-gray-500"></i> Giao cho: <span className="font-bold text-gray-300">{t.user}</span></div>
-                                          {t.desc && <div className="text-gray-400 text-[11px] mb-2"><i className="fas fa-info-circle mr-1 text-gray-500"></i>HD: {t.desc}</div>}
-                                          <div className="flex gap-4 text-[10px] text-gray-500 mb-2">
-                                              <div>Bắt đầu: {t.startTime ? new Date(t.startTime).toLocaleDateString('vi-VN') : '---'}</div>
-                                              <div>Kết thúc: {t.endTime ? new Date(t.endTime).toLocaleDateString('vi-VN') : '---'}</div>
+                                          <div className="flex justify-between items-center text-[10px] text-gray-400 mb-1">
+                                              <span className="truncate"><i className="fas fa-user-circle mr-1 text-gray-500"></i> Giao cho: <b className="text-gray-300">{t.user}</b></span>
+                                              <span className="text-amber-400 font-black"><i className="fas fa-coins mr-1"></i>+{formatMoney(t.amount)} XU</span>
                                           </div>
+
+                                          <div className="flex justify-between items-center text-[9px] text-gray-500 border-t border-[#222] pt-1.5 mt-1.5">
+                                              <span><i className="far fa-clock mr-1 text-amber-400"></i> Hạn: {t.endTime ? formatExactDateTime(t.endTime) : '---'}</span>
+                                              <span className="text-amber-400 font-bold hover:underline">{isExp ? 'Thu gọn ▲' : 'Chi tiết ▼'}</span>
+                                          </div>
+
+                                          {/* CHI TIẾT HƯỚNG DẪN VÀ GIỜ THỜI GIAN KHI BẤM MỞ RỘNG */}
+                                          {isExp && (
+                                              <div className="mt-2.5 pt-2.5 border-t border-zinc-800 space-y-2 text-[11px] animate-fade-in" onClick={e => e.stopPropagation()}>
+                                                  <div className="bg-[#0c0c0e] p-2.5 rounded-lg border border-zinc-800 text-gray-300">
+                                                      <div className="text-[9px] font-black text-amber-400 uppercase mb-1"><i className="fas fa-book-open mr-1"></i> Hướng Dẫn Làm Nhiệm Vụ:</div>
+                                                      <div className="leading-relaxed whitespace-pre-wrap">{t.desc || t.guide || t.note || 'Thực hiện nhiệm vụ theo đúng yêu cầu đã giao.'}</div>
+                                                  </div>
+                                                  <div className="bg-[#0c0c0e] p-2 rounded-lg border border-zinc-800 text-[10px] text-gray-400 space-y-1">
+                                                      <div><i className="far fa-calendar-check mr-1.5 text-emerald-400"></i> <b>Giờ Bắt đầu:</b> {formatExactDateTime(t.startTime || t.date)}</div>
+                                                      <div><i className="far fa-hourglass mr-1.5 text-amber-400"></i> <b>Giờ Kết thúc:</b> {formatExactDateTime(t.endTime || t.date)}</div>
+                                                  </div>
+                                                  {isBoss && (
+                                                      <button onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          if(window.confirm(`Xoá khoản xu thưởng này của ${t.user}?`)) {
+                                                              const isKPI = String(t.id).startsWith('KPI_');
+                                                              if(isKPI) {
+                                                                  pushDeltas({ deletes: { KPI_Progress: [t.id] } }, 'Xoá xu KPI', 'fa-trash');
+                                                              } else {
+                                                                  pushDeltas({ deletes: { BonusPenalty: [t.id] } }, 'Xoá xu thưởng', 'fa-trash');
+                                                              }
+                                                          }
+                                                      }} className="w-full py-1.5 bg-rose-950/40 text-rose-400 border border-rose-900/30 hover:bg-rose-600 hover:text-white rounded-lg text-[10px] font-black uppercase transition-colors"><i className="fas fa-trash mr-1"></i> Xoá Khoản Thưởng</button>
+                                                  )}
+                                              </div>
+                                          )}
                                       </div>
-                                      <div className="text-amber-500 text-[13px] font-black mt-2 text-right flex justify-between items-center">
-                                          {isBoss ? (
-                                              <button onClick={() => {
-                                                  if(window.confirm(`Xoá khoản xu thưởng này của ${t.user}?`)) {
-                                                      const isKPI = String(t.id).startsWith('KPI_');
-                                                      if(isKPI) {
-                                                          pushDeltas({ deletes: { KPI_Progress: [t.id] } }, 'Xoá xu KPI', 'fa-trash');
-                                                      } else {
-                                                          pushDeltas({ deletes: { BonusPenalty: [t.id] } }, 'Xoá xu thưởng', 'fa-trash');
-                                                      }
-                                                  }
-                                              }} className="text-rose-500 hover:text-rose-400 text-[11px] px-2 py-1 bg-rose-500/10 border border-rose-500/30 rounded active:scale-95 transition-all"><i className="fas fa-trash"></i> Xoá</button>
-                                          ) : <span></span>}
-                                          <span>+{formatMoney(t.amount)} XU</span>
-                                      </div>
-                                  </div>
-                              ))}
+                                  )
+                              })}
                               {sharedTasks.length === 0 && globalXuTasks.length === 0 && (
                                   <div className="col-span-full text-center py-6 text-gray-500 text-[12px] font-bold uppercase">Chưa có nhiệm vụ chung hoặc nhiệm vụ Xu nào</div>
                               )}
@@ -1673,26 +2194,54 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
               <div className={"grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-2 gap-4"}>
                   {(() => {
                       const userRanks = users.map(u => {
-                          const claimed = kpiData.filter(k => k.user === u && (k.isClaimed === 'true' || k.isClaimed === true));
-                          const monthly = claimed.filter(k => k.startTime && k.startTime.startsWith(currentDate.slice(0, 7))).length;
+                          const claimed = kpiData.filter(k => k.user === u && (k.isClaimed === 'true' || k.isClaimed === true) && isDateInRange(k.startTime || k.endTime || k.lastUpdated, filter, customMonth));
+                          const monthly = claimed.length;
                           return { u, monthly };
                       }).sort((a, b) => b.monthly - a.monthly);
                       
                       return userRanks.map((ur, index) => {
                           const u = ur.u;
-                          const userKPIs = kpiData.filter(k => k.user === u);
+                          const userKPIs = kpiData.filter(k => k.user === u && isDateInRange(k.startTime || k.endTime || k.lastUpdated, filter, customMonth));
                           const activeKPIs = userKPIs.filter(k => !(k.isClaimed === 'true' || k.isClaimed === true));
                           const claimedKPIs = userKPIs.filter(k => (k.isClaimed === 'true' || k.isClaimed === true));
                           const taskKPIs = activeKPIs.filter(k => k.unit !== 'Checklist');
                           const devKPIs = activeKPIs.filter(k => k.unit === 'Checklist');
                           
-                          const xuTasksBP = bpData.filter(b => b.user === u && b.type === 'XU_REWARD');
-                          const xuTasksKPI = claimedKPIs.filter(k => String(k.unit).toLowerCase() === 'xu');
+                          const xuTasksBP = bpData.filter(b => b.user === u && b.type === 'XU_REWARD' && isDateInRange(b.date, filter, customMonth));
+                          const xuTasksKPI = claimedKPIs.filter(k => String(k.unit).toLowerCase() === 'xu' || String(k.id).startsWith('KPI_XU_'));
                           const xuTasks = [
                               ...xuTasksBP.map(b => ({id: b.id, name: b.note || 'Nhiệm vụ', amount: b.amount, date: b.date})),
                               ...xuTasksKPI.map(k => ({id: k.id, name: k.kpiName, amount: k.reward, date: formatDR(k.startTime, k.endTime)}))
                           ].sort((a,b) => new Date(b.date || 0) - new Date(a.date || 0));
                           const totalXu = xuTasks.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+                          const totalKPIVnd = claimedKPIs.reduce((sum, k) => sum + (Number(k.reward) || 0), 0);
+
+                          // 1. Lương thực nhận từ Chấm công (Attendance Base Salary)
+                          const userAttRecords = (rawAttData || []).filter(a => String(a.user).trim() === String(u).trim());
+                          const baseHourlyRate = Number(userConfigs?.pins?.[u]?.hourlyRate || (userConfigs?.pins?.[u]?.baseSalary ? Math.round(Number(userConfigs.pins[u].baseSalary) / 208) : 25000));
+                          const totalAttendanceSalary = userAttRecords.reduce((sum, a) => {
+                              const hrs = Number(a.totalHours) || ((a.morningIn && a.morningOut ? 4 : 0) + (a.afternoonIn && a.afternoonOut ? 4 : 0));
+                              return sum + (hrs * baseHourlyRate);
+                          }, 0);
+
+                          // 2. Thưởng Khâu Sản Xuất (Production Rewards)
+                          let totalProdReward = 0;
+                          (prodItems || []).forEach(item => {
+                              ['phase1', 'phase2'].forEach(phKey => {
+                                  const ph = item?.phases?.[phKey];
+                                  if (ph && ph.status === 'Done' && String(ph.user).trim() === String(u).trim()) {
+                                      totalProdReward += (Number(ph.reward_vnd) || 0);
+                                  }
+                              });
+                          });
+
+                          // 3. Thưởng Đóng Gói (Packing Rewards)
+                          const userPackings = (packings || erpData?.Packings || []).filter(p => String(p.user).trim() === String(u).trim() && (p.status === 'Done' || p.status === 'Đã đóng gói'));
+                          const totalPackingReward = userPackings.reduce((sum, p) => sum + (Number(p.reward_vnd) || 0), 0);
+
+                          // ⚡ TỔNG EXP REALTIME NHẢY HÀNG NGÀY ⚡
+                          const totalUserExp = totalXu + totalKPIVnd + totalAttendanceSalary + totalProdReward + totalPackingReward;
+                          const levelInfo = get100LevelInfo(totalUserExp);
                           
                           const displayClaimedKPIs = claimedKPIs.filter(k => String(k.unit).toLowerCase() !== 'xu');
                           
@@ -1700,14 +2249,10 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
                           const monthlyKPIs = taskKPIs.filter(k => !(k.startTime === k.endTime || (new Date(k.endTime) - new Date(k.startTime)) <= 24*60*60*1000));
                           
                           const isExpanded = expandedKPIs[u]; const uRole = userConfigs?.titles?.[u] || 'Nhân Sự';
-                          
                           const rank = ur.monthly > 0 ? index + 1 : 0;
-                          const isMVP = rank === 1 && ur.monthly > 0;
-                          
-                          const userLevel = Math.floor(claimedKPIs.length / 5) + 1;
-                          const currentBase = (userLevel - 1) * 5;
-                          const nextBase = userLevel * 5;
-                          const expPct = Math.min(100, ((claimedKPIs.length - currentBase) / 5) * 100);
+                          const isMVP = false;
+                          const userLevel = levelInfo.level;
+                          const expPct = levelInfo.progressPct;
                           
                           const totalActive = activeKPIs.length;
                           const totalClaimed = claimedKPIs.length;
@@ -1716,21 +2261,36 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
                           const manaColor = manaPct >= 80 ? 'emerald' : manaPct >= 40 ? 'amber' : 'rose';
                           const isCritical = totalActive > 0 && manaPct < 30;
 
-                      const renderTaskRow = (k, workerName) => {
-                          const isAutoTracked = ['Dựng khung', 'Gia cố', 'Cắt Mài', 'Gọt Keo', 'Đóng Gói', 'Bán Hàng'].includes(k.kpiName) || k.kpiName.toLowerCase().includes('hoàn') || k.kpiName.toLowerCase().includes('khiếu nại') || k.kpiName.toLowerCase().includes('doanh thu') || k.kpiName.toLowerCase().includes('thanh lý');
-                          const currentProg = getDynamicKPIProgress(k, workerName); 
+                       const renderTaskRow = (k, workerName) => {
+                          const progResult = getDynamicKPIProgress(k, workerName); 
+                          const currentProg = typeof progResult === 'object' ? progResult.current : progResult;
+                          const pendingProg = typeof progResult === 'object' ? progResult.pending : 0;
                           const target = Number(k.target) || 1; 
-                          const pct = Math.min(100, (currentProg / target) * 100);
+                          const pct = Math.min(100, Math.max(0, (currentProg / target) * 100));
                           const barColor = pct >= 100 ? 'from-emerald-600 to-emerald-400' : (pct >= 50 ? 'from-blue-600 to-blue-400' : 'from-rose-600 to-orange-400');
                           const textColor = pct >= 100 ? 'text-emerald-400' : (pct >= 50 ? 'text-blue-400' : 'text-rose-400');
                           const isOverdue = k.endTime && k.endTime < currentDate; 
                           const isFailed = currentProg < target; 
                           const isCompleted = currentProg >= target; 
-                          const isPercentage = String(k.unit).trim() === '%';
-                          // Fix loophole: For percentage KPIs, must wait until end of period to claim
+                          const isPercentage = String(k.unit || '').trim() === '%';
                           const canClaim = isCompleted && (!isPercentage || (k.endTime && currentDate >= k.endTime.substring(0,10)));
                           const isClaiming = claimingIds.includes(k.id);
                           const isTaskOpen = openSection[`task_${k.id}`];
+
+                          // Phân biệt KPI tự động (Bán hàng, Sản xuất, Đóng gói) vs KPI thủ công
+                          const kNameLower = String(k.kpiName || '').toLowerCase().trim();
+                          const isAutoTracked = ['dựng khung', 'gia cố', 'cắt dán', 'gọt keo', 'đóng gói', 'bán hàng', 'khâu 1', 'khâu 2', 'sản xuất', 'khâu hoàn thành', 'tổng khâu'].includes(kNameLower) || 
+                              kNameLower.includes('doanh thu') || 
+                              kNameLower.includes('thanh lý') || 
+                              kNameLower.includes('bán hàng') ||
+                              kNameLower.includes('chốt đơn') ||
+                              kNameLower.includes('khâu') ||
+                              kNameLower.includes('sản xuất') ||
+                              kNameLower.includes('sản lượng');
+                          const isManualKPI = !isAutoTracked;
+
+                          // Mọi KPI có chỉ tiêu target > 0 đều hiển thị tiến trình & thanh máu
+                          const hasProgressBar = target > 0;
 
                           return (
                               <div key={k.id} className={`relative group bg-[#0d0d0d] rounded-xl border-l-4 ${isCompleted ? 'border-emerald-500/50' : isFailed && isOverdue ? 'border-rose-500/50' : 'border-[#333]'} hover:bg-[#111] overflow-hidden transition-colors flex flex-col`}>
@@ -1740,11 +2300,30 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
                                           <div className="flex items-center gap-1.5">
                                               <span className={"text-[#f5f5f5] font-black text-[13px]"}>{k.kpiName}</span>
                                           </div>
-                                          {Number(k.reward) > 0 && <div className={"text-amber-500 text-[11px] font-bold mt-1"}><i className={"fas fa-coins mr-1"}></i> Thưởng: +{formatMoney(k.reward)}đ</div>}
+                                          {Number(k.reward) > 0 && (
+                                              String(k.unit).toUpperCase() === 'XU' 
+                                              ? <div className={"text-amber-500 text-[11px] font-bold mt-1"}><i className={"fas fa-coins mr-1"}></i> Thưởng: +{formatMoney(k.reward)} XU</div>
+                                              : <div className={"text-[#10b981] text-[11px] font-bold mt-1"}><i className={"fas fa-money-bill-wave mr-1"}></i> Thưởng: +{formatMoney(k.reward)}đ</div>
+                                          )}
                                       </div>
-                                      <div className="flex items-center gap-3">
-                                          {isAutoTracked ? (
-                                              <div className={`${textColor} font-black text-[14px] text-right`}>{formatMoney(currentProg)}/{formatMoney(k.target)} <span className={"text-[9px] text-gray-500"}>{k.unit}</span></div>
+                                      <div className="flex items-center gap-2.5">
+                                          {/* ICON VƯƠNG MIỆN VÀNG NHỎ CHO TỐI CAO - CHỈ VỚI KPI TÍNH THỦ CÔNG */}
+                                          {isBoss && isManualKPI && (
+                                              <button 
+                                                  type="button"
+                                                  onClick={(e) => { e.stopPropagation(); handleManualProgressUpdate(k); }} 
+                                                  className="w-6 h-6 rounded-md bg-[#18150d] border border-[#d4af37]/60 text-[#d4af37] hover:bg-[#d4af37] hover:text-black flex items-center justify-center transition-all shadow-sm active:scale-95 z-20 shrink-0"
+                                                  title="Tối Cao: Cập nhật số liệu KPI thủ công"
+                                              >
+                                                  <i className="fas fa-crown text-[10px]"></i>
+                                              </button>
+                                          )}
+
+                                          {hasProgressBar ? (
+                                              <div className={`${textColor} font-black text-[14px] text-right font-mono`}>
+                                                  {formatMoney(currentProg)}/{formatMoney(target)} <span className={"text-[9px] text-gray-500 font-sans"}>{k.unit}</span>
+                                                  {pendingProg > 0 && <div className={"text-[9px] text-amber-500 font-sans mt-0.5 whitespace-nowrap"}>Tạm nhận: {formatMoney(pendingProg)}</div>}
+                                              </div>
                                           ) : (
                                               isCompleted ? (
                                                   <div className="text-emerald-500 text-[11px] font-black flex items-center gap-1"><i className="fas fa-check-circle"></i> ĐÃ DUYỆT</div>
@@ -1758,16 +2337,46 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
                                   
                                   {isTaskOpen && (
                                       <div className="animate-fade-in p-3.5 pt-0 border-t border-[#222] mt-1 relative z-10">
-                                          {k.note && <div className="text-gray-400 text-[11px] mb-2.5 mt-2.5 bg-[#1a1a1a] p-2 rounded-lg border border-[#333]"><i className="fas fa-info-circle mr-1 text-gray-500"></i> {k.note}</div>}
+                                          {/* HƯỚNG DẪN THỰC HIỆN KPI CỤ THỂ */}
+                                          {(() => {
+                                              let guideTxt = k.guide || k.Guide || k.guideText || k.guide_txt || k.note || k.desc || k['Hướng dẫn'] || k['Hướng Dẫn'] || k['Guide'] || k['Ghi chú'] || k['Mô tả'];
+                                              if (!guideTxt || !String(guideTxt).trim()) {
+                                                  const configList = (erpData?.kpiConfig || erpData?.Config_KPI || erpData?.configKpi || window.kpiConfig || window.data?.kpiConfig || []);
+                                                  if (Array.isArray(configList) && configList.length > 0) {
+                                                      const cleanName = String(k.kpiName || '').toLowerCase().replace(/[>0-9%]/g, '').trim();
+                                                      const found = configList.find(cfg => {
+                                                          if (!cfg) return false;
+                                                          const kw = String(cfg['Từ Khoá'] || cfg['Từ khoá'] || cfg['Nhóm Hàng'] || cfg['Tên KPI'] || cfg['Tên Hàng'] || cfg.kpiName || cfg.name || '').toLowerCase().trim();
+                                                          if (!kw) return false;
+                                                          return cleanName.includes(kw) || kw.includes(cleanName) || cleanName.split(' ').some(w => w.length >= 3 && kw.includes(w));
+                                                      });
+                                                      if (found) {
+                                                          guideTxt = found['Hướng Dẫn'] || found['Hướng dẫn'] || found['Guide'] || found['guide'] || found['Hướng Dẫn Thực Hiện'] || found['Hướng dẫn thực hiện'] || found['Ghi Chú'] || found['Mô Tả'] || found['note'] || found['guide_txt'];
+                                                      }
+                                                  }
+                                              }
+                                              const finalGuide = String(guideTxt || '').trim();
+                                              return (
+                                                  <div className="text-gray-300 text-[11px] mb-2.5 mt-2.5 bg-[#141416] p-3 rounded-xl border border-amber-500/20 shadow-sm">
+                                                      <div className="text-[9px] font-black text-amber-400 uppercase tracking-wider flex items-center gap-1.5 mb-1">
+                                                          <i className="fas fa-book-reader"></i> Hướng Dẫn Thực Hiện & Quy Chuẩn Đạt KPI:
+                                                      </div>
+                                                      <div className="text-gray-200 leading-relaxed font-medium whitespace-pre-wrap">
+                                                          {finalGuide ? finalGuide : <span className="text-gray-500 italic font-normal">Chưa có hướng dẫn/quy chuẩn chi tiết cho KPI này.</span>}
+                                                      </div>
+                                                  </div>
+                                              );
+                                          })()}
+
                                           <div className={"text-gray-500 text-[10px] mb-2.5 mt-2 flex items-center gap-2"}>
-                                              <span><i className={"far fa-calendar-alt mr-1"}></i> {formatDR(k.startTime, k.endTime)}</span>
+                                              <span><i className={"far fa-calendar-alt mr-1 text-cyan-400"}></i> Thời gian áp dụng: {formatDR(k.startTime, k.endTime)}</span>
                                               {(isOverdue && isFailed) && <span className="text-rose-500 font-black animate-pulse flex items-center gap-1"><i className="fas fa-fire"></i> TRỄ HẠN!</span>}
                                           </div>
 
-                                          {/* Chỉ hiện thanh máu cho KPI tự động (có tiến trình đo đếm được) */}
-                                          {isAutoTracked && !isCompleted && (
-                                              <div className={"w-full bg-[#1a1a1a] rounded-full h-3 border border-[#000] overflow-hidden relative z-10 mb-2 mt-1"}>
-                                                  <div className={`h-full rounded-full transition-all duration-1000 bg-gradient-to-r ${barColor}`} style={{ width: `${pct}%` }}></div>
+                                          {/* THANH TIẾN TRÌNH / THANH MÁU CHO TẤT CẢ KPI CÓ TARGET > 0 */}
+                                          {hasProgressBar && !isCompleted && (
+                                              <div className={"w-full bg-[#1a1a1a] rounded-full h-3.5 border border-[#222] overflow-hidden relative z-10 mb-2.5 mt-1 shadow-inner"}>
+                                                  <div className={`h-full rounded-full transition-all duration-700 bg-gradient-to-r ${barColor} shadow-[0_0_10px_rgba(245,158,11,0.3)]`} style={{ width: `${pct}%` }}></div>
                                               </div>
                                           )}
 
@@ -1783,7 +2392,17 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
                                               )
                                           ) : null}
 
-                                          {!isCompleted && !isAutoTracked && (
+                                          {/* NÚT TỐI CAO CẬP NHẬT TRONG CHI TIẾT CARD */}
+                                          {isBoss && !isCompleted && (
+                                              <button 
+                                                  onClick={(e) => { e.stopPropagation(); handleManualProgressUpdate(k); }} 
+                                                  className="w-full py-2.5 bg-gradient-to-r from-amber-500/20 to-amber-600/20 hover:from-amber-500 hover:to-amber-600 text-amber-300 hover:text-black border border-amber-500/40 font-black text-[10px] rounded-xl shadow-sm transition-all uppercase tracking-wider flex items-center justify-center gap-2 mt-2 relative z-10 active:scale-95"
+                                              >
+                                                  <i className="fas fa-crown text-amber-400"></i> Phân quyền Tối Cao: Nhập số liệu / % nhảy thanh tiến trình
+                                              </button>
+                                          )}
+
+                                          {!isCompleted && (
                                               <div className="flex gap-2 mt-2 relative z-10">
                                                   {currentUser === workerName ? (
                                                       <button onClick={async () => {
@@ -1794,28 +2413,10 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
                                                           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-100%] group-hover:animate-[shine_1.5s_infinite]"></div>
                                                           <i className="fas fa-paper-plane mr-1"></i> Báo cáo hoàn thành
                                                       </button>
-                                                  ) : (
-                                                      isBoss && (
-                                                          <button onClick={async () => {
-                                                              await pushDeltas({ KPI_Progress: [{ ...k, current: target, lastUpdated: new Date().toISOString() }] }, `Đã duyệt hoàn thành: ${k.kpiName}`, 'fa-check-double');
-                                                          }} className="flex-1 py-2 bg-emerald-600/20 text-[#10b981] border border-[#10b981]/30 hover:bg-[#10b981] hover:text-black font-black text-[10px] rounded-lg shadow-sm transition-all uppercase tracking-wider">
-                                                              <i className="fas fa-check-double mr-1"></i> Duyệt hoàn thành
-                                                          </button>
-                                                      )
-                                                  )}
+                                                  ) : null}
                                               </div>
                                           )}
 
-                                          {isCompleted && !isAutoTracked && isBoss && (
-                                              <button onClick={async () => {
-                                                  if (window.confirm('Hủy duyệt hoàn thành nhiệm vụ này?')) {
-                                                      await pushDeltas({ KPI_Progress: [{ ...k, current: 0, lastUpdated: new Date().toISOString() }] }, `Hủy duyệt: ${k.kpiName}`, 'fa-undo');
-                                                  }
-                                              }} className="w-full mt-2 py-2 bg-rose-950/40 text-rose-400 border border-rose-900/30 hover:bg-rose-500 hover:text-white font-black text-[9px] rounded-lg transition-colors uppercase tracking-wider relative z-10">
-                                                  <i className="fas fa-undo mr-1"></i> Hủy duyệt hoàn thành
-                                              </button>
-                                          )}
-                                          
                                           {(isOverdue && isFailed && isBoss && Number(k.penalty) > 0) && (
                                               <div className="mt-2 flex justify-end relative z-10">
                                                   <button onClick={() => handleApplyKPIPenalty(k, currentProg, target)} className={"px-3 py-1.5 bg-rose-500/20 hover:bg-rose-500 text-rose-500 hover:text-white border border-rose-500/30 text-[9px] font-black uppercase rounded-lg transition-colors"}>GIÁNG PHẠT ({formatMoney(k.penalty)}đ)</button>
@@ -1823,7 +2424,7 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
                                           )}
 
                                           {isBoss && (
-                                              <div className={"absolute right-1 -top-8 flex gap-1 z-20"}><button onClick={(e) => { e.stopPropagation(); setEditKPI(k); setKpiForm({ user: k.user, kpiName: k.kpiName, target: k.target, unit: k.unit, startTime: k.startTime, endTime: k.endTime, reward: k.reward || '', penalty: k.penalty || '', note: k.note || '' }); setKpiType('task'); const isCustom = !['Dựng khung', 'Gia cố', 'Cắt Mài', 'Gọt Keo', 'Đóng Gói', 'Bán Hàng'].includes(k.kpiName); setKpiTrackingType(isCustom ? 'manual' : 'auto'); const isDaily = k.startTime === k.endTime || (new Date(k.endTime) - new Date(k.startTime)) <= 24*60*60*1000; setKpiPeriodType(isDaily ? 'Daily' : 'Custom'); setShowKPIModal(true); }} className={"w-7 h-7 rounded-lg bg-[#1a1a1a] border border-[#333] text-gray-400 hover:text-white hover:bg-amber-500 shadow-lg"}><i className={"fas fa-edit text-[10px]"}></i></button><button onClick={(e) => { e.stopPropagation(); handleDeleteKPI(k); }} className={"w-7 h-7 rounded-lg bg-[#1a1a1a] border border-[#333] text-gray-400 hover:bg-rose-500 hover:text-white shadow-lg"}><i className={"fas fa-trash text-[10px]"}></i></button></div>
+                                              <div className={"absolute right-1 -top-8 flex gap-1 z-20"}><button onClick={(e) => { e.stopPropagation(); setEditKPI(k); setKpiForm({ user: k.user, kpiName: k.kpiName, target: k.target, unit: k.unit, startTime: k.startTime ? String(k.startTime).substring(0,10) : '', endTime: k.endTime ? String(k.endTime).substring(0,10) : '', reward: k.reward || '', penalty: k.penalty || '', note: k.guide || k.Guide || k.note || '' }); setKpiType('task'); const isCustom = !['Dựng khung', 'Gia cố', 'Cắt Dán', 'Gọt Keo', 'Đóng Gói', 'Bán Hàng'].includes(k.kpiName); setKpiTrackingType(isCustom ? 'manual' : 'auto'); const isDaily = k.startTime === k.endTime || (new Date(k.endTime) - new Date(k.startTime)) <= 24*60*60*1000; setKpiPeriodType(isDaily ? 'Daily' : 'Custom'); setShowKPIModal(true); }} className={"w-7 h-7 rounded-lg bg-[#1a1a1a] border border-[#333] text-gray-400 hover:text-white hover:bg-amber-500 shadow-lg"}><i className={"fas fa-edit text-[10px]"}></i></button><button onClick={(e) => { e.stopPropagation(); handleDeleteKPI(k); }} className={"w-7 h-7 rounded-lg bg-[#1a1a1a] border border-[#333] text-gray-400 hover:bg-rose-500 hover:text-white shadow-lg"}><i className={"fas fa-trash text-[10px]"}></i></button></div>
                                           )}
                                       </div>
                                   )}
@@ -1832,31 +2433,39 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
                       };
 
                       return (
-                          <div key={u} className={`rf-card shadow-lg relative transition-all duration-300 border-l-4 flex flex-col ${isExpanded ? 'border-[#3b82f6] bg-[#111]' : 'border-[#222] hover:bg-[#141414]'}`}>
+                          <div key={u} className={`rf-card shadow-lg relative transition-all duration-500 border-l-4 flex flex-col ${levelInfo.colorStyle.cardBg} ${levelInfo.colorStyle.border} ${isExpanded ? 'ring-2 ring-[#3b82f6]/50' : 'hover:scale-[1.01]'}`}>
                               <div onClick={() => toggleKPIExpand(u)} className={"p-3.5 pb-4 cursor-pointer flex justify-between items-center relative group"}>
                                   <div className={"flex items-center gap-3 relative z-10"}>
                                       <div className="relative">
-                                          {renderSafeAvatar(u, `w-10 h-10 shadow-sm border-2 transition-colors ${rank === 1 ? 'border-[#00d2ff] shadow-[0_0_15px_rgba(0,210,255,0.8)]' : rank === 2 ? 'border-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.6)]' : rank === 3 ? 'border-orange-600 shadow-[0_0_15px_rgba(234,88,12,0.6)]' : isExpanded ? 'border-[#3b82f6]' : 'border-transparent group-hover:border-[#555]'}`)}
+                                          {renderSafeAvatar(u, `w-11 h-11 shadow-md border-2 transition-all ${rank === 1 ? 'border-[#00d2ff] shadow-[0_0_15px_rgba(0,210,255,0.8)]' : rank === 2 ? 'border-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.6)]' : rank === 3 ? 'border-orange-600 shadow-[0_0_15px_rgba(234,88,12,0.6)]' : levelInfo.colorStyle.avatarRing}`)}
                                           {rank === 1 && <i className="fas fa-gem absolute -top-2 -right-2 text-[#00d2ff] drop-shadow-[0_0_5px_rgba(0,210,255,1)] text-[10px] animate-bounce"></i>}
                                           {rank === 2 && <i className="fas fa-medal absolute -top-2 -right-2 text-yellow-400 drop-shadow-[0_0_5px_rgba(250,204,21,1)] text-[10px] animate-pulse"></i>}
-                                          {rank === 3 && <i className="fas fa-medal absolute -top-2 -right-2 text-orange-600 drop-shadow-[0_0_5px_rgba(234,88,12,1)] text-[10px]"></i>}
+                                          {rank === 3 && <i className="fas fa-medal absolute -top-2 -right-2 text-orange-600 shadow-[0_0_15px_rgba(234,88,12,0.6)] text-[10px]"></i>}
                                       </div>
-                                      <div className="flex-1 w-full">
-                                          <div className={`font-black text-[14px] uppercase transition-colors flex items-center gap-2 ${isExpanded ? 'text-[#3b82f6]' : 'text-[#f5f5f5]'}`}>
-                                              <span>{u}</span>
-                                              {isMVP && <span className={"badge-mvp"}>👑 MVP THÁNG</span>}
+                                      <div className="flex-1 w-full space-y-1">
+                                          {/* DÒNG 1: TÊN NHÂN SỰ */}
+                                          <div className={`font-black text-[15px] uppercase tracking-wide transition-colors ${isExpanded ? 'text-[#3b82f6]' : 'text-white'}`}>
+                                              {u}
                                           </div>
-                                          <div className={"text-[10px] text-gray-500 font-bold mt-1 flex flex-col gap-1"}>
+                                          
+                                          {/* DÒNG 2: HUY HIỆU CẤP ĐỘ (Chỉ hiện CẤP X) */}
+                                          <div>
+                                              <span className={`inline-block text-[9px] font-black px-2.5 py-0.5 rounded-md border uppercase tracking-wider transition-all duration-500 ${levelInfo.colorStyle.badge}`}>
+                                                  CẤP {levelInfo.level}
+                                              </span>
+                                          </div>
+
+                                          <div className={"text-[10px] text-gray-400 font-bold pt-0.5 flex flex-col gap-1"}>
                                               <div className="flex items-center gap-1.5">
-                                                  <span>{uRole}</span>
-                                                  <span className={"text-gray-700"}>•</span>
-                                                  <span className={"text-emerald-500 tracking-wide"}>Cấp {userLevel}</span>
+                                                  <span className="text-gray-400">{uRole}</span>
                                               </div>
                                               <div className="flex items-center gap-2 mt-0.5">
-                                                  <div className="flex-1 h-1.5 bg-gray-800 rounded-full overflow-hidden max-w-[120px]">
-                                                      <div className="h-full bg-blue-500 rounded-full" style={{width: `${Math.min(100, expPct)}%`}}></div>
+                                                  <div className="flex-1 h-2 bg-black/60 rounded-full overflow-hidden max-w-[150px] border border-gray-800">
+                                                      <div className={`h-full bg-gradient-to-r ${levelInfo.colorStyle.bar} rounded-full transition-all duration-500`} style={{width: `${Math.min(100, levelInfo.progressPct)}%`}}></div>
                                                   </div>
-                                                  <span className="text-[9px] text-[#3b82f6] font-black">{Math.floor(expPct)}%</span>
+                                                  <span className="text-[9px] font-mono font-black text-emerald-400">
+                                                      {formatMoney(levelInfo.expInLevel)} / {formatMoney(levelInfo.neededForNext)} EXP
+                                                  </span>
                                               </div>
                                           </div>
                                       </div>
@@ -1876,78 +2485,81 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
                               </div>
 
                               {isExpanded && (
-                                  <div className={"p-4 pt-0 border-t border-[#222] relative z-10 animate-fade-in mt-2 space-y-5 max-h-[60vh] overflow-y-auto custom-scrollbar"}>
-                                      {userKPIs.length === 0 ? (
-                                          <div className={"text-center py-6 text-gray-500 font-bold text-[11px]"}>Nhân sự này hiện chưa có nhiệm vụ nào.</div>
-                                      ) : (
-                                          <>
-                                              {activeKPIs.length > 0 && (
-                                                  <div className={`space-y-4`}>
-                                                      {dailyTasks.length > 0 && (
-                                                          <div className={"space-y-2.5"}>
-                                                              <div className={"text-[10px] font-black text-[#60a5fa] uppercase tracking-widest flex items-center gap-1.5 border-b border-[#222] pb-1.5 w-full"}><i className={"fas fa-calendar-day mr-1.5"}></i> Nhiệm Vụ Hàng Ngày ({dailyTasks.length})</div>
-                                                              <div className={"space-y-2.5"}>
-                                                                  {dailyTasks.map(k => renderTaskRow(k, u))}
-                                                              </div>
-                                                          </div>
-                                                      )}
-                                                      {monthlyKPIs.length > 0 && (
-                                                          <div className={`space-y-3 ${dailyTasks.length > 0 ? 'pt-5 border-t border-[#222]' : ''}`}>
-                                                              <div className={"text-[12px] font-black text-amber-500 uppercase tracking-widest flex items-center gap-1.5 border-b border-[#222] py-2 w-full"}><i className={"fas fa-calendar-alt mr-1.5"}></i> KPI & Mục Tiêu Tháng ({monthlyKPIs.length})</div>
-                                                              <div className={"space-y-2.5"}>
-                                                                  {monthlyKPIs.map(k => renderTaskRow(k, u))}
-                                                              </div>
-                                                          </div>
-                                                      )}
+                                  <div className="p-3 pt-0 border-t border-[#222] relative z-10 animate-fade-in mt-2 space-y-3">
+                                      {/* 3 SEGMENTED TABS CONTROL */}
+                                      <div className="flex gap-1.5 p-1 bg-[#09090b] rounded-xl border border-[#222] text-[11px] font-black uppercase tracking-wider mb-2">
+                                          <button onClick={(e) => { e.stopPropagation(); setUserInnerTab(prev => ({ ...prev, [u]: 'KPI' })); }} className={`flex-1 py-1.5 rounded-lg border transition-all flex items-center justify-center gap-1.5 ${(userInnerTab[u] || 'KPI') === 'KPI' ? 'bg-amber-500/20 text-amber-400 border-amber-500/40 shadow-sm' : 'bg-transparent text-gray-400 border-transparent hover:bg-zinc-800/60'}`}>
+                                              <i className="fas fa-calendar-alt"></i> KPI Tháng ({monthlyKPIs.length})
+                                          </button>
+                                          <button onClick={(e) => { e.stopPropagation(); setUserInnerTab(prev => ({ ...prev, [u]: 'TASKS' })); }} className={`flex-1 py-1.5 rounded-lg border transition-all flex items-center justify-center gap-1.5 ${(userInnerTab[u] || 'KPI') === 'TASKS' ? 'bg-blue-500/20 text-blue-400 border-blue-500/40 shadow-sm' : 'bg-transparent text-gray-400 border-transparent hover:bg-zinc-800/60'}`}>
+                                              <i className="fas fa-tasks"></i> Nhiệm Vụ ({dailyTasks.length})
+                                          </button>
+                                          <button onClick={(e) => { e.stopPropagation(); setUserInnerTab(prev => ({ ...prev, [u]: 'XU' })); }} className={`flex-1 py-1.5 rounded-lg border transition-all flex items-center justify-center gap-1.5 ${(userInnerTab[u] || 'KPI') === 'XU' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40 shadow-sm' : 'bg-transparent text-gray-400 border-transparent hover:bg-zinc-800/60'}`}>
+                                              <i className="fas fa-coins"></i> Xu Tích Lũy ({xuTasks.length})
+                                          </button>
+                                      </div>
+
+                                      {/* TAB 1: KPI THÁNG */}
+                                      {(userInnerTab[u] || 'KPI') === 'KPI' && (
+                                          <div className="space-y-2.5 max-h-[55vh] overflow-y-auto custom-scrollbar p-1">
+                                              {monthlyKPIs.length === 0 ? (
+                                                  <div className="text-center py-8 text-gray-500 font-bold text-[11px] uppercase bg-[#09090b] rounded-xl border border-[#222]">
+                                                      <i className="fas fa-calendar-check text-amber-500/40 text-xl block mb-2"></i>
+                                                      Chưa có KPI Tháng nào trong chu kỳ này
                                                   </div>
+                                              ) : (
+                                                  monthlyKPIs.map(k => renderTaskRow(k, u))
                                               )}
-                                              {devKPIs.length > 0 && (
-                                                  <div className={`space-y-3 ${taskKPIs.length > 0 ? 'pt-4 border-t border-[#222]' : ''}`}>
-                                                      <div className={"text-[10px] font-black text-[#a855f7] uppercase tracking-widest flex items-center justify-between gap-1.5 w-full"}><span className={"bg-[#a855f7]/10 px-2.5 py-1 rounded-md border border-[#a855f7]/20"}><i className={"fas fa-rocket mr-1"} z-10></i> Mục Tiêu Dài Hạn</span>{!isBoss && <span className={"text-[9px] text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20"}><i className={"fas fa-lock mr-1"}></i>Chỉ Tối Cao Được Duyệt</span>}</div>
-                                                      <div className={"space-y-2"}>
-                                                          {devKPIs.map(k => {
-                                                              const isChecked = Number(k.current) >= 1; const isClaiming = claimingIds.includes(k.id);
-                                                              return (
-                                                                  <div key={k.id} className={"flex items-start gap-3 group relative bg-[#0a0a0a] p-3 rounded-xl border border-[#222] hover:border-[#a855f7]/50"}>
-                                                                      <button onClick={() => toggleDevGoal(k)} disabled={!isBoss} className={`mt-0.5 w-5 h-5 rounded-md flex items-center justify-center shrink-0 border transition-all ${isChecked ? 'bg-[#a855f7] border-[#a855f7] text-white' : 'bg-[#1a1a1a] border-[#444] text-transparent'}`}><i className={"fas fa-check text-[10px]"}></i></button>
-                                                                      <div className={"flex-1 min-w-0"}><div className={"text-[12px] font-bold leading-relaxed pt-0.5 text-[#e5e5e5]"}>{k.kpiName}</div><div className={"flex justify-between items-center text-[9px] font-bold mt-1.5"}><span className={"text-gray-500"}><i className={"far fa-calendar-alt mr-1"}></i> {formatDR(k.startTime, k.endTime)}</span>{Number(k.reward) > 0 && <span className={"text-amber-400"}><i className={"fas fa-coins mr-1"}></i> {formatMoney(k.reward)}đ</span>}</div></div>
-                                                                      {isChecked && (currentUser !== u ? <span className={"shrink-0 px-2 py-1 text-gray-500 font-black text-[9px] bg-[#1a1a1a] rounded border border-[#333] flex items-center gap-1"}><i className={"fas fa-lock"}></i> Chờ nhận</span> : <button onClick={() => claimReward(k)} disabled={isClaiming} className={`shrink-0 px-3 py-1.5 font-black text-[9px] uppercase rounded transition-all ${isClaiming ? 'bg-[#333] text-gray-500' : 'bg-amber-500 text-black shadow-md animate-pulse'}`}>{isClaiming ? 'XỬ LÝ...' : 'Nhận thưởng'}</button>)}
-                                                                      {isBoss && <div className={"absolute right-2 -top-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-20"}><button onClick={() => handleDeleteKPI(k)} className={"w-7 h-7 rounded-lg bg-[#1a1a1a] border border-[#333] text-gray-400 hover:bg-rose-500"}><i className={"fas fa-trash text-[10px]"}></i></button></div>}
-                                                                  </div>
-                                                              );
-                                                          })}
+                                          </div>
+                                      )}
+
+                                      {/* TAB 2: NHIỆM VỤ HÀNG NGÀY */}
+                                      {(userInnerTab[u] || 'KPI') === 'TASKS' && (
+                                          <div className="space-y-2.5 max-h-[55vh] overflow-y-auto custom-scrollbar p-1">
+                                              {dailyTasks.length === 0 ? (
+                                                  <div className="text-center py-8 text-gray-500 font-bold text-[11px] uppercase bg-[#09090b] rounded-xl border border-[#222]">
+                                                      <i className="fas fa-tasks text-blue-500/40 text-xl block mb-2"></i>
+                                                      Không có nhiệm vụ hàng ngày nào
+                                                  </div>
+                                              ) : (
+                                                  dailyTasks.map(k => renderTaskRow(k, u))
+                                              )}
+                                          </div>
+                                      )}
+
+                                      {/* TAB 3: XU TÍCH LŨY / NHẬT KÝ CỘNG XU */}
+                                      {(userInnerTab[u] || 'KPI') === 'XU' && (
+                                          <div className="space-y-2 max-h-[55vh] overflow-y-auto custom-scrollbar p-1">
+                                              <div className="bg-[#0c0c0e] p-2.5 rounded-xl border border-emerald-500/20 flex justify-between items-center mb-2">
+                                                  <span className="text-[10px] font-black text-gray-400 uppercase">TỔNG XU / EXP TÍCH LŨY</span>
+                                                  <span className="text-[13px] font-black text-emerald-400 font-mono">+{formatMoney(totalUserExp)} EXP</span>
+                                              </div>
+                                              {xuTasks.length === 0 ? (
+                                                  <div className="text-center py-8 text-gray-500 font-bold text-[11px] uppercase bg-[#09090b] rounded-xl border border-[#222]">
+                                                      <i className="fas fa-coins text-emerald-500/40 text-xl block mb-2"></i>
+                                                      Chưa có nhật ký cộng xu nào
+                                                  </div>
+                                              ) : (
+                                                  xuTasks.map(t => (
+                                                      <div key={t.id} className="p-2.5 bg-[#09090b] rounded-xl border border-[#222] flex justify-between items-center hover:bg-[#111] transition-colors">
+                                                          <div className="space-y-0.5">
+                                                              <div className="text-[12px] font-bold text-gray-200">{t.name}</div>
+                                                              <div className="text-[9px] font-bold text-gray-500"><i className="far fa-clock mr-1 text-cyan-400"></i>{formatExactDateTime(t.date)}</div>
+                                                          </div>
+                                                          <div className="text-[12px] font-black text-amber-400 font-mono flex items-center gap-1 bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20">
+                                                              <i className="fas fa-coins text-[10px]"></i> +{formatMoney(t.amount)} XU
+                                                          </div>
                                                       </div>
-                                                  </div>
+                                                  ))
                                               )}
-                                              {displayClaimedKPIs.length > 0 && (
-                                                  <div className={`space-y-2.5 ${activeKPIs.length > 0 ? 'pt-4 border-t border-[#222]' : ''}`}>
-                                                      <div 
-                                                          onClick={(e) => toggleSection(u, 'claimedKPIs', e)}
-                                                          className={"flex justify-between items-center bg-[#111] px-3 py-2 rounded-xl border border-[#222] cursor-pointer hover:bg-[#1a1a1a] transition-colors shadow-sm"}
-                                                      >
-                                                          <div className={"text-[10px] font-black text-gray-500 uppercase tracking-widest flex items-center"}><i className={"fas fa-archive mr-2"}></i> ĐÃ NHẬN THƯỞNG ({displayClaimedKPIs.length})</div>
-                                                          <i className={`fas fa-chevron-${openSection[`${u}_claimedKPIs`] ? 'up' : 'down'} text-gray-600 text-[10px] transition-transform`}></i>
-                                                      </div>
-                                                      {openSection[`${u}_claimedKPIs`] && (
-                                                          <div className={"space-y-3 animate-slide-down"}>
-                                                              {displayClaimedKPIs.map(k => (
-                                                                  <div key={k.id} className={"relative bg-[#10b981]/5 p-3 rounded-xl border border-[#10b981]/20 flex items-center justify-between shadow-sm"}>
-                                                                      <div className={"flex items-center gap-3"}><div className={"w-8 h-8 rounded-full bg-[#10b981]/20 flex items-center justify-center text-[#10b981]"}><i className={"fas fa-check"}></i></div><div><div className={"text-[12px] font-black text-[#10b981]"}>{k.kpiName}</div><div className={"text-[10px] text-gray-400 font-bold mt-0.5"}><i className={"far fa-calendar-check mr-1"}></i> {formatDR(k.startTime, k.endTime)}</div></div></div>
-                                                                      <div className={"flex items-center gap-3"}>{Number(k.reward) > 0 && <div className={"text-right"}><div className={"text-[9px] text-gray-500 uppercase"}>Đã nhận</div><div className={"text-[13px] font-black text-amber-400"}>+{formatMoney(k.reward)}đ</div></div>}
-                                                                      {isBoss && <button onClick={() => handleDeleteKPI(k)} className={"w-7 h-7 rounded-lg bg-[#1a1a1a] border border-[#333] text-rose-500/50 hover:bg-rose-500 flex items-center justify-center"}><i className={"fas fa-trash text-[10px]"}></i></button>}</div>
-                                                                  </div>
-                                                              ))}
-                                                          </div>
-                                                      )}
-                                                  </div>
-                                              )}
-                                          </>
+                                          </div>
                                       )}
                                   </div>
                               )}
                           </div>
-                       );
-                   })})()}
+                      );
+                  });
+              })()}
               </div>
           </div>
       )}
@@ -1975,23 +2587,23 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
                       </div>
                   </div>
                   <div className={"flex justify-between items-center"}>
-                      <div>
-                          <div className={"text-[10px] text-gray-400 uppercase font-bold mb-1"}>Tổng lương toàn xưởng (Gross)</div>
-                          <div className={"text-[22px] font-black text-white"}>
-                              {(isBoss || ['KẾ TOÁN', 'QUẢN LÝ NHÂN SỰ', 'NHÂN SỰ'].includes(String(currentRole).toUpperCase())) 
-                                  ? `${formatMoney(payroll.reduce((sum, p) => sum + p.tongThuNhap, 0))} đ` 
-                                  : '*****'}
-                          </div>
-                      </div>
-                      <div className={"text-right"}>
-                          <div className={"text-[10px] text-gray-400 uppercase font-bold mb-1"}>Thực tế cần chi trả</div>
-                          <div className={"text-[22px] font-black text-[#10b981]"}>
-                              {(isBoss || ['KẾ TOÁN', 'QUẢN LÝ NHÂN SỰ', 'NHÂN SỰ'].includes(String(currentRole).toUpperCase())) 
-                                  ? `${formatMoney(payroll.reduce((sum, p) => sum + p.conCanTra, 0))} đ` 
-                                  : '*****'}
-                          </div>
-                      </div>
-                  </div>
+                       <div>
+                           <div className={"text-[10px] text-amber-400 uppercase font-bold mb-1 flex items-center gap-1"}><i className="fas fa-bullseye text-[#d4af37]"></i> Tổng Lương Mục Tiêu toàn xưởng (Đã cộng 100% KPI)</div>
+                           <div className={"text-[22px] font-black text-[#d4af37]"}>
+                               {(isBoss || ['KẾ TOÁN', 'QUẢN LÝ NHÂN SỰ', 'NHÂN SỰ'].includes(String(currentRole).toUpperCase())) 
+                                   ? `${formatMoney(payroll.reduce((sum, p) => sum + (p.tongThuNhapTarget || p.tongThuNhap), 0))} đ` 
+                                   : '*****'}
+                           </div>
+                       </div>
+                       <div className={"text-right"}>
+                           <div className={"text-[10px] text-emerald-400 uppercase font-bold mb-1 flex items-center gap-1 justify-end"}><i className="fas fa-hand-holding-usd"></i> Thực tế cần chi trả (Đã đạt KPI)</div>
+                           <div className={"text-[22px] font-black text-[#10b981]"}>
+                               {(isBoss || ['KẾ TOÁN', 'QUẢN LÝ NHÂN SỰ', 'NHÂN SỰ'].includes(String(currentRole).toUpperCase())) 
+                                   ? `${formatMoney(payroll.reduce((sum, p) => sum + p.conCanTra, 0))} đ` 
+                                   : '*****'}
+                           </div>
+                       </div>
+                   </div>
               </div>
 
               <div className={"grid grid-cols-1 lg:grid-cols-2 gap-5 mt-5"}>
@@ -1999,24 +2611,24 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
                   <div key={p.user} className={"rf-card p-4 md:p-5 relative overflow-hidden"}>
                       {canManagePayroll && (erpData?.BonusPenalty || []).filter(b => b.user === p.user && b.type === 'Yêu Cầu Tạm Ứng' && b.orderCode === 'Chờ Duyệt').map(req => (
                           <div key={req.id} className="bg-rose-500/10 border border-rose-500/30 rounded-lg p-3 mb-4 flex justify-between items-center animate-fade-in shadow-sm">
-                              <div>
-                                  <div className="text-rose-500 font-bold text-[12px]"><i className="fas fa-hand-holding-usd mr-1"></i> Yêu cầu tạm ứng: {formatMoney(req.amount)}đ</div>
-                                  <div className="text-gray-400 text-[11px] mt-1">Lý do: {req.note}</div>
-                              </div>
-                              <div className="flex gap-2">
-                                  <button onClick={(e) => { e.stopPropagation(); pushDeltas({ deletes: { BonusPenalty: [req.id] } }, 'Đã từ chối', 'fa-times') }} className="px-3 py-1.5 bg-[#111] border border-[#333] text-gray-400 rounded text-[10px] hover:text-white transition-colors"><i className="fas fa-times"></i> Từ chối</button>
-                                  <button onClick={(e) => { e.stopPropagation(); 
-                                      const defaultAcc = (erpData?.Accounts || []).find(a => (a.accountName || a.name) === 'Công Ty') || (erpData?.Accounts || [])[0]; 
-                                      setPayrollAction({ 
-                                          type: String(req.note).includes('(Cho Vay)') ? 'cho_vay' : 'tam_ung', 
-                                          target: p.user, 
-                                          amount: req.amount, 
-                                          note: req.note, 
-                                          accountId: defaultAcc?.id || '',
-                                          requestId: req.id
-                                      });
-                                  }} className="px-4 py-1.5 bg-gradient-to-r from-rose-500 to-red-500 text-white rounded text-[11px] font-black shadow-sm hover:scale-105 active:scale-95 transition-transform">DUYỆT</button>
-                              </div>
+                               <div>
+                                   <div className="text-rose-500 font-bold text-[12px]"><i className="fas fa-hand-holding-usd mr-1"></i> Yêu cầu tạm ứng: {formatMoney(req.amount)}đ</div>
+                                   <div className="text-gray-400 text-[11px] mt-1">Lý do: {req.note}</div>
+                               </div>
+                               <div className="flex gap-2">
+                                   <button onClick={(e) => { e.stopPropagation(); pushDeltas({ deletes: { BonusPenalty: [req.id] } }, 'Đã từ chối', 'fa-times') }} className="px-3 py-1.5 bg-[#111] border border-[#333] text-gray-400 rounded text-[10px] hover:text-white transition-colors"><i className="fas fa-times"></i> Từ chối</button>
+                                   <button onClick={(e) => { e.stopPropagation(); 
+                                       const defaultAcc = (erpData?.Accounts || []).find(a => (a.accountName || a.name) === 'Công Ty') || (erpData?.Accounts || [])[0]; 
+                                       setPayrollAction({ 
+                                           type: String(req.note).includes('(Cho Vay)') ? 'cho_vay' : 'tam_ung', 
+                                           target: p.user, 
+                                           amount: req.amount, 
+                                           note: req.note, 
+                                           accountId: defaultAcc?.id || '',
+                                           requestId: req.id
+                                       });
+                                   }} className="px-4 py-1.5 bg-gradient-to-r from-rose-500 to-red-500 text-white rounded text-[11px] font-black shadow-sm hover:scale-105 active:scale-95 transition-transform">DUYỆT</button>
+                               </div>
                           </div>
                       ))}
 
@@ -2024,14 +2636,28 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
                           <div className={"flex items-center gap-3"}>
                               {renderSafeAvatar(p.user, "w-10 h-10 border-[#333]")}
                               <div>
-                                  <div className={"font-black text-[14px] text-white group-hover:text-[#3b82f6] transition-colors"}>{p.user}</div>
+                                  <div className={"font-black text-[14px] text-white group-hover:text-[#3b82f6] transition-colors flex items-center gap-2"}>
+                                      {p.user}
+                                      {p.isLocked && (
+                                          <span className="px-2 py-0.5 text-[9px] font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-full inline-flex items-center gap-1" title={`Đã khóa sổ chính thức vào ${p.lockedAt || ''}`}>
+                                              <i className="fas fa-lock text-[8px]"></i> ĐÃ KHÓA SỔ
+                                          </span>
+                                      )}
+                                  </div>
                                   <div className={"text-[10px] text-gray-500 uppercase mt-0.5"}>{p.role}</div>
                               </div>
                           </div>
                           <div className={"text-right flex items-center gap-3"}>
                               <div>
-                                  <div className={"text-[9px] text-gray-500 uppercase"}>Tổng lương</div>
-                                  <div className={"text-[18px] font-black text-[#d4af37] leading-none"}>{formatMoney(p.tongThuNhap)}đ</div>
+                                  <div className={"text-[9px] text-amber-400 font-bold uppercase tracking-wider flex items-center justify-end gap-1"}>
+                                      <i className="fas fa-bullseye text-[#d4af37]"></i> Lương Mục Tiêu
+                                  </div>
+                                  <div className={"text-[18px] font-black text-[#d4af37] leading-none mt-0.5"}>
+                                      {formatMoney(p.tongThuNhapTarget || p.tongThuNhap)}đ
+                                  </div>
+                                  <div className={"text-[8px] text-gray-500 font-bold mt-1"}>
+                                      Đã cộng 100% KPI chỉ tiêu
+                                  </div>
                               </div>
                               <div className={"w-6 h-6 rounded-full bg-[#222] flex items-center justify-center text-gray-500 group-hover:bg-[#333] transition-all"}><i className={`fas fa-chevron-${expandedPayroll === p.user ? 'up' : 'down'} text-[10px]`}></i></div>
                           </div>
@@ -2093,12 +2719,19 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
                                                   <div className={"bg-[#0a0a0a] p-2 border-t border-[#333] animate-fade-in"}>
                                                       {(!p.kpiSanXuatDetails || p.kpiSanXuatDetails.length === 0) ? <div className={"text-gray-500 italic text-[9px] pl-1"}>Chưa có dữ liệu</div> : (
                                                           <div className={"pl-2 border-l border-[#333] space-y-2 max-h-40 overflow-y-auto custom-scrollbar pr-2 py-1"}>
-                                                              {p.kpiSanXuatDetails.map((detail, idx) => (
-                                                                  <div key={idx} className={"flex justify-between items-center text-[10px] border-b border-[#222] pb-1.5 last:border-0"}>
-                                                                      <span className={`truncate pr-2 flex-1 ${detail.isX3 ? 'text-orange-400 font-bold' : 'text-gray-300'}`}><span className={"text-zinc-600 font-bold mr-1.5"}>[{detail.time?.slice(5, 10)}]</span>{detail.name}</span>
-                                                                      <span className={"font-black text-[#10b981]"}>+{formatMoney(detail.amount)}</span>
-                                                                  </div>
-                                                              ))}
+                                                              {p.kpiSanXuatDetails.map((detail, idx) => {
+                                                                  const isIntlItem = Boolean(detail.isX3);
+                                                                  return (
+                                                                      <div key={idx} className={"flex justify-between items-center text-[10px] border-b border-[#222] pb-1.5 last:border-0"}>
+                                                                          <span className={`truncate pr-2 flex-1 ${isIntlItem ? 'text-amber-300 font-black bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/30' : 'text-gray-300'}`}>
+                                                                              <span className={"text-zinc-600 font-bold mr-1.5"}>[{detail.time?.slice(5, 10)}]</span>
+                                                                              {detail.name}
+                                                                              {isIntlItem && <span className="ml-1.5 px-1.5 py-0.2 bg-[#d4af37] text-black text-[8px] font-black rounded uppercase shadow-sm">x3 THƯỞNG</span>}
+                                                                          </span>
+                                                                          <span className={"font-black text-[#10b981]"}>+{formatMoney(detail.amount)}</span>
+                                                                      </div>
+                                                                  );
+                                                              })}
                                                           </div>
                                                       )}
                                                   </div>
@@ -2115,12 +2748,19 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
                                                   <div className={"bg-[#0a0a0a] p-2 border-t border-[#333] animate-fade-in"}>
                                                       {(!p.kpiDongGoiDetails || p.kpiDongGoiDetails.length === 0) ? <div className={"text-gray-500 italic text-[9px] pl-1"}>Chưa có dữ liệu</div> : (
                                                           <div className={"pl-2 border-l border-[#333] space-y-2 max-h-40 overflow-y-auto custom-scrollbar pr-2 py-1"}>
-                                                              {p.kpiDongGoiDetails.map((detail, idx) => (
+                                                              {p.kpiDongGoiDetails.map((detail, idx) => {
+                                                                  const isIntlItem = Boolean(detail.isX3);
+                                                                  return (
                                                                   <div key={idx} className={"flex justify-between items-center text-[10px] border-b border-[#222] pb-1.5 last:border-0"}>
-                                                                      <span className={`truncate pr-2 flex-1 text-gray-300`}><span className={"text-zinc-600 font-bold mr-1.5"}>[{detail.time?.slice(5, 10)}]</span>{detail.name}</span>
+                                                                      <span className={`truncate pr-2 flex-1 ${isIntlItem ? 'text-amber-300 font-black bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/30' : 'text-gray-300'}`}>
+                                                                          <span className={"text-zinc-600 font-bold mr-1.5"}>[{detail.time?.slice(5, 10)}]</span>
+                                                                          {detail.name}
+                                                                          {isIntlItem && <span className="ml-1.5 px-1.5 py-0.2 bg-[#d4af37] text-black text-[8px] font-black rounded uppercase shadow-sm">x3 THƯỞNG</span>}
+                                                                      </span>
                                                                       <span className={"font-black text-[#3b82f6]"}>+{formatMoney(detail.amount)}</span>
                                                                   </div>
-                                                              ))}
+                                                                  );
+                                                              })}
                                                           </div>
                                                       )}
                                                   </div>
@@ -2204,10 +2844,30 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
                                       )}
                                   </div>
 
-                                  {/* THỰC NHẬN */}
-                                  <div className={"flex justify-between items-center bg-gradient-to-r from-[#d4af37]/20 to-transparent p-3 rounded-xl border border-[#d4af37]/30 mt-3 shadow-sm"}>
-                                      <span className={"text-[#d4af37] font-black uppercase tracking-wider text-[11px]"}>Thực Nhận Kỳ Này:</span>
-                                      <span className={"text-[#d4af37] font-black text-[18px]"}>{formatMoney(p.totalSalary)}đ</span>
+                                  {/* KHỐI SO SÁNH: LƯƠNG MỤC TIÊU (ĐÃ CỘNG TẤT CẢ KPI) VS THỰC NHẬN (ĐẠT KPI MỚI CỘNG) */}
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-3">
+                                      <div className="bg-[#18150d] p-3 rounded-xl border border-amber-500/30 shadow-sm">
+                                          <div className="text-[9px] font-black text-amber-400 uppercase tracking-wider flex items-center gap-1 mb-0.5">
+                                              <i className="fas fa-bullseye text-[#d4af37]"></i> Tổng Lương Mục Tiêu:
+                                          </div>
+                                          <div className="text-[17px] font-black text-amber-300 font-mono">
+                                              {formatMoney(p.tongThuNhapTarget || p.tongThuNhap)}đ
+                                          </div>
+                                          <div className="text-[8px] text-amber-400/70 mt-0.5 font-bold">
+                                              * Đã cộng tất cả KPI chỉ tiêu vào để tạo động lực
+                                          </div>
+                                      </div>
+                                      <div className="bg-gradient-to-r from-emerald-500/20 to-emerald-900/10 p-3 rounded-xl border border-emerald-500/30 shadow-sm">
+                                          <div className="text-[9px] font-black text-emerald-400 uppercase tracking-wider flex items-center gap-1 mb-0.5">
+                                              <i className="fas fa-check-circle text-emerald-400"></i> Thực Nhận Kỳ Này:
+                                          </div>
+                                          <div className="text-[17px] font-black text-emerald-400 font-mono">
+                                              {formatMoney(p.totalSalary)}đ
+                                          </div>
+                                          <div className="text-[8px] text-emerald-400/70 mt-0.5 font-bold">
+                                              * Chỉ cộng thưởng khi thực sự đạt KPI
+                                          </div>
+                                      </div>
                                   </div>
                               </div>
                               
@@ -2284,35 +2944,35 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
                               <label className={"text-gray-400 font-bold block mb-1"}>Ghi chú / Lý do</label>
                               <input type="text" value={payrollAction.note} onChange={e => setPayrollAction({...payrollAction, note: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2.5 text-white outline-none focus:border-blue-500" placeholder="Nhập lý do chi..." />
                           </div>
-                      {payrollAction.type === 'cho_vay' && (
-                          <div className={"flex gap-3"}>
-                              <div className={"flex-1"}>
-                                  <label className={"text-gray-400 font-bold block mb-1"}>Ngày cho vay</label>
-                                  <input type="date" value={payrollAction.loanDate || ''} onChange={e => setPayrollAction({...payrollAction, loanDate: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white outline-none focus:border-purple-500" />
+                          {payrollAction.type === 'cho_vay' && (
+                              <div className={"flex gap-3"}>
+                                  <div className={"flex-1"}>
+                                      <label className={"text-gray-400 font-bold block mb-1"}>Ngày cho vay</label>
+                                      <input type="date" value={payrollAction.loanDate || ''} onChange={e => setPayrollAction({...payrollAction, loanDate: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white outline-none focus:border-purple-500" />
+                                  </div>
+                                  <div className={"flex-1"}>
+                                      <label className={"text-gray-400 font-bold block mb-1"}>Ngày cần thu</label>
+                                      <input type="date" value={payrollAction.dueDate || ''} onChange={e => setPayrollAction({...payrollAction, dueDate: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white outline-none focus:border-purple-500" />
+                                  </div>
                               </div>
-                              <div className={"flex-1"}>
-                                  <label className={"text-gray-400 font-bold block mb-1"}>Ngày cần thu</label>
-                                  <input type="date" value={payrollAction.dueDate || ''} onChange={e => setPayrollAction({...payrollAction, dueDate: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white outline-none focus:border-purple-500" />
+                          )}
+                          {payrollAction.type === 'thanh_toan' && (
+                              <div>
+                                  <label className={"text-gray-400 font-bold block mb-1"}>Trích từ tài khoản</label>
+                                  <select 
+                                      value={payrollAction.accountId} 
+                                      onChange={e => setPayrollAction({...payrollAction, accountId: e.target.value})} 
+                                      className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2.5 text-white outline-none font-bold focus:border-blue-500"
+                                  >
+                                      {(erpData?.Accounts || []).map(acc => (
+                                          <option key={acc.id} value={acc.id}>
+                                              {acc.accountName || acc.name} ({Number(acc.balance || 0).toLocaleString('vi-VN')}đ)
+                                          </option>
+                                      ))}
+                                  </select>
                               </div>
-                          </div>
-                      )}
-                      </>
-                      )}
-                      {(payrollAction.type === 'tam_ung' || payrollAction.type === 'cho_vay' || payrollAction.type === 'thanh_toan') && (
-                          <div>
-                              <label className={"text-gray-400 font-bold block mb-1"}>Trích từ tài khoản</label>
-                              <select 
-                                  value={payrollAction.accountId} 
-                                  onChange={e => setPayrollAction({...payrollAction, accountId: e.target.value})} 
-                                  className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2.5 text-white outline-none font-bold focus:border-blue-500"
-                              >
-                                  {(erpData?.Accounts || []).map(acc => (
-                                      <option key={acc.id} value={acc.id}>
-                                          {acc.accountName || acc.name} ({Number(acc.balance || 0).toLocaleString('vi-VN')}đ)
-                                      </option>
-                                  ))}
-                              </select>
-                          </div>
+                          )}
+                          </>
                       )}
                   </div>
                   <div className={"flex gap-2 mt-5"}>
@@ -2328,6 +2988,17 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
               <div className={"rf-modal-content w-full max-w-sm p-5 shadow-2xl"}>
                   <h3 className={"font-black text-white mb-4 text-[13px] uppercase tracking-wide border-b border-[#222] pb-2"}>TẠO LỆNH BÁO NGHỈ</h3>
                   <div className={"space-y-3 text-[11px]"}>
+                      {canEditAttendance && (
+                          <div>
+                              <label className={"text-gray-400 font-bold block mb-1"}>Nhân sự báo nghỉ</label>
+                              <select value={leaveForm.user || currentUser} onChange={e=>setLeaveForm({...leaveForm, user: e.target.value})} className={"w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white outline-none"}>
+                                  <option value={currentUser}>{currentUser} (Bản thân)</option>
+                                  {users.filter(u => u !== currentUser).map(u => (
+                                      <option key={u} value={u}>{u}</option>
+                                  ))}
+                              </select>
+                          </div>
+                      )}
                       <div>
                           <label className={"text-gray-400 font-bold block mb-1"}>Ngày nghỉ</label>
                           <input type="date" value={leaveForm.date} onChange={e=>setLeaveForm({...leaveForm, date: e.target.value})} className={"w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white outline-none"} />
@@ -2355,13 +3026,13 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
       )}
 
       {showKPIModal && (
-          <div className={"fixed inset-0 bg-black/80 flex items-center justify-center z-[999] p-4 backdrop-blur-sm animate-fade-in"}>
-              <div className={"bg-[#141414] border border-[#333] w-full max-w-sm rounded-3xl overflow-hidden shadow-2xl flex flex-col"}>
+          <div className={"fixed inset-0 bg-black/85 flex items-center justify-center z-[9999] p-3 sm:p-4 backdrop-blur-md animate-fade-in overflow-y-auto"}>
+              <div className={"bg-[#141414] border border-[#333] w-full max-w-md rounded-3xl overflow-hidden shadow-2xl flex flex-col my-auto max-h-[90vh]"}>
                   <div className={"p-4 border-b border-[#222] bg-[#1a1a1a] flex justify-between items-center"}>
-                      <h3 className={"font-black text-[#d4af37] uppercase text-[13px] tracking-widest"}><i className={"fas fa-scroll mr-2"}></i >{editKPI ? 'Chỉnh Sửa Nhiệm Vụ' : 'Giao Nhiệm Vụ Mới'}</h3>
+                      <h3 className={"font-black text-[#d4af37] uppercase text-[13px] tracking-widest"}><i className={"fas fa-scroll mr-2"}></i>{editKPI ? 'Chỉnh Sửa Nhiệm Vụ' : 'Giao Nhiệm Vụ Mới'}</h3>
                       <button onClick={() => { setShowKPIModal(false); setEditKPI(null); }} className={"w-8 h-8 rounded-full bg-[#222] hover:bg-rose-500 flex items-center justify-center"}><i className={"fas fa-times"}></i></button>
                   </div>
-                  <div className={"p-5 space-y-4 max-h-[70vh] overflow-y-auto custom-scrollbar"}>
+                  <div className={"p-4 sm:p-5 space-y-4 max-h-[75vh] overflow-y-auto custom-scrollbar flex-1"}>
                       {/* 1. RECURRENCE SELECTOR */}
                       {!editKPI && kpiType === 'task' && (
                           <div>
@@ -2696,7 +3367,16 @@ const HRTab = React.memo(function HRTab({ documents, hasPerm, attendance, erpDat
               <div className="bg-white text-black w-full max-w-[210mm] max-h-[90vh] overflow-y-auto rounded-lg shadow-2xl p-5 custom-scrollbar" onClick={e => e.stopPropagation()}>
                   <div className="flex justify-between items-center mb-4 border-b border-gray-200 pb-2">
                       <h3 className="font-bold text-lg text-gray-800"><i className="fas fa-file-invoice-dollar mr-2 text-blue-500"></i> Phiếu Lương Đã Chốt</h3>
-                      <button onClick={() => setViewingPayslip(null)} className="text-gray-400 hover:text-red-500 transition-colors"><i className="fas fa-times text-xl"></i></button>
+                      <div className="flex items-center gap-2">
+                          <button onClick={() => {
+                              const win = window.open('', '_blank');
+                              win.document.write(`<html><head><title>In Phiếu Lương</title><style>@media print { @page { size: A4 portrait; margin: 15mm auto; } body { background: white !important; margin: 0 !important; } * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } }</style></head><body>${viewingPayslip}</body></html>`);
+                              win.document.close();
+                              win.focus();
+                              setTimeout(() => win.print(), 300);
+                          }} className="px-3 py-1.5 bg-amber-500 text-black font-black text-xs rounded-lg shadow hover:bg-amber-400 transition-colors flex items-center gap-1"><i className="fas fa-print"></i> IN LẠI</button>
+                          <button onClick={() => setViewingPayslip(null)} className="text-gray-400 hover:text-red-500 transition-colors p-1"><i className="fas fa-times text-xl"></i></button>
+                      </div>
                   </div>
                   <div dangerouslySetInnerHTML={{ __html: viewingPayslip }}></div>
               </div>
@@ -2739,7 +3419,8 @@ const PayrollEditModal = React.memo(function PayrollEditModal({ p, onClose, push
         });
 
         const payload = {
-            BonusPenalty: [
+            monthStr: filterMonth,
+            BonusPenalty_Updates: [
                 buildBP(form.luongLamThemGio, 'Lương Làm Thêm Giờ', 'Tăng ca nội bộ xưởng'),
                 buildBP(form.hoTroSanLuong, 'Hỗ Trợ Sản Lượng', 'Hỗ trợ định mức kho sản lượng'),
                 buildBP(form.cacKhoanThuKhac, 'Thu Nhập Khác', 'Khoản điều chỉnh bổ sung'),
@@ -2751,8 +3432,19 @@ const PayrollEditModal = React.memo(function PayrollEditModal({ p, onClose, push
         };
 
         try {
-            await pushDeltas(payload, `Đã nhồi số bảng lương của ${p.user} thành công!`, 'fa-save');
-            onClose();
+            if (typeof window.runGAS === 'function') {
+                const res = await window.runGAS('api_syncMasterPayroll', payload);
+                if (res && res.success) {
+                    if (typeof triggerToast === 'function') triggerToast(`Đã nhồi số và đồng bộ lương cho ${p.user} thành công!`, 'fa-check', 'success');
+                    window.dispatchEvent(new CustomEvent('triggerReloadData'));
+                    onClose();
+                } else {
+                    alert('Lỗi đồng bộ lương: ' + (res ? res.message : 'Không rõ'));
+                }
+            } else {
+                await pushDeltas({ BonusPenalty: payload.BonusPenalty_Updates }, `Đã nhồi số bảng lương của ${p.user} thành công!`, 'fa-save');
+                onClose();
+            }
         } catch(e) { alert('Lỗi đồng bộ dữ liệu mạng!'); }
         setIsSaving(false);
     };
@@ -2765,29 +3457,35 @@ const PayrollEditModal = React.memo(function PayrollEditModal({ p, onClose, push
                     <button onClick={onClose} disabled={isSaving} className="w-8 h-8 rounded-full bg-[#222] text-gray-400 hover:text-white flex items-center justify-center"><i className="fas fa-times text-xs"></i></button>
                 </div>
                 <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3.5 pr-1 text-[11px]">
+                    {p.isLocked && (
+                        <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400 font-bold flex items-center gap-2">
+                            <i className="fas fa-lock text-sm"></i>
+                            <span>Kỳ lương này đã Khóa Sổ / Đã Trả. Hệ thống khóa quyền chỉnh sửa để đảm bảo tính toàn vẹn tài chính!</span>
+                        </div>
+                    )}
                     <div className="grid grid-cols-2 gap-3">
-                        <div><label className="text-gray-400 font-bold block mb-1">Lương Làm Thêm Giờ</label><input type="number" value={form.luongLamThemGio} onChange={e=>setForm({...form, luongLamThemGio: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white font-bold" /></div>
-                        <div><label className="text-gray-400 font-bold block mb-1">Hỗ Trợ Sản Lượng</label><input type="number" value={form.hoTroSanLuong} onChange={e=>setForm({...form, hoTroSanLuong: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white font-bold" /></div>
+                        <div><label className="text-gray-400 font-bold block mb-1">Lương Làm Thêm Giờ</label><input type="number" disabled={p.isLocked} value={form.luongLamThemGio} onChange={e=>setForm({...form, luongLamThemGio: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white font-bold disabled:opacity-50" /></div>
+                        <div><label className="text-gray-400 font-bold block mb-1">Hỗ Trợ Sản Lượng</label><input type="number" disabled={p.isLocked} value={form.hoTroSanLuong} onChange={e=>setForm({...form, hoTroSanLuong: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white font-bold disabled:opacity-50" /></div>
                     </div>
                     <div className="grid grid-cols-2 gap-2 p-2.5 bg-zinc-900/30 rounded-xl border border-white/5">
                         <div className="col-span-2 font-black text-blue-400">THU NHẬP KHÁC</div>
-                        <div><label className="text-gray-500 block mb-1">Số tiền</label><input type="number" value={form.cacKhoanThuKhac} onChange={e=>setForm({...form, cacKhoanThuKhac: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white" /></div>
-                        <div><label className="text-gray-500 block mb-1">Ghi chú</label><input type="text" value={form.cacKhoanThuKhacNote} onChange={e=>setForm({...form, cacKhoanThuKhacNote: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white" /></div>
+                        <div><label className="text-gray-500 block mb-1">Số tiền</label><input type="number" disabled={p.isLocked} value={form.cacKhoanThuKhac} onChange={e=>setForm({...form, cacKhoanThuKhac: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white disabled:opacity-50" /></div>
+                        <div><label className="text-gray-500 block mb-1">Ghi chú</label><input type="text" disabled={p.isLocked} value={form.cacKhoanThuKhacNote} onChange={e=>setForm({...form, cacKhoanThuKhacNote: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white disabled:opacity-50" /></div>
                     </div>
                     <div className="grid grid-cols-2 gap-2 p-2.5 bg-zinc-900/30 rounded-xl border border-white/5">
                         <div className="col-span-2 font-black text-rose-400">PHẠT QUY ĐỊNH MỤC</div>
-                        <div><label className="text-gray-500 block mb-1">Tiền phạt</label><input type="number" value={form.phatQuyDinh} onChange={e=>setForm({...form, phatQuyDinh: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-rose-400 font-bold" /></div>
-                        <div><label className="text-gray-500 block mb-1">Lý do phạt lỗi</label><input type="text" value={form.phatQuyDinhNote} onChange={e=>setForm({...form, phatQuyDinhNote: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white" /></div>
+                        <div><label className="text-gray-500 block mb-1">Tiền phạt</label><input type="number" disabled={p.isLocked} value={form.phatQuyDinh} onChange={e=>setForm({...form, phatQuyDinh: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-rose-400 font-bold disabled:opacity-50" /></div>
+                        <div><label className="text-gray-500 block mb-1">Lý do phạt lỗi</label><input type="text" disabled={p.isLocked} value={form.phatQuyDinhNote} onChange={e=>setForm({...form, phatQuyDinhNote: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white disabled:opacity-50" /></div>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
-                        <div><label className="text-gray-400 block mb-1">Chi Phí Bảo Hành</label><input type="number" value={form.chiPhiBaoHanh} onChange={e=>setForm({...form, chiPhiBaoHanh: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white" /></div>
-                        <div><label className="text-gray-400 block mb-1">Đã Chi Trả Trước</label><input type="number" value={form.daTraNhanVien} onChange={e=>setForm({...form, daTraNhanVien: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white" /></div>
+                        <div><label className="text-gray-400 block mb-1">Chi Phí Bảo Hành</label><input type="number" disabled={p.isLocked} value={form.chiPhiBaoHanh} onChange={e=>setForm({...form, chiPhiBaoHanh: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white disabled:opacity-50" /></div>
+                        <div><label className="text-gray-400 block mb-1">Đã Chi Trả Trước</label><input type="number" disabled={p.isLocked} value={form.daTraNhanVien} onChange={e=>setForm({...form, daTraNhanVien: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white disabled:opacity-50" /></div>
                     </div>
-                    <div><label className="text-gray-400 block mb-1">Nhận Xét Năng Suất Phiếu</label><textarea rows="2" value={form.nhanXetText} onChange={e=>setForm({...form, nhanXetText: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white outline-none" placeholder="Đạt tiến độ..."></textarea></div>
+                    <div><label className="text-gray-400 block mb-1">Nhận Xét Năng Suất Phiếu</label><textarea rows="2" disabled={p.isLocked} value={form.nhanXetText} onChange={e=>setForm({...form, nhanXetText: e.target.value})} className="w-full bg-[#0a0a0a] border border-[#333] rounded-lg p-2 text-white outline-none disabled:opacity-50" placeholder="Đạt tiến độ..."></textarea></div>
                 </div>
                 <div className="flex gap-2 mt-4 pt-2 border-t border-[#222]">
                     <button onClick={onClose} className="flex-1 py-2.5 bg-[#222] text-gray-400 font-black rounded-xl">HỦY</button>
-                    <button onClick={handleSave} disabled={isSaving} className="flex-[2] py-2.5 bg-blue-500 text-black font-black rounded-xl">{isSaving ? 'ĐANG GHI...' : 'LƯU SỐ LIỆU'}</button>
+                    <button onClick={handleSave} disabled={isSaving || p.isLocked} className="flex-[2] py-2.5 bg-blue-500 text-black font-black rounded-xl disabled:opacity-50">{isSaving ? 'ĐANG GHI...' : (p.isLocked ? 'ĐÃ KHÓA SỔ' : 'LƯU SỐ LIỆU')}</button>
                 </div>
             </div>
         </div>

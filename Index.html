@@ -1,23 +1,47 @@
 <!DOCTYPE html>
 <html lang="vi">
+
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>RF Workspace Pro V2</title>
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>RF Workspace Pro</title>
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#09090b">
-  
+
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="RF Workspace">
+  <meta name="format-detection" content="telephone=no">
   <link rel="apple-touch-icon" href="https://i.postimg.cc/TYD5NncZ/icon.png">
   <link rel="shortcut icon" href="https://i.postimg.cc/TYD5NncZ/icon.png" type="image/png">
-  
-  <link rel="manifest" href='data:application/manifest+json,{"name":"RF Workspace Pro","short_name":"RF Workspace","start_url":".","display":"standalone","background_color":"#000000","theme_color":"#09090b","icons":[{"src":"https://i.postimg.cc/TYD5NncZ/icon.png","sizes":"512x512","type":"image/png"}]}'>
-  
+
+  <link rel="manifest"
+    href='data:application/manifest+json,{"name":"RF Workspace Pro","short_name":"RF Workspace","start_url":".","display":"standalone","orientation":"portrait","background_color":"#000000","theme_color":"#09090b","icons":[{"src":"https://i.postimg.cc/TYD5NncZ/icon.png","sizes":"512x512","type":"image/png"}]}'>
+
   <script>
     window.tailwind = window.tailwind || {};
     window.tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'Plus Jakarta Sans', 'sans-serif'] },
+          colors: {
+            apple: {
+              bg: '#0d0e12',
+              card: '#16171d',
+              hover: '#20222a',
+              border: '#242630',
+              text: '#e2e4e9',
+              muted: '#8a8d98',
+              accentRed: '#e85d75',
+              accentPeach: '#f2a65a',
+              accentMint: '#1fbc9c',
+              accentBlue: '#6b8afd'
+            }
+          }
+        }
+      },
       safelist: [
         'bg-zinc-950', 'text-white', 'border-zinc-700',
         'bg-orange-600', 'border-orange-500',
@@ -28,23 +52,28 @@
         'bg-emerald-600', 'border-emerald-500',
         'bg-teal-600', 'border-teal-500',
         'bg-pink-500', 'border-pink-400',
-        'bg-slate-500', 'border-slate-400'
+        'bg-slate-500', 'border-slate-400',
+        'bg-amber-500/10', 'text-amber-500', 'border-amber-500/20',
+        'bg-orange-500/10', 'text-orange-500', 'border-orange-500/20',
+        'bg-sky-500/10', 'text-sky-400', 'border-sky-500/20',
+        'bg-emerald-500/10', 'text-emerald-400', 'border-emerald-500/20'
       ]
     }
   </script>
   <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet">
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  
+
   <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.0.0/model-viewer.min.js"></script>
-  
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  
+
   <!-- FIREBASE REALTIME SDK -->
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
@@ -64,82 +93,139 @@
     }
   </script>
   <style>
-    /* === RICH FISH WORKSPACE PRO DESIGN TOKENS === */
+    /* === RICH FISH WORKSPACE PRO DESIGN TOKENS (APPLE / SHOPIFY DARK MODE) === */
     :root {
-      --rf-bg-main: #121318;
-      --rf-card-bg: #1b1d24;
-      --rf-card-hover: #232631;
-      --rf-border: #2d313e;
-      
-      --rf-primary: #f39c12;
-      --rf-primary-hover: #e67e22;
-      
-      --rf-text-main: #ffffff;
-      --rf-text-muted: #8e95a5;
-      
-      --rf-success: #27ae60;
-      --rf-success-bg: rgba(39, 174, 96, 0.15);
-      
-      --rf-warning: #f39c12;
-      --rf-warning-bg: rgba(243, 156, 18, 0.15);
-      
-      --rf-danger: #e74c3c;
-      --rf-danger-bg: rgba(231, 76, 60, 0.15);
-      
-      --rf-info: #17a2b8;
-      --rf-info-bg: rgba(23, 162, 184, 0.15);
+      --rf-bg-main: #0d0e12;
+      --rf-card-bg: #16171d;
+      --rf-border: #242630;
+      --rf-primary: #d4af37;
+
+      --rf-primary-hover: #b8972e;
+
+      --rf-text-main: #e2e4e9;
+      --rf-text-muted: #8a8d98;
+
+      --rf-success: #1fbc9c;
+      --rf-success-bg: rgba(31, 188, 156, 0.12);
+
+      --rf-warning: #f2a65a;
+      --rf-warning-bg: rgba(242, 166, 90, 0.12);
+
+      --rf-danger: #e85d75;
+      --rf-danger-bg: rgba(232, 93, 117, 0.12);
+
+      --rf-info: #6b8afd;
+      --rf-info-bg: rgba(107, 138, 253, 0.12);
     }
 
-    /* Áp dụng nền và font chuẩn */
+    /* Flat Apple/Shopify UI Utilities */
+    .flat-card {
+      background-color: #16171d !important;
+      border: 1px solid #242630 !important;
+      border-radius: 16px !important;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2) !important;
+    }
+
+    .flat-input {
+      background-color: #111217 !important;
+      border: 1px solid #242630 !important;
+      color: #e2e4e9 !important;
+      border-radius: 12px !important;
+      outline: none !important;
+      transition: border-color 0.15s ease-in-out !important;
+    }
+
+    .flat-input:focus {
+      border-color: #3b82f6 !important;
+    }
+
+    .rf-premium-glass {
+      background: rgba(18, 20, 29, 0.7) !important;
+      backdrop-filter: blur(20px) saturate(180%) !important;
+      -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+      border: 1px solid rgba(255, 255, 255, 0.07) !important;
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5) !important;
+    }
+
+    .rf-input-glass {
+      background: rgba(0, 0, 0, 0.4) !important;
+      backdrop-filter: blur(8px) !important;
+      border: 1px solid rgba(255, 255, 255, 0.08) !important;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    }
+
+    .rf-input-glass:focus {
+      border-color: rgba(212, 175, 55, 0.4) !important;
+      box-shadow: 0 0 15px rgba(212, 175, 55, 0.15), inset 0 0 8px rgba(0, 0, 0, 0.6) !important;
+      background: rgba(0, 0, 0, 0.6) !important;
+    }
+
+    /* Áp dụng nền chuẩn */
     body {
       background-color: var(--rf-bg-main) !important;
-      color: var(--rf-text-main) !important;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
 
-    /* Quy chuẩn Thẻ (Cards) */
-    .card, .rf-card, .batch-prod-card, .rf-glass-card {
-      background-color: var(--rf-card-bg) !important;
-      border: 1px solid var(--rf-border) !important;
-      border-radius: 16px !important;
-      color: var(--rf-text-main) !important;
-    }
-
-    /* Quy chuẩn Modal (Hộp thoại nổi) */
-    .modal-content, .rf-modal-content {
-      background-color: var(--rf-card-bg) !important;
+    /* Modal (Hộp thoại nổi) */
+    .modal-content,
+    .rf-modal-content {
       border: 1px solid var(--rf-border) !important;
       border-radius: 20px !important;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
     }
 
     /* Quy chuẩn Ô Nhập Liệu (Inputs & Selects) */
-    input.form-control, select.form-select, textarea.form-control {
+    input.form-control,
+    select.form-select,
+    textarea.form-control {
       background-color: #121318 !important;
       border: 1px solid var(--rf-border) !important;
       color: #ffffff !important;
     }
-    input.form-control:focus, select.form-select:focus {
+
+    input.form-control:focus,
+    select.form-select:focus {
       border-color: var(--rf-primary) !important;
       box-shadow: 0 0 0 0.2rem rgba(243, 156, 18, 0.25) !important;
     }
 
     /* Quy chuẩn Nút Bấm (Buttons) */
-    .btn-primary, .rf-btn-primary {
+    .btn-primary,
+    .rf-btn-primary {
       background-color: var(--rf-primary) !important;
       border-color: var(--rf-primary) !important;
       color: #121318 !important;
       font-weight: 700 !important;
     }
+
     .btn-primary:hover {
       background-color: var(--rf-primary-hover) !important;
     }
 
     /* Quy chuẩn Badges Trạng Thái */
-    .badge-success { background: var(--rf-success-bg); color: var(--rf-success); border: 1px solid var(--rf-success); }
-    .badge-warning { background: var(--rf-warning-bg); color: var(--rf-warning); border: 1px solid var(--rf-warning); }
-    .badge-danger  { background: var(--rf-danger-bg);  color: var(--rf-danger);  border: 1px solid var(--rf-danger); }
-    .badge-info    { background: var(--rf-info-bg);    color: var(--rf-info);    border: 1px solid var(--rf-info); }
+    .badge-success {
+      background: var(--rf-success-bg);
+      color: var(--rf-success);
+      border: 1px solid var(--rf-success);
+    }
+
+    .badge-warning {
+      background: var(--rf-warning-bg);
+      color: var(--rf-warning);
+      border: 1px solid var(--rf-warning);
+    }
+
+    .badge-danger {
+      background: var(--rf-danger-bg);
+      color: var(--rf-danger);
+      border: 1px solid var(--rf-danger);
+    }
+
+    .badge-info {
+      background: var(--rf-info-bg);
+      color: var(--rf-info);
+      border: 1px solid var(--rf-info);
+    }
 
     /* =========================================================================
        ✨ ENHANCED PREMIUM DESIGN SYSTEM v3.0
@@ -147,72 +233,176 @@
 
     /* --- ENHANCED ANIMATIONS --- */
     @keyframes slide-down {
-      from { opacity: 0; transform: translateY(-12px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-    @keyframes slide-up {
-      from { opacity: 0; transform: translateY(16px) scale(0.97); }
-      to   { opacity: 1; transform: translateY(0) scale(1); }
-    }
-    @keyframes fade-in {
-      from { opacity: 0; }
-      to   { opacity: 1; }
-    }
-    @keyframes shimmer {
-      0%   { background-position: -400px 0; }
-      100% { background-position: 400px 0; }
-    }
-    @keyframes float {
-      0%, 100% { transform: translateY(0px); }
-      50%       { transform: translateY(-4px); }
-    }
-    @keyframes glow-pulse {
-      0%, 100% { box-shadow: 0 0 8px rgba(212,175,55,0.15), 0 0 20px rgba(212,175,55,0.08); }
-      50%       { box-shadow: 0 0 16px rgba(212,175,55,0.30), 0 0 40px rgba(212,175,55,0.12); }
-    }
-    @keyframes count-up {
-      from { opacity: 0; transform: scale(0.8); }
-      to   { opacity: 1; transform: scale(1); }
-    }
-    @keyframes border-flow {
-      0%   { background-position: 0% 50%; }
-      50%  { background-position: 100% 50%; }
-      100% { background-position: 0% 50%; }
+      from {
+        opacity: 0;
+        transform: translateY(-12px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
 
-    .animate-slide-down { animation: slide-down 0.3s cubic-bezier(0.4,0,0.2,1) both; }
-    .animate-slide-up   { animation: slide-up 0.35s cubic-bezier(0.4,0,0.2,1) both; }
-    .animate-fade-in    { animation: fade-in 0.25s ease both; }
-    .animate-float      { animation: float 3s ease-in-out infinite; }
-    .animate-glow       { animation: glow-pulse 2.5s ease-in-out infinite; }
-    .animate-count      { animation: count-up 0.4s cubic-bezier(0.34,1.56,0.64,1) both; }
+    @keyframes slide-up {
+      from {
+        opacity: 0;
+        transform: translateY(16px) scale(0.97);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    @keyframes fade-in {
+      from {
+        opacity: 0;
+      }
+
+      to {
+        opacity: 1;
+      }
+    }
+
+    @keyframes shimmer {
+      0% {
+        background-position: -400px 0;
+      }
+
+      100% {
+        background-position: 400px 0;
+      }
+    }
+
+    @keyframes float {
+
+      0%,
+      100% {
+        transform: translateY(0px);
+      }
+
+      50% {
+        transform: translateY(-4px);
+      }
+    }
+
+    @keyframes glow-pulse {
+
+      0%,
+      100% {
+        box-shadow: 0 0 8px rgba(212, 175, 55, 0.15), 0 0 20px rgba(212, 175, 55, 0.08);
+      }
+
+      50% {
+        box-shadow: 0 0 16px rgba(212, 175, 55, 0.30), 0 0 40px rgba(212, 175, 55, 0.12);
+      }
+    }
+
+    @keyframes count-up {
+      from {
+        opacity: 0;
+        transform: scale(0.8);
+      }
+
+      to {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+
+    @keyframes border-flow {
+      0% {
+        background-position: 0% 50%;
+      }
+
+      50% {
+        background-position: 100% 50%;
+      }
+
+      100% {
+        background-position: 0% 50%;
+      }
+    }
+
+    .animate-slide-down {
+      animation: slide-down 0.3s cubic-bezier(0.4, 0, 0.2, 1) both;
+    }
+
+    .animate-slide-up {
+      animation: slide-up 0.35s cubic-bezier(0.4, 0, 0.2, 1) both;
+    }
+
+    .animate-fade-in {
+      animation: fade-in 0.25s ease both;
+    }
+
+    .animate-float {
+      animation: float 3s ease-in-out infinite;
+    }
+
+    .animate-glow {
+      animation: glow-pulse 2.5s ease-in-out infinite;
+    }
+
+    .animate-count {
+      animation: count-up 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    }
 
     /* --- SCROLLBARS --- */
-    .custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }
-    .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-    .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(212,175,55,0.25); border-radius: 99px; }
-    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(212,175,55,0.5); }
-    .hide-scrollbar::-webkit-scrollbar { display: none; }
-    .hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
-    * { scrollbar-width: thin; scrollbar-color: rgba(212,175,55,0.2) transparent; }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 4px;
+      height: 4px;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: rgba(212, 175, 55, 0.25);
+      border-radius: 99px;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: rgba(212, 175, 55, 0.5);
+    }
+
+    .hide-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+
+    .hide-scrollbar {
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: rgba(212, 175, 55, 0.2) transparent;
+    }
 
     /* --- BASE FONTS & RENDERING --- */
-    body, #root {
+    body,
+    #root {
       font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif !important;
       text-rendering: optimizeLegibility;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
     }
+
     body {
       background-color: #09090b;
-      margin: 0; padding: 0;
+      margin: 0;
+      padding: 0;
     }
 
     /* --- LIGHT MODE BACKGROUND --- */
     .premium-ui:not(.is-dark) {
       background:
-        radial-gradient(ellipse at 10% 20%, rgba(14,165,233,0.10) 0%, transparent 50%),
-        radial-gradient(ellipse at 90% 80%, rgba(99,102,241,0.08) 0%, transparent 45%),
+        radial-gradient(ellipse at 10% 20%, rgba(14, 165, 233, 0.10) 0%, transparent 50%),
+        radial-gradient(ellipse at 90% 80%, rgba(99, 102, 241, 0.08) 0%, transparent 45%),
         #f0f4f8 !important;
       color: #0f172a !important;
     }
@@ -220,9 +410,9 @@
     /* --- DARK MODE BACKGROUND --- */
     .premium-ui.is-dark {
       background:
-        radial-gradient(ellipse at 5%  10%, rgba(212,175,55,0.06) 0%, transparent 40%),
-        radial-gradient(ellipse at 95% 85%, rgba(59,130,246,0.05) 0%, transparent 45%),
-        radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0) 0%, #090909 100%),
+        radial-gradient(ellipse at 5% 10%, rgba(212, 175, 55, 0.06) 0%, transparent 40%),
+        radial-gradient(ellipse at 95% 85%, rgba(59, 130, 246, 0.05) 0%, transparent 45%),
+        radial-gradient(ellipse at 50% 50%, rgba(0, 0, 0, 0) 0%, #090909 100%),
         #09090b !important;
       color: #e4e4e7 !important;
     }
@@ -237,14 +427,14 @@
     .premium-ui.is-dark .bg-\[\#1a1a1a\]:not(.fixed):not(.absolute),
     .premium-ui.is-dark [class*="bg-[#0"]:not(.fixed):not(.absolute),
     .premium-ui.is-dark [class*="bg-[#1"]:not(.fixed):not(.absolute) {
-      background: rgba(16,16,20,0.72) !important;
+      background: rgba(16, 16, 20, 0.72) !important;
       backdrop-filter: blur(24px) saturate(130%) !important;
       -webkit-backdrop-filter: blur(24px) saturate(130%) !important;
-      border: 1px solid rgba(255,255,255,0.07) !important;
+      border: 1px solid rgba(255, 255, 255, 0.07) !important;
       box-shadow:
-        0 1px 0 rgba(255,255,255,0.04) inset,
-        0 8px 32px rgba(0,0,0,0.35),
-        0 2px 8px rgba(0,0,0,0.2) !important;
+        0 1px 0 rgba(255, 255, 255, 0.04) inset,
+        0 8px 32px rgba(0, 0, 0, 0.35),
+        0 2px 8px rgba(0, 0, 0, 0.2) !important;
       color: #e4e4e7 !important;
     }
 
@@ -257,14 +447,14 @@
     .premium-ui:not(.is-dark) .bg-\[\#0a0a0a\]:not(.fixed):not(.absolute),
     .premium-ui:not(.is-dark) .bg-\[\#1a1a1a\]:not(.fixed):not(.absolute),
     .premium-ui:not(.is-dark) [class*="bg-[#"]:not(.fixed):not(.absolute) {
-      background: rgba(255,255,255,0.78) !important;
+      background: rgba(255, 255, 255, 0.78) !important;
       backdrop-filter: blur(24px) saturate(180%) !important;
       -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
-      border: 1px solid rgba(14,165,233,0.10) !important;
+      border: 1px solid rgba(14, 165, 233, 0.10) !important;
       box-shadow:
-        0 1px 0 rgba(255,255,255,0.9) inset,
-        0 8px 32px rgba(14,165,233,0.05),
-        0 2px 8px rgba(0,0,0,0.04) !important;
+        0 1px 0 rgba(255, 255, 255, 0.9) inset,
+        0 8px 32px rgba(14, 165, 233, 0.05),
+        0 2px 8px rgba(0, 0, 0, 0.04) !important;
       color: #0f172a !important;
     }
 
@@ -272,35 +462,61 @@
     .premium-ui.is-dark .text-white,
     .premium-ui.is-dark .text-zinc-100,
     .premium-ui.is-dark .text-\[\#f5f5f5\],
-    .premium-ui.is-dark h1,.premium-ui.is-dark h2,
-    .premium-ui.is-dark h3,.premium-ui.is-dark h4,
-    .premium-ui.is-dark h5,.premium-ui.is-dark h6,
-    .premium-ui.is-dark label { color: #f4f4f5 !important; }
+    .premium-ui.is-dark h1,
+    .premium-ui.is-dark h2,
+    .premium-ui.is-dark h3,
+    .premium-ui.is-dark h4,
+    .premium-ui.is-dark h5,
+    .premium-ui.is-dark h6,
+    .premium-ui.is-dark label {
+      color: #f4f4f5 !important;
+    }
+
     .premium-ui.is-dark .text-zinc-400,
     .premium-ui.is-dark .text-gray-400,
-    .premium-ui.is-dark .text-slate-400 { color: #a1a1aa !important; }
+    .premium-ui.is-dark .text-slate-400 {
+      color: #a1a1aa !important;
+    }
 
     /* --- TEXT COLORS LIGHT --- */
     .premium-ui:not(.is-dark) .text-white,
     .premium-ui:not(.is-dark) .text-zinc-100,
     .premium-ui:not(.is-dark) .text-\[\#f5f5f5\],
-    .premium-ui:not(.is-dark) h1,.premium-ui:not(.is-dark) h2,
-    .premium-ui:not(.is-dark) h3,.premium-ui:not(.is-dark) h4,
-    .premium-ui:not(.is-dark) label { color: #0f172a !important; }
+    .premium-ui:not(.is-dark) h1,
+    .premium-ui:not(.is-dark) h2,
+    .premium-ui:not(.is-dark) h3,
+    .premium-ui:not(.is-dark) h4,
+    .premium-ui:not(.is-dark) label {
+      color: #0f172a !important;
+    }
+
     .premium-ui:not(.is-dark) .text-zinc-400,
     .premium-ui:not(.is-dark) .text-gray-400,
-    .premium-ui:not(.is-dark) .text-slate-400 { color: #64748b !important; }
+    .premium-ui:not(.is-dark) .text-slate-400 {
+      color: #64748b !important;
+    }
 
     /* --- ACCENT COLORS --- */
-    .premium-ui.is-dark .text-\[\#d4af37\] { color: #d4af37 !important; }
-    .premium-ui.is-dark .bg-\[\#d4af37\], .premium-ui.is-dark .bg-yellow-500 {
+    .premium-ui.is-dark .text-\[\#d4af37\] {
+      color: #d4af37 !important;
+    }
+
+    .premium-ui.is-dark .bg-\[\#d4af37\],
+    .premium-ui.is-dark .bg-yellow-500 {
       background: linear-gradient(135deg, #d4af37 0%, #f0ca5e 50%, #d4af37 100%) !important;
       background-size: 200% !important;
-      color: #050505 !important; border: 1px solid #d4af37 !important;
+      color: #050505 !important;
+      border: 1px solid #d4af37 !important;
     }
-    .premium-ui:not(.is-dark) .text-\[\#d4af37\] { color: #0284c7 !important; }
+
+    .premium-ui:not(.is-dark) .text-\[\#d4af37\] {
+      color: #0284c7 !important;
+    }
+
     .premium-ui:not(.is-dark) .bg-\[\#d4af37\] {
-      background-color: #0284c7 !important; color: #ffffff !important; border: 1px solid #0284c7 !important;
+      background-color: #0284c7 !important;
+      color: #ffffff !important;
+      border: 1px solid #0284c7 !important;
     }
 
     /* --- BUTTONS: DARK BLUE --- */
@@ -309,106 +525,137 @@
     .premium-ui.is-dark .bg-blue-600,
     .premium-ui.is-dark .bg-\[\#0284c7\] {
       background: linear-gradient(135deg, #0284c7 0%, #38bdf8 100%) !important;
-      color: #ffffff !important; border: none !important;
-      box-shadow: 0 4px 14px rgba(2,132,199,0.35) !important;
+      color: #ffffff !important;
+      border: none !important;
+      box-shadow: 0 4px 14px rgba(2, 132, 199, 0.35) !important;
     }
+
     .premium-ui:not(.is-dark) .bg-\[\#3b82f6\],
     .premium-ui:not(.is-dark) .bg-blue-500,
     .premium-ui:not(.is-dark) .bg-blue-600,
     .premium-ui:not(.is-dark) .bg-\[\#0284c7\] {
       background: linear-gradient(135deg, #0369a1 0%, #0284c7 100%) !important;
-      color: #ffffff !important; border: none !important;
-      box-shadow: 0 4px 14px rgba(2,132,199,0.30) !important;
+      color: #ffffff !important;
+      border: none !important;
+      box-shadow: 0 4px 14px rgba(2, 132, 199, 0.30) !important;
     }
 
     /* --- BUTTONS: DANGER --- */
-    .premium-ui .bg-rose-500, .premium-ui .bg-\[\#e11d48\] {
+    .premium-ui .bg-rose-500,
+    .premium-ui .bg-\[\#e11d48\] {
       background: linear-gradient(135deg, #be123c 0%, #e11d48 100%) !important;
-      color: #ffffff !important; border: none !important;
-      box-shadow: 0 4px 14px rgba(225,29,72,0.35) !important;
+      color: #ffffff !important;
+      border: none !important;
+      box-shadow: 0 4px 14px rgba(225, 29, 72, 0.35) !important;
     }
 
     /* --- BUTTONS: SUCCESS --- */
-    .premium-ui .bg-emerald-500, .premium-ui .bg-\[\#10b981\] {
+    .premium-ui .bg-emerald-500,
+    .premium-ui .bg-\[\#10b981\] {
       background: linear-gradient(135deg, #059669 0%, #10b981 100%) !important;
-      color: #ffffff !important; border: none !important;
-      box-shadow: 0 4px 14px rgba(16,185,129,0.30) !important;
+      color: #ffffff !important;
+      border: none !important;
+      box-shadow: 0 4px 14px rgba(16, 185, 129, 0.30) !important;
     }
 
     /* --- INPUTS --- */
-    .premium-ui input, .premium-ui select, .premium-ui textarea {
+    .premium-ui input,
+    .premium-ui select,
+    .premium-ui textarea {
       font-weight: 600 !important;
-      transition: all 0.2s cubic-bezier(0.4,0,0.2,1) !important;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
       border-radius: 12px !important;
     }
+
     .premium-ui.is-dark input,
     .premium-ui.is-dark select,
     .premium-ui.is-dark textarea {
-      background: rgba(12,12,16,0.85) !important;
-      border: 1px solid rgba(255,255,255,0.10) !important;
+      background: rgba(12, 12, 16, 0.85) !important;
+      border: 1px solid rgba(255, 255, 255, 0.10) !important;
       color: #f4f4f5 !important;
       padding: 10px 14px !important;
     }
+
     .premium-ui:not(.is-dark) input,
     .premium-ui:not(.is-dark) select,
     .premium-ui:not(.is-dark) textarea {
-      background: rgba(255,255,255,0.85) !important;
+      background: rgba(255, 255, 255, 0.85) !important;
       border: 1px solid #cbd5e1 !important;
       color: #0f172a !important;
       padding: 10px 14px !important;
     }
+
     .premium-ui.is-dark input:focus,
     .premium-ui.is-dark select:focus,
     .premium-ui.is-dark textarea:focus {
       border-color: #d4af37 !important;
-      box-shadow: 0 0 0 3px rgba(212,175,55,0.12) !important;
+      box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.12) !important;
       outline: none !important;
     }
+
     .premium-ui:not(.is-dark) input:focus,
     .premium-ui:not(.is-dark) select:focus,
     .premium-ui:not(.is-dark) textarea:focus {
       border-color: #0284c7 !important;
-      box-shadow: 0 0 0 3px rgba(2,132,199,0.10) !important;
+      box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.10) !important;
       outline: none !important;
     }
 
     /* --- OPTIONS --- */
-    .premium-ui:not(.is-dark) option { background-color: #ffffff !important; color: #0f172a !important; }
-    .premium-ui.is-dark option { background-color: #18181b !important; color: #f4f4f5 !important; }
+    .premium-ui:not(.is-dark) option {
+      background-color: #ffffff !important;
+      color: #0f172a !important;
+    }
+
+    .premium-ui.is-dark option {
+      background-color: #18181b !important;
+      color: #f4f4f5 !important;
+    }
 
     /* --- MODAL OVERLAYS --- */
     .premium-ui.is-dark .fixed.inset-0 {
-      backdrop-filter: blur(10px) !important; -webkit-backdrop-filter: blur(10px) !important;
-      background-color: rgba(0,0,0,0.78) !important;
+      backdrop-filter: blur(10px) !important;
+      -webkit-backdrop-filter: blur(10px) !important;
+      background-color: rgba(0, 0, 0, 0.78) !important;
     }
+
     .premium-ui:not(.is-dark) .fixed.inset-0 {
-      backdrop-filter: blur(10px) !important; -webkit-backdrop-filter: blur(10px) !important;
-      background-color: rgba(255,255,255,0.50) !important;
+      backdrop-filter: blur(10px) !important;
+      -webkit-backdrop-filter: blur(10px) !important;
+      background-color: rgba(255, 255, 255, 0.50) !important;
     }
 
     /* --- SLIDE MENU DRAWER --- */
     .premium-ui.is-dark .fixed.inset-y-0.left-0 {
-      background: rgba(8,8,11,0.88) !important;
-      backdrop-filter: blur(28px) !important; -webkit-backdrop-filter: blur(28px) !important;
-      border-right: 1px solid rgba(255,255,255,0.07) !important;
-      box-shadow: 12px 0 48px rgba(0,0,0,0.55) !important;
+      background: rgba(8, 8, 11, 0.88) !important;
+      backdrop-filter: blur(28px) !important;
+      -webkit-backdrop-filter: blur(28px) !important;
+      border-right: 1px solid rgba(255, 255, 255, 0.07) !important;
+      box-shadow: 12px 0 48px rgba(0, 0, 0, 0.55) !important;
     }
+
     .premium-ui:not(.is-dark) .fixed.inset-y-0.left-0 {
-      background: rgba(255,255,255,0.80) !important;
-      backdrop-filter: blur(28px) !important; -webkit-backdrop-filter: blur(28px) !important;
-      border-right: 1px solid rgba(14,165,233,0.10) !important;
-      box-shadow: 12px 0 48px rgba(0,0,0,0.06) !important;
+      background: rgba(255, 255, 255, 0.80) !important;
+      backdrop-filter: blur(28px) !important;
+      -webkit-backdrop-filter: blur(28px) !important;
+      border-right: 1px solid rgba(14, 165, 233, 0.10) !important;
+      box-shadow: 12px 0 48px rgba(0, 0, 0, 0.06) !important;
     }
 
     /* --- NAV ACTIVE PILL --- */
-    .gen2-nav-btn { transition: all 0.2s ease !important; border-radius: 9999px !important; }
-    .premium-ui.is-dark .gen2-nav-btn.text-\[\#d4af37\] {
-      background: rgba(212,175,55,0.12) !important;
-      box-shadow: 0 0 18px rgba(212,175,55,0.18) !important;
+    .gen2-nav-btn {
+      transition: all 0.2s ease !important;
+      border-radius: 9999px !important;
     }
+
+    .premium-ui.is-dark .gen2-nav-btn.text-\[\#d4af37\] {
+      background: rgba(212, 175, 55, 0.12) !important;
+      box-shadow: 0 0 18px rgba(212, 175, 55, 0.18) !important;
+    }
+
     .premium-ui:not(.is-dark) .gen2-nav-btn.text-\[\#d4af37\] {
-      background: rgba(2,132,199,0.10) !important;
-      box-shadow: 0 0 18px rgba(2,132,199,0.14) !important;
+      background: rgba(2, 132, 199, 0.10) !important;
+      box-shadow: 0 0 18px rgba(2, 132, 199, 0.14) !important;
     }
 
     /* --- PROGRESS / GRADIENT BARS --- */
@@ -420,16 +667,19 @@
 
     /* --- BUTTON MICRO-INTERACTIONS --- */
     button {
-      transition: all 0.18s cubic-bezier(0.4,0,0.2,1) !important;
+      transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1) !important;
     }
+
     button:not(:disabled):hover {
       filter: brightness(1.08) !important;
     }
+
     button:not(:disabled):active,
     .active\:scale-95:active {
       transform: scale(0.95) !important;
       filter: brightness(0.96) !important;
     }
+
     button:disabled {
       opacity: 0.45 !important;
       cursor: not-allowed !important;
@@ -437,63 +687,97 @@
     }
 
     /* --- CARD HOVER LIFT EFFECT --- */
-    .premium-hover, [class*="rounded-2xl"]:not(.fixed):not(.absolute) {
-      transition: transform 0.2s cubic-bezier(0.4,0,0.2,1),
-                  box-shadow 0.2s cubic-bezier(0.4,0,0.2,1) !important;
+    .premium-hover,
+    [class*="rounded-2xl"]:not(.fixed):not(.absolute) {
+      transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+        box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
     }
+
     .premium-hover:hover {
       transform: translateY(-2px) !important;
-      box-shadow: 0 12px 36px rgba(0,0,0,0.18) !important;
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.18) !important;
     }
 
     /* --- SHIMMER LOADING SKELETON --- */
     .skeleton {
-      background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.10) 50%, rgba(255,255,255,0.04) 75%);
+      background: linear-gradient(90deg, rgba(255, 255, 255, 0.04) 25%, rgba(255, 255, 255, 0.10) 50%, rgba(255, 255, 255, 0.04) 75%);
       background-size: 400px 100%;
       animation: shimmer 1.4s infinite linear;
       border-radius: 8px;
     }
+
     .premium-ui:not(.is-dark) .skeleton {
-      background: linear-gradient(90deg, rgba(0,0,0,0.04) 25%, rgba(0,0,0,0.09) 50%, rgba(0,0,0,0.04) 75%);
+      background: linear-gradient(90deg, rgba(0, 0, 0, 0.04) 25%, rgba(0, 0, 0, 0.09) 50%, rgba(0, 0, 0, 0.04) 75%);
       background-size: 400px 100%;
       animation: shimmer 1.4s infinite linear;
     }
 
     /* --- SECTION HEADERS (unified pill style) --- */
     .section-pill {
-      display: inline-flex; align-items: center; gap: 8px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
       padding: 4px 12px 4px 8px;
       border-radius: 99px;
-      font-size: 10px; font-weight: 900;
-      text-transform: uppercase; letter-spacing: 0.1em;
+      font-size: 10px;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
     }
+
     .premium-ui.is-dark .section-pill {
-      background: rgba(212,175,55,0.10); color: #d4af37;
-      border: 1px solid rgba(212,175,55,0.18);
+      background: rgba(212, 175, 55, 0.10);
+      color: #d4af37;
+      border: 1px solid rgba(212, 175, 55, 0.18);
     }
+
     .premium-ui:not(.is-dark) .section-pill {
-      background: rgba(2,132,199,0.08); color: #0284c7;
-      border: 1px solid rgba(2,132,199,0.15);
+      background: rgba(2, 132, 199, 0.08);
+      color: #0284c7;
+      border: 1px solid rgba(2, 132, 199, 0.15);
     }
 
     /* --- BADGE PILLS --- */
     .badge {
-      display: inline-flex; align-items: center;
-      padding: 2px 8px; border-radius: 99px;
-      font-size: 9px; font-weight: 900;
-      letter-spacing: 0.06em; text-transform: uppercase;
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 99px;
+      font-size: 9px;
+      font-weight: 900;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
     }
 
     /* --- FA ICONS OPACITY --- */
-    i.fas, i.far, i.fab { opacity: 0.92; transition: all 0.18s ease; }
+    i.fas,
+    i.far,
+    i.fab {
+      opacity: 0.92;
+      transition: all 0.18s ease;
+    }
 
 
-    
-    .premium-ui:not(.is-dark) .text-\[\#fb7185\], .premium-ui:not(.is-dark) .text-rose-500 { color: #e11d48 !important; }
-    .premium-ui:not(.is-dark) .text-\[\#10b981\], .premium-ui:not(.is-dark) .text-emerald-500 { color: #059669 !important; }
-    
-    .premium-ui.is-dark .text-\[\#fb7185\], .premium-ui.is-dark .text-rose-500 { color: #fb7185 !important; }
-    .premium-ui.is-dark .text-\[\#10b981\], .premium-ui.is-dark .text-emerald-500 { color: #34d399 !important; }
+
+    .premium-ui:not(.is-dark) .text-\[\#fb7185\],
+    .premium-ui:not(.is-dark) .text-rose-500 {
+      color: #e11d48 !important;
+    }
+
+    .premium-ui:not(.is-dark) .text-\[\#10b981\],
+    .premium-ui:not(.is-dark) .text-emerald-500 {
+      color: #059669 !important;
+    }
+
+    .premium-ui.is-dark .text-\[\#fb7185\],
+    .premium-ui.is-dark .text-rose-500 {
+      color: #fb7185 !important;
+    }
+
+    .premium-ui.is-dark .text-\[\#10b981\],
+    .premium-ui.is-dark .text-emerald-500 {
+      color: #34d399 !important;
+    }
 
     /* 4. Controls (inputs, selects, textareas) */
     .premium-ui:not(.is-dark) input,
@@ -509,6 +793,7 @@
       -webkit-backdrop-filter: blur(10px) !important;
       transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
     }
+
     .premium-ui.is-dark input,
     .premium-ui.is-dark select,
     .premium-ui.is-dark textarea {
@@ -522,11 +807,17 @@
       -webkit-backdrop-filter: blur(10px) !important;
       transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
     }
-    .premium-ui input:focus, .premium-ui select:focus, .premium-ui textarea:focus {
+
+    .premium-ui input:focus,
+    .premium-ui select:focus,
+    .premium-ui textarea:focus {
       border-color: #0284c7 !important;
       outline: none !important;
     }
-    .premium-ui.is-dark input:focus, .premium-ui.is-dark select:focus, .premium-ui.is-dark textarea:focus {
+
+    .premium-ui.is-dark input:focus,
+    .premium-ui.is-dark select:focus,
+    .premium-ui.is-dark textarea:focus {
       border-color: #d4af37 !important;
     }
 
@@ -536,6 +827,7 @@
       -webkit-backdrop-filter: blur(8px) !important;
       background-color: rgba(255, 255, 255, 0.45) !important;
     }
+
     .premium-ui.is-dark .fixed.inset-0 {
       backdrop-filter: blur(8px) !important;
       -webkit-backdrop-filter: blur(8px) !important;
@@ -547,6 +839,7 @@
       background-color: #ffffff !important;
       color: #0f172a !important;
     }
+
     .premium-ui.is-dark option {
       background-color: #18181b !important;
       color: #f4f4f5 !important;
@@ -560,6 +853,7 @@
       border-right: 1px solid rgba(14, 165, 233, 0.12) !important;
       box-shadow: 10px 0 40px rgba(0, 0, 0, 0.05) !important;
     }
+
     .premium-ui.is-dark .fixed.inset-y-0.left-0 {
       background: rgba(10, 10, 12, 0.85) !important;
       backdrop-filter: blur(25px) !important;
@@ -573,22 +867,28 @@
       transition: all 0.2s ease !important;
       border-radius: 9999px !important;
     }
+
     .premium-ui:not(.is-dark) .gen2-nav-btn.text-\[\#d4af37\] {
       background: rgba(2, 132, 199, 0.08) !important;
       box-shadow: 0 0 15px rgba(2, 132, 199, 0.12) !important;
       border: 1px solid rgba(2, 132, 199, 0.05) !important;
     }
+
     .premium-ui.is-dark .gen2-nav-btn.text-\[\#d4af37\] {
       background: rgba(212, 175, 55, 0.1) !important;
       box-shadow: 0 0 15px rgba(212, 175, 55, 0.15) !important;
       border: 1px solid rgba(212, 175, 55, 0.1) !important;
     }
+
     .absolute.bottom-0.left-1\/2.-translate-x-1\/2 {
-      background-color: #0284c7 !important; /* Sky Blue indicator line */
+      background-color: #0284c7 !important;
+      /* Sky Blue indicator line */
       box-shadow: 0 0 10px rgba(2, 132, 199, 0.6) !important;
     }
+
     .premium-ui.is-dark .absolute.bottom-0.left-1\/2.-translate-x-1\/2 {
-      background-color: #d4af37 !important; /* Gold indicator line in dark mode */
+      background-color: #d4af37 !important;
+      /* Gold indicator line in dark mode */
       box-shadow: 0 0 10px rgba(212, 175, 55, 0.6) !important;
     }
 
@@ -600,7 +900,11 @@
     }
 
     /* Fine-lined sleek FontAwesome icons override */
-    i.fas, i.far, i.fab, i.fa-solid, i.fa-regular {
+    i.fas,
+    i.far,
+    i.fab,
+    i.fa-solid,
+    i.fa-regular {
       opacity: 0.95;
       transition: all 0.2s ease;
     }
@@ -609,13 +913,15 @@
     .premium-hover {
       transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     }
+
     .premium-hover:hover {
       transform: translateY(-1px);
       box-shadow: 0 10px 30px rgba(14, 165, 233, 0.08) !important;
     }
-    
+
     /* Premium active scale */
-    button:active, .active\:scale-95:active {
+    button:active,
+    .active\:scale-95:active {
       transform: scale(0.96) !important;
     }
   </style>
@@ -671,31 +977,35 @@
     <script id="jsx-Tab_Inventory" type="text/plain"><?!= include('Tab_Inventory'); ?></script>
     <script id="jsx-Tab_ImportExport" type="text/plain"><?!= include('Tab_ImportExport'); ?></script>
     <script id="jsx-Tab_Suppliers" type="text/plain"><?!= include('Tab_Suppliers'); ?></script>
-    <script id="jsx-Tab_Services" type="text/plain"><?!= include('Tab_Services'); ?></script>
     <script id="jsx-Tab_Finance" type="text/plain"><?!= include('Tab_Finance'); ?></script>
     <script id="jsx-Tab_HR" type="text/plain"><?!= include('Tab_HR'); ?></script>
     <script id="jsx-Tab_Documents" type="text/plain"><?!= include('Tab_Documents'); ?></script>
-    <script id="jsx-Tab_Training" type="text/plain"><?!= include('Tab_Training'); ?></script>
-    <script id="jsx-Tab_UserManagement" type="text/plain"><?!= include('Tab_UserManagement'); ?></script>
     <script id="jsx-Tab_Viewer3D" type="text/plain"><?!= include('Tab_Viewer3D'); ?></script>
     <script id="jsx-Tab_Affiliate" type="text/plain"><?!= include('Tab_Affiliate'); ?></script>
     <script id="jsx-Tab_Analytics" type="text/plain"><?!= include('Tab_Analytics'); ?></script>
+    <script id="jsx-Tab_Errors" type="text/plain"><?!= include('Tab_Errors'); ?></script>
     <script id="jsx-App_Main" type="text/plain"><?!= include('App_Main'); ?></script>
   </div>
   <script>
-    (function() {
+    (function () {
       if (!window.Babel) {
         console.error('Babel is not loaded!');
         return;
       }
 
-      var fileIds = ['Config', 'Components', 'Modals', 'Modals_Orders', 'Tab_Dashboard', 'Tab_Orders', 'Tab_Production', 'Tab_Inventory', 'Tab_ImportExport', 'Tab_Suppliers', 'Tab_Services', 'Tab_Finance', 'Tab_HR', 'Tab_Documents', 'Tab_Training', 'Tab_UserManagement', 'Tab_Viewer3D', 'Tab_Affiliate', 'Tab_Analytics', 'App_Main'];
+      function cleanCode(raw) {
+        if (!raw) return '';
+        var code = raw.replace(/\0/g, '').replace(/[\uFEFF\uFFFE]/g, '');
+        return code.replace(/^\s*<script[^>]*>/i, '').replace(/<\/script>\s*$/i, '');
+      }
+
+      var fileIds = ['Config', 'Components', 'Modals', 'Modals_Orders', 'Tab_Dashboard', 'Tab_Orders', 'Tab_Production', 'Tab_Inventory', 'Tab_ImportExport', 'Tab_Suppliers', 'Tab_Finance', 'Tab_HR', 'Tab_Documents', 'Tab_Viewer3D', 'Tab_Affiliate', 'Tab_Analytics', 'Tab_Errors', 'App_Main'];
       var fullJsx = '';
 
-      fileIds.forEach(function(id) {
+      fileIds.forEach(function (id) {
         var el = document.getElementById('jsx-' + id);
         if (!el) return;
-        var code = (el.textContent || '').replace(/\0/g, '').replace(/[\uFEFF\uFFFE]/g, '');
+        var code = cleanCode(el.textContent || '');
         fullJsx += '\n/* --- FILE: ' + id + ' --- */\n' + code;
       });
 
@@ -713,380 +1023,568 @@
 
       if (cachedCode) {
         console.log('⚡ Đã nạp ứng dụng từ bộ nhớ đệm siêu tốc!');
-        var script = document.createElement('script');
-        script.textContent = cachedCode;
-        document.body.appendChild(script);
-      } else {
-        console.log('🔄 Đang biên dịch ứng dụng lần đầu tiên...');
-        var hasError = false;
-        fileIds.forEach(function(id) {
-          var el = document.getElementById('jsx-' + id);
-          if (!el) return;
-          try {
-            Babel.transform(el.textContent || '', { presets: ['react'] });
-          } catch (err) {
-            hasError = true;
-            console.error('❌ LỖI CÚ PHÁP TẠI FILE: [' + id + ']', err.message);
-          }
-        });
-
-        if (!hasError) {
-          try {
-            var compiled = Babel.transform(fullJsx, { presets: ['react'] }).code;
-            
-            var keysToRemove = [];
-            for (var j = 0; j < localStorage.length; j++) {
-                var k = localStorage.key(j);
-                if (k && k.indexOf('rf_compiled_jsx_') === 0) {
-                    keysToRemove.push(k);
-                }
-            }
-            keysToRemove.forEach(function(k) { localStorage.removeItem(k); });
-            
-            try {
-              localStorage.setItem(cacheKey, compiled);
-            } catch (e) {
-              console.warn("Không thể lưu cache vào localStorage:", e);
-            }
-            
-            var script = document.createElement('script');
-            script.textContent = compiled;
-            document.body.appendChild(script);
-            console.log('✅ Ứng dụng đã biên dịch và lưu cache thành công!');
-          } catch (err) {
-            console.error('❌ Lỗi biên dịch tổng thể:', err.message);
-          }
+        try {
+          var script = document.createElement('script');
+          script.textContent = cachedCode;
+          document.body.appendChild(script);
+          return;
+        } catch (err) {
+          console.warn("Mã nạp từ cache bị lỗi, tiến hành biên dịch lại...", err);
+          try { localStorage.removeItem(cacheKey); } catch (e) {}
         }
+      }
+
+      console.log('🔄 Đang biên dịch ứng dụng...');
+      var hasError = false;
+      var errorMessages = [];
+
+      fileIds.forEach(function (id) {
+        var el = document.getElementById('jsx-' + id);
+        if (!el) return;
+        var code = cleanCode(el.textContent || '');
+        try {
+          Babel.transform(code, { presets: ['react'] });
+        } catch (err) {
+          hasError = true;
+          var msg = '❌ LỖI CÚ PHÁP TẠI FILE [' + id + ']: ' + err.message;
+          console.error(msg);
+          errorMessages.push(msg);
+        }
+      });
+
+      if (!hasError) {
+        try {
+          var compiled = Babel.transform(fullJsx, { presets: ['react'] }).code;
+
+          var keysToRemove = [];
+          for (var j = 0; j < localStorage.length; j++) {
+            var k = localStorage.key(j);
+            if (k && k.indexOf('rf_compiled_jsx_') === 0) {
+              keysToRemove.push(k);
+            }
+          }
+          keysToRemove.forEach(function (k) { localStorage.removeItem(k); });
+
+          try {
+            localStorage.setItem(cacheKey, compiled);
+          } catch (e) {
+            console.warn("Không thể lưu cache vào localStorage:", e);
+          }
+
+          var script = document.createElement('script');
+          script.textContent = compiled;
+          document.body.appendChild(script);
+          console.log('✅ Ứng dụng đã biên dịch và khởi chạy thành công!');
+        } catch (err) {
+          console.error('❌ Lỗi biên dịch tổng thể:', err.message);
+          errorMessages.push('❌ Lỗi biên dịch tổng thể: ' + err.message);
+          hasError = true;
+        }
+      }
+
+      if (hasError) {
+        var errorDiv = document.createElement('div');
+        errorDiv.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:#09090b;color:#f87171;padding:24px;z-index:999999;font-family:monospace;overflow:auto;display:flex;flex-direction:column;gap:16px;';
+        errorDiv.innerHTML = '<h2 style="color:#ef4444;font-size:20px;font-weight:bold;">⚠️ PHÁT HIỆN LỖI KHI TẢI ỨNG DỤNG</h2>' +
+          '<p style="color:#e2e4e9;">Hệ thống phát hiện lỗi biên dịch JavaScript/JSX. Chi tiết lỗi bên dưới:</p>' +
+          '<pre style="background:#18181b;padding:16px;border-radius:8px;border:1px solid #27272a;white-space:pre-wrap;color:#fca5a5;">' + errorMessages.join('\n\n') + '</pre>' +
+          '<button onclick="localStorage.clear();location.reload();" style="background:#ef4444;color:white;padding:12px 24px;border:none;border-radius:8px;font-weight:bold;cursor:pointer;width:fit-content;">Xóa Cache & Tải Lại Trang</button>';
+        document.body.appendChild(errorDiv);
       }
     })();
   </script>
 
-<!-- ========================================== -->
-<!-- MODULE: MODAL FORM KPI & NHIỆM VỤ (XU)     -->
-<!-- ========================================== -->
+  <!-- ========================================== -->
+  <!-- MODULE: MODAL FORM KPI & NHIỆM VỤ (XU)     -->
+  <!-- ========================================== -->
 
-<style>
-  /* CSS Giao diện Modal Đậm chất Workspace Pro */
-  .rf-modal-overlay {
-    display: none;
-    position: fixed;
-    top: 0; left: 0; width: 100%; height: 100%;
-    background: rgba(0, 0, 0, 0.7);
-    z-index: 9999;
-    align-items: center;
-    justify-content: center;
-  }
-  .rf-modal-content {
-    background: #1a1a1a; /* Nền tối */
-    border: 1px solid #333;
-    border-radius: 12px;
-    width: 450px;
-    max-width: 90%;
-    padding: 24px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-    color: #fff;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  }
-  .rf-modal-header {
-    font-size: 1.25rem;
-    font-weight: bold;
-    margin-bottom: 20px;
-    color: #f39c12; /* Tone vàng cam */
-    border-bottom: 1px solid #333;
-    padding-bottom: 10px;
-  }
-  .rf-form-group {
-    margin-bottom: 15px;
-  }
-  .rf-form-group label {
-    display: block;
-    font-size: 0.85rem;
-    margin-bottom: 5px;
-    color: #aaa;
-  }
-  .rf-form-control {
-    width: 100%;
-    padding: 10px;
-    background: #2a2a2a;
-    border: 1px solid #444;
-    border-radius: 6px;
-    color: #fff;
-    box-sizing: border-box;
-  }
-  .rf-form-control:focus {
-    outline: none;
-    border-color: #f39c12;
-  }
-  .rf-modal-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 10px;
-    margin-top: 20px;
-  }
-  .rf-btn {
-    padding: 10px 20px;
-    border-radius: 6px;
-    border: none;
-    cursor: pointer;
-    font-weight: bold;
-    transition: all 0.2s;
-  }
-  .rf-btn-cancel {
-    background: #444;
-    color: #fff;
-  }
-  .rf-btn-cancel:hover { background: #555; }
-  .rf-btn-submit {
-    background: #f39c12;
-    color: #000;
-  }
-  .rf-btn-submit:hover { background: #e67e22; }
-</style>
+  <style>
+    /* CSS Giao diện Modal Đậm chất Workspace Pro */
+    .rf-modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      z-index: 9999;
+      align-items: center;
+      justify-content: center;
+    }
 
-<!-- ========================================== -->
-<!-- 1. MODAL KPI STANDALONE                    -->
-<!-- ========================================== -->
-<div id="modal-kpi-standalone" class="rf-modal-overlay">
-  <div class="kpi-modal-content" style="background: #1a1d24; color: #fff; padding: 24px; border-radius: 12px; max-width: 500px; margin: auto; position: relative; top: 10%;">
-    <h3 style="font-size: 18px; font-weight: 700; margin-bottom: 20px; color: #e2e8f0; border-bottom: 1px solid #2d3748; padding-bottom: 10px;">TẠO KPI THÁNG</h3>
+    .rf-modal-content {
+      background: #1a1a1a;
+      /* Nền tối */
+      border: 1px solid #333;
+      border-radius: 12px;
+      width: 450px;
+      max-width: 90%;
+      padding: 24px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      color: #fff;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
 
-    <!-- 1. Select User -->
-    <div class="form-group" style="margin-bottom: 16px;">
-      <label style="display: block; font-size: 13px; color: #a0aec0; margin-bottom: 6px;">Nhân sự nhận KPI</label>
-      <select id="kpiUserSelect" class="rf-form-control" style="width: 100%; background: #2d3748; border: 1px solid #4a5568; color: #fff; padding: 10px; border-radius: 8px;">
-        <option value="">-- Chọn nhân sự --</option>
-      </select>
-    </div>
+    .rf-modal-header {
+      font-size: 1.25rem;
+      font-weight: bold;
+      margin-bottom: 20px;
+      color: #f39c12;
+      /* Tone vàng cam */
+      border-bottom: 1px solid #333;
+      padding-bottom: 10px;
+    }
 
-    <!-- 2. KPI Name -->
-    <div class="form-group" style="margin-bottom: 16px;">
-      <label style="display: block; font-size: 13px; color: #a0aec0; margin-bottom: 6px;">Tên mục tiêu (KPI)</label>
-      <input type="text" id="kpiNameInput" class="rf-form-control" placeholder="VD: Tỷ lệ thắng khiếu nại > 60%" style="width: 100%; background: #2d3748; border: 1px solid #4a5568; color: #fff; padding: 10px; border-radius: 8px;">
-    </div>
+    .rf-form-group {
+      margin-bottom: 15px;
+    }
 
-    <!-- 3. SOP Guide (NEW FIELD) -->
-    <div class="form-group" style="margin-bottom: 16px;">
-      <label style="display: block; font-size: 13px; color: #f6ad55; font-weight: 600; margin-bottom: 6px;">💡 Hướng dẫn thực thi & Tiêu chuẩn nghiệm thu (SOP)</label>
-      <textarea id="kpiGuideInput" class="rf-form-control" rows="3" placeholder="Mô tả rõ nhân sự phải làm gì, chụp ảnh ở đâu hoặc hệ thống quét dữ liệu nào để duyệt KPI này..." style="width: 100%; background: #2d3748; border: 1px solid #4a5568; color: #fff; padding: 10px; border-radius: 8px; font-size: 13px; resize: vertical;"></textarea>
-    </div>
+    .rf-form-group label {
+      display: block;
+      font-size: 0.85rem;
+      margin-bottom: 5px;
+      color: #aaa;
+    }
 
-    <!-- 4. Target & Unit -->
-    <div class="form-group" style="margin-bottom: 16px; display: flex; gap: 12px;">
-      <div style="flex: 2;">
-        <label style="display: block; font-size: 13px; color: #a0aec0; margin-bottom: 6px;">Chỉ tiêu (Target)</label>
-        <input type="number" id="kpiTargetInput" class="rf-form-control" placeholder="VD: 80" style="width: 100%; background: #2d3748; border: 1px solid #4a5568; color: #fff; padding: 10px; border-radius: 8px;">
-      </div>
-      <div style="flex: 1;">
-        <label style="display: block; font-size: 13px; color: #a0aec0; margin-bottom: 6px;">Đơn vị</label>
-        <select id="kpiUnitSelect" class="rf-form-control" style="width: 100%; background: #2d3748; border: 1px solid #4a5568; color: #fff; padding: 10px; border-radius: 8px;">
-          <option value="%">%</option>
-          <option value="Đơn">Đơn</option>
-          <option value="VNĐ">VNĐ</option>
-          <option value="SP">SP</option>
+    .rf-form-control {
+      width: 100%;
+      padding: 10px;
+      background: #2a2a2a;
+      border: 1px solid #444;
+      border-radius: 6px;
+      color: #fff;
+      box-sizing: border-box;
+    }
+
+    .rf-form-control:focus {
+      outline: none;
+      border-color: #f39c12;
+    }
+
+    .rf-modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    .rf-btn {
+      padding: 10px 20px;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      font-weight: bold;
+      transition: all 0.2s;
+    }
+
+    .rf-btn-cancel {
+      background: #444;
+      color: #fff;
+    }
+
+    .rf-btn-cancel:hover {
+      background: #555;
+    }
+
+    .rf-btn-submit {
+      background: #f39c12;
+      color: #000;
+    }
+
+    .rf-btn-submit:hover {
+      background: #e67e22;
+    }
+  </style>
+
+  <!-- ========================================== -->
+  <!-- 1. MODAL KPI STANDALONE                    -->
+  <!-- ========================================== -->
+  <div id="modal-kpi-standalone" class="rf-modal-overlay">
+    <div class="kpi-modal-content"
+      style="background: #1a1d24; color: #fff; padding: 24px; border-radius: 12px; max-width: 500px; margin: auto; position: relative; top: 10%;">
+      <h3
+        style="font-size: 18px; font-weight: 700; margin-bottom: 20px; color: #e2e8f0; border-bottom: 1px solid #2d3748; padding-bottom: 10px;">
+        TẠO KPI THÁNG</h3>
+
+      <!-- 1. Select User -->
+      <div class="form-group" style="margin-bottom: 16px;">
+        <label style="display: block; font-size: 13px; color: #a0aec0; margin-bottom: 6px;">Nhân sự nhận KPI</label>
+        <select id="kpiUserSelect"
+          class="rf-input-glass rounded-xl px-4 py-3 text-[13px] text-white outline-none font-medium placeholder-zinc-600 w-full">
+          <option value="">-- Chọn nhân sự --</option>
         </select>
       </div>
-    </div>
 
-    <!-- 5. Reward -->
-    <div class="form-group" style="margin-bottom: 24px;">
-      <label style="display: block; font-size: 13px; color: #a0aec0; margin-bottom: 6px;">Mức thưởng (VNĐ) vào bảng lương</label>
-      <input type="number" id="kpiRewardInput" class="rf-form-control" placeholder="VD: 520000" style="width: 100%; background: #2d3748; border: 1px solid #4a5568; color: #fff; padding: 10px; border-radius: 8px;">
-    </div>
+      <!-- 1b. KPI Type Preset -->
+      <div class="form-group" style="margin-bottom: 16px;">
+        <label style="display: block; font-size: 13px; color: #a0aec0; margin-bottom: 6px;">⚡ Loại KPI (Mẫu tự động)</label>
+        <select id="kpiPresetSelect" onchange="applyKpiPreset(this.value)"
+          class="rf-input-glass rounded-xl px-4 py-3 text-[13px] text-amber-400 outline-none font-medium placeholder-zinc-600 w-full"
+          style="background: #1e222d; border: 1px solid #d97706;">
+          <option value="">-- Chọn loại KPI mẫu (Hoặc tự nhập bên dưới) --</option>
+          <option value="san_xuat">🏭 Sản xuất: Tổng số khâu hoàn thành (Tự động đếm)</option>
+          <option value="khau_1">🔨 Khâu 1: Cắt & Dán / Dựng Khung (Tự động đếm)</option>
+          <option value="khau_2">✨ Khâu 2: Gọt keo & Gia cố (Tự động đếm)</option>
+          <option value="dong_goi">📦 Đóng gói: Số đơn đóng gói hoàn thành (Tự động đếm)</option>
+          <option value="ban_hang">💰 Bán hàng: Doanh thu đơn chốt (Tự động cộng VNĐ)</option>
+          <option value="khieu_nai">🛡️ Vận hành: Tỷ lệ thắng khiếu nại sàn (%)</option>
+          <option value="hang_hoan">🔄 Vận hành: Tỷ lệ xử lý hàng hoàn (%)</option>
+        </select>
+      </div>
 
-    <!-- Actions -->
-    <div style="display: flex; justify-content: flex-end; gap: 12px;">
-      <button onclick="closeKpiModalStandalone()" style="background: #4a5568; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: 600;">Hủy bỏ</button>
-      <button class="rf-btn-submit" onclick="submitKPIStandalone()" style="background: #f59e0b; color: #000; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: 700;">Lưu Thiết Lập</button>
+      <!-- 2. KPI Name -->
+      <div class="form-group" style="margin-bottom: 16px;">
+        <label style="display: block; font-size: 13px; color: #a0aec0; margin-bottom: 6px;">Tên mục tiêu (KPI)</label>
+        <input type="text" id="kpiNameInput"
+          class="rf-input-glass rounded-xl px-4 py-3 text-[13px] text-white outline-none font-medium placeholder-zinc-600 w-full"
+          placeholder="VD: Tổng khâu sản xuất hoàn thành hoặc Doanh thu bán hàng">
+      </div>
+
+      <!-- 3. SOP Guide (NEW FIELD) -->
+      <div class="form-group" style="margin-bottom: 16px;">
+        <label style="display: block; font-size: 13px; color: #f6ad55; font-weight: 600; margin-bottom: 6px;">💡 Hướng
+          dẫn thực thi & Tiêu chuẩn nghiệm thu (SOP)</label>
+        <textarea id="kpiGuideInput"
+          class="rf-input-glass rounded-xl px-4 py-3 text-[13px] text-white outline-none font-medium placeholder-zinc-600 w-full"
+          rows="3"
+          placeholder="Mô tả rõ nhân sự phải làm gì, chụp ảnh ở đâu hoặc hệ thống quét dữ liệu nào để duyệt KPI này..."></textarea>
+      </div>
+
+      <!-- 4. Target & Unit -->
+      <div class="form-group" style="margin-bottom: 16px; display: flex; gap: 12px;">
+        <div style="flex: 2;">
+          <label style="display: block; font-size: 13px; color: #a0aec0; margin-bottom: 6px;">Chỉ tiêu (Target)</label>
+          <input type="number" id="kpiTargetInput"
+            class="rf-input-glass rounded-xl px-4 py-3 text-[13px] text-white outline-none font-medium placeholder-zinc-600 w-full"
+            placeholder="VD: 80">
+        </div>
+        <div style="flex: 1;">
+          <label style="display: block; font-size: 13px; color: #a0aec0; margin-bottom: 6px;">Đơn vị</label>
+          <select id="kpiUnitSelect"
+            class="rf-input-glass rounded-xl px-4 py-3 text-[13px] text-white outline-none font-medium placeholder-zinc-600 w-full">
+            <option value="%">%</option>
+            <option value="Đơn">Đơn</option>
+            <option value="VNĐ">VNĐ</option>
+            <option value="SP">SP</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- 5. Reward -->
+      <div class="form-group" style="margin-bottom: 24px;">
+        <label style="display: block; font-size: 13px; font-weight: bold; color: #10b981; margin-bottom: 6px;"><i
+            class="fas fa-money-bill-wave" style="margin-right: 4px;"></i>Mức thưởng (VNĐ) vào bảng lương</label>
+        <input type="number" id="kpiRewardInput"
+          class="rf-input-glass rounded-xl px-4 py-3 text-[13px] text-white outline-none font-medium placeholder-zinc-600 w-full"
+          placeholder="VD: 520000" style="color: #34d399;">
+      </div>
+
+      <!-- Actions -->
+      <div style="display: flex; justify-content: flex-end; gap: 12px;">
+        <button onclick="closeKpiModalStandalone()"
+          style="background: #4a5568; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: 600;">Hủy
+          bỏ</button>
+        <button class="rf-btn-submit" onclick="submitKPIStandalone()"
+          style="background: #f59e0b; color: #000; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: 700;">Lưu
+          Thiết Lập</button>
+      </div>
     </div>
   </div>
-</div>
 
-<!-- ========================================== -->
-<!-- 2. MODAL NHIỆM VỤ STANDALONE               -->
-<!-- ========================================== -->
-<div id="modal-task-standalone" class="rf-modal-overlay">
-  <div class="rf-modal-content">
-    <div class="rf-modal-header" style="color: #00cec9; border-bottom-color: #00cec9;">GIAO NHIỆM VỤ (XU)</div>
-    <div class="rf-form-group">
-      <label>Người thực hiện</label>
-      <select id="task-user" class="rf-form-control"><option value="">-- Chọn nhân sự --</option></select>
-    </div>
-    <div class="rf-form-group">
-      <label>Tiêu đề nhiệm vụ</label>
-      <input type="text" id="task-title" class="rf-form-control" placeholder="VD: Dọn dẹp bể cá phòng khách">
-    </div>
-    <div class="rf-form-group">
-      <label>Mô tả chi tiết</label>
-      <input type="text" id="task-note" class="rf-form-control" placeholder="Mô tả cụ thể yêu cầu...">
-    </div>
-    <div class="rf-form-group" style="display: flex; gap: 10px;">
-      <div style="flex: 1;">
-        <label>Ngày bắt đầu</label>
-        <input type="date" id="task-start" class="rf-form-control">
+  <!-- ========================================== -->
+  <!-- 2. MODAL NHIỆM VỤ STANDALONE               -->
+  <!-- ========================================== -->
+  <div id="modal-task-standalone" class="rf-modal-overlay">
+    <div class="rf-modal-content">
+      <div class="rf-modal-header text-zinc-100 font-extrabold tracking-wide text-base"
+        style="border-bottom-color: #f59e0b;"><i class="fas fa-coins"
+          style="margin-right: 8px; color: #f59e0b;"></i>GIAO NHIỆM VỤ (XU)</div>
+      <div class="rf-form-group">
+        <label class="text-zinc-400 font-normal text-[12px] leading-relaxed">Người thực hiện</label>
+        <select id="task-user"
+          class="rf-input-glass rounded-xl px-4 py-3 text-[13px] text-white outline-none font-medium placeholder-zinc-600 w-full">
+          <option value="">-- Chọn nhân sự --</option>
+        </select>
       </div>
-      <div style="flex: 1;">
-        <label>Ngày kết thúc</label>
-        <input type="date" id="task-end" class="rf-form-control">
+      <div class="rf-form-group">
+        <label class="text-zinc-400 font-normal text-[12px] leading-relaxed">Tiêu đề nhiệm vụ</label>
+        <input type="text" id="task-title"
+          class="rf-input-glass rounded-xl px-4 py-3 text-[13px] text-white outline-none font-medium placeholder-zinc-600 w-full"
+          placeholder="VD: Dọn dẹp bể cá phòng khách">
       </div>
-    </div>
-    <div class="rf-form-group" style="display: flex; gap: 10px;">
-      <div style="flex: 1;">
-        <label>Thưởng hoàn thành (XU)</label>
-        <input type="number" id="task-reward" class="rf-form-control" placeholder="VD: 100">
+      <div class="rf-form-group">
+        <label class="text-zinc-400 font-normal text-[12px] leading-relaxed">Mô tả chi tiết</label>
+        <input type="text" id="task-note"
+          class="rf-input-glass rounded-xl px-4 py-3 text-[13px] text-white outline-none font-medium placeholder-zinc-600 w-full"
+          placeholder="Mô tả cụ thể yêu cầu...">
       </div>
-      <div style="flex: 1;">
-        <label>Phạt nếu quá hạn (VNĐ)</label>
-        <input type="number" id="task-penalty" class="rf-form-control" placeholder="VD: 50000">
+      <div class="rf-form-group" style="display: flex; gap: 10px;">
+        <div style="flex: 1;">
+          <label class="text-zinc-400 font-normal text-[12px] leading-relaxed">Mục tiêu chỉ tiêu (Target)</label>
+          <input type="number" id="task-target"
+            class="rf-input-glass rounded-xl px-4 py-3 text-[13px] text-white outline-none font-medium placeholder-zinc-600 w-full"
+            placeholder="VD: 10, 50, 1000000...">
+        </div>
+        <div style="flex: 1;">
+          <label class="text-zinc-400 font-normal text-[12px] leading-relaxed">Đơn vị tính (Unit)</label>
+          <input type="text" id="task-unit"
+            class="rf-input-glass rounded-xl px-4 py-3 text-[13px] text-white outline-none font-medium placeholder-zinc-600 w-full"
+            placeholder="VD: Bộ, Lần, SP, VNĐ...">
+        </div>
       </div>
-    </div>
-    <div class="rf-modal-actions">
-      <button class="rf-btn rf-btn-cancel" onclick="closeTaskModalStandalone()">Hủy bỏ</button>
-      <button class="rf-btn rf-btn-submit" style="background: #00cec9;" onclick="submitTaskStandalone()">Giao Việc</button>
+      <div class="rf-form-group" style="display: flex; gap: 10px;">
+        <div style="flex: 1;">
+          <label class="text-zinc-400 font-normal text-[12px] leading-relaxed">Ngày bắt đầu</label>
+          <input type="date" id="task-start"
+            class="rf-input-glass rounded-xl px-4 py-3 text-[13px] text-white outline-none font-medium placeholder-zinc-600 w-full">
+        </div>
+        <div style="flex: 1;">
+          <label class="text-zinc-400 font-normal text-[12px] leading-relaxed">Ngày kết thúc</label>
+          <input type="date" id="task-end"
+            class="rf-input-glass rounded-xl px-4 py-3 text-[13px] text-white outline-none font-medium placeholder-zinc-600 w-full">
+        </div>
+      </div>
+      <div class="rf-form-group" style="display: flex; gap: 10px;">
+        <div style="flex: 1;">
+          <label style="color: #f59e0b; font-weight: bold;"><i class="fas fa-coins"
+              style="margin-right: 4px;"></i>Thưởng hoàn thành (XU)</label>
+          <input type="number" id="task-reward"
+            class="rf-input-glass rounded-xl px-4 py-3 text-[13px] text-white outline-none font-medium placeholder-zinc-600 w-full"
+            placeholder="VD: 100" style="color: #fbbf24; font-weight: bold;">
+        </div>
+        <div style="flex: 1;">
+          <label style="color: #f43f5e; font-weight: bold;"><i class="fas fa-gavel" style="margin-right: 4px;"></i>Phạt
+            nếu quá hạn (VNĐ)</label>
+          <input type="number" id="task-penalty"
+            class="rf-input-glass rounded-xl px-4 py-3 text-[13px] text-white outline-none font-medium placeholder-zinc-600 w-full"
+            placeholder="VD: 50000" style="color: #fda4af; font-weight: bold;">
+        </div>
+      </div>
+      <div class="rf-modal-actions">
+        <button class="rf-btn rf-btn-cancel" onclick="closeTaskModalStandalone()">Hủy bỏ</button>
+        <button class="rf-btn rf-btn-submit" style="background: #00cec9;" onclick="submitTaskStandalone()">Giao
+          Việc</button>
+      </div>
     </div>
   </div>
-</div>
 
-<script>
-// Mở / Đóng Modal KPI
-function openKpiModalStandalone() {
-  const modal = document.getElementById('modal-kpi-standalone');
-  if (modal) modal.style.display = 'flex';
-}
-function closeKpiModalStandalone() {
-  const modal = document.getElementById('modal-kpi-standalone');
-  if (modal) modal.style.display = 'none';
-}
+  <script>
+    function applyKpiPreset(type) {
+      const nameInput = document.getElementById('kpiNameInput');
+      const unitSelect = document.getElementById('kpiUnitSelect');
+      const targetInput = document.getElementById('kpiTargetInput');
+      const rewardInput = document.getElementById('kpiRewardInput');
+      const guideInput = document.getElementById('kpiGuideInput');
 
-// Mở / Đóng Modal Nhiệm vụ
-function openTaskModalStandalone() {
-  const modal = document.getElementById('modal-task-standalone');
-  if (modal) modal.style.display = 'flex';
-}
-function closeTaskModalStandalone() {
-  const modal = document.getElementById('modal-task-standalone');
-  if (modal) modal.style.display = 'none';
-}
+      if (!type) return;
 
-// Submit KPI -> Bảng KPI_Progress
-function submitKPIStandalone() {
-  const btn = event ? event.target : document.querySelector('#modal-kpi-standalone .rf-btn-submit');
-  const originalText = btn ? btn.innerHTML : 'Lưu Thiết Lập';
-  if(btn) { btn.innerHTML = 'Đang lưu...'; btn.disabled = true; }
-
-  const payload = {
-    user: document.getElementById('kpiUserSelect').value,
-    kpiName: document.getElementById('kpiNameInput').value,
-    target: document.getElementById('kpiTargetInput').value,
-    unit: document.getElementById('kpiUnitSelect').value,
-    reward: document.getElementById('kpiRewardInput').value,
-    guide: document.getElementById('kpiGuideInput').value
-  };
-
-  if(!payload.user || !payload.kpiName) {
-    alert("Vui lòng chọn nhân sự và nhập tên KPI!");
-    if(btn) { btn.innerHTML = originalText; btn.disabled = false; }
-    return;
-  }
-
-  google.script.run
-    .withSuccessHandler(function(res) {
-      if(btn) { btn.innerHTML = originalText; btn.disabled = false; }
-      if(res && res.success) {
-        alert("Đã thiết lập KPI thành công!");
-        closeKpiModalStandalone();
-        // Reset form
-        document.getElementById('kpiNameInput').value = '';
-        document.getElementById('kpiTargetInput').value = '';
-        document.getElementById('kpiRewardInput').value = '';
-        document.getElementById('kpiUnitSelect').value = '%';
-        document.getElementById('kpiGuideInput').value = '';
-        // Kích hoạt reload data ở frontend
-        window.dispatchEvent(new CustomEvent('triggerReloadData'));
-      } else {
-        alert("Lỗi: " + (res ? res.message : "Không rõ"));
+      if (type === 'san_xuat') {
+        if (nameInput) nameInput.value = 'Tổng khâu sản xuất hoàn thành';
+        if (unitSelect) unitSelect.value = 'SP';
+        if (targetInput) targetInput.value = '150';
+        if (rewardInput) rewardInput.value = '500000';
+        if (guideInput) guideInput.value = 'Hệ thống tự động quét tổng số khâu (Khâu 1, Khâu 2, Đóng gói) đạt trạng thái Done trong tháng của nhân sự.';
+      } else if (type === 'khau_1') {
+        if (nameInput) nameInput.value = 'Năng suất Khâu 1 (Cắt & Dán)';
+        if (unitSelect) unitSelect.value = 'SP';
+        if (targetInput) targetInput.value = '80';
+        if (rewardInput) rewardInput.value = '300000';
+        if (guideInput) guideInput.value = 'Hệ thống tự động đếm số lượng lệnh sản xuất Khâu 1 mà nhân sự hoàn thành đạt chuẩn.';
+      } else if (type === 'khau_2') {
+        if (nameInput) nameInput.value = 'Năng suất Khâu 2 (Gọt keo & Gia cố)';
+        if (unitSelect) unitSelect.value = 'SP';
+        if (targetInput) targetInput.value = '80';
+        if (rewardInput) rewardInput.value = '300000';
+        if (guideInput) guideInput.value = 'Hệ thống tự động đếm số lượng lệnh sản xuất Khâu 2 mà nhân sự hoàn thành đạt chuẩn.';
+      } else if (type === 'dong_goi') {
+        if (nameInput) nameInput.value = 'Năng suất Đóng gói hoàn thành';
+        if (unitSelect) unitSelect.value = 'Đơn';
+        if (targetInput) targetInput.value = '200';
+        if (rewardInput) rewardInput.value = '300000';
+        if (guideInput) guideInput.value = 'Hệ thống tự động đếm số đơn hàng đóng gói thành công có ảnh QC nghiệm thu.';
+      } else if (type === 'ban_hang') {
+        if (nameInput) nameInput.value = 'Doanh thu bán hàng tháng';
+        if (unitSelect) unitSelect.value = 'VNĐ';
+        if (targetInput) targetInput.value = '50000000';
+        if (rewardInput) rewardInput.value = '1000000';
+        if (guideInput) guideInput.value = 'Hệ thống tự động cộng dồn tổng doanh thu từ tất cả các đơn hàng chốt thành công của nhân sự phụ trách trong kỳ.';
+      } else if (type === 'khieu_nai') {
+        if (nameInput) nameInput.value = 'Tỷ lệ thắng khiếu nại sàn > 60%';
+        if (unitSelect) unitSelect.value = '%';
+        if (targetInput) targetInput.value = '60';
+        if (rewardInput) rewardInput.value = '300000';
+        if (guideInput) guideInput.value = 'Hệ thống tự động quét tỷ lệ đơn khiếu nại thành công có tag [KN-THANG] trên tổng số khiếu nại.';
+      } else if (type === 'hang_hoan') {
+        if (nameInput) nameInput.value = 'Tỷ lệ xử lý hàng hoàn > 80%';
+        if (unitSelect) unitSelect.value = '%';
+        if (targetInput) targetInput.value = '80';
+        if (rewardInput) rewardInput.value = '300000';
+        if (guideInput) guideInput.value = 'Hệ thống tự động tính tỷ lệ đơn hàng hoàn đã được kiểm tra và đối soát nhập kho.';
       }
-    })
-    .withFailureHandler(function(err) {
-      if(btn) { btn.innerHTML = originalText; btn.disabled = false; }
-      alert("Lỗi kết nối Server: " + err.message);
-    })
-    .api_insertManualKPI(payload);
-}
+    }
 
-// Submit Nhiệm vụ -> Bảng BonusPenalty (Thưởng Xu)
-function submitTaskStandalone() {
-  const btn = event ? event.target : document.querySelector('#modal-task-standalone .rf-btn-submit');
-  const originalText = btn ? btn.innerHTML : 'Giao Việc';
-  if(btn) { btn.innerHTML = 'Đang lưu...'; btn.disabled = true; }
-
-  const payload = {
-    user: document.getElementById('task-user').value,
-    title: document.getElementById('task-title').value,
-    note: document.getElementById('task-note').value,
-    startTime: document.getElementById('task-start').value,
-    endTime: document.getElementById('task-end').value,
-    amount: document.getElementById('task-reward').value.replace(/[^0-9-]/g, ''),
-    penalty: document.getElementById('task-penalty').value.replace(/[^0-9-]/g, ''),
-    type: 'XU_REWARD' 
-  };
-
-  if(!payload.user || !payload.title) {
-    alert("Vui lòng chọn nhân sự và nhập tiêu đề nhiệm vụ!");
-    if(btn) { btn.innerHTML = originalText; btn.disabled = false; }
-    return;
-  }
-
-  google.script.run
-    .withSuccessHandler(function(res) {
-      if(btn) { btn.innerHTML = originalText; btn.disabled = false; }
-      if(res && res.success) {
-        alert("Đã giao nhiệm vụ và cộng Xu thành công!");
-        closeTaskModalStandalone();
-        // Reset form
-        document.getElementById('task-title').value = '';
-        document.getElementById('task-note').value = '';
-        document.getElementById('task-reward').value = '';
-        document.getElementById('task-penalty').value = '';
-        document.getElementById('task-start').value = '';
-        document.getElementById('task-end').value = '';
-        // Kích hoạt reload data ở frontend
-        window.dispatchEvent(new CustomEvent('triggerReloadData'));
-      } else {
-        alert("Lỗi: " + (res ? res.message : "Không rõ"));
+    function openKpiModalStandalone(targetUserName) {
+      const modal = document.getElementById('modal-kpi-standalone');
+      if (modal) {
+        modal.style.display = 'flex';
+        const userSelect = document.getElementById('kpiUserSelect');
+        if (userSelect && userSelect.options.length <= 1) {
+          const pins = window._userConfigs?.pins || window.userConfigs?.pins || {};
+          Object.values(pins).forEach(u => {
+            if (u.name) {
+              const opt = document.createElement('option');
+              opt.value = u.name;
+              opt.textContent = `${u.name} (${u.title || u.role || 'Nhân sự'})`;
+              userSelect.appendChild(opt);
+            }
+          });
+        }
+        if (targetUserName && userSelect) {
+          userSelect.value = targetUserName;
+        }
       }
-    })
-    .withFailureHandler(function(err) {
-      if(btn) { btn.innerHTML = originalText; btn.disabled = false; }
-      alert("Lỗi kết nối Server: " + err.message);
-    })
-    .api_insertManualTask(payload);
-}
+    }
+    function closeKpiModalStandalone() {
+      const modal = document.getElementById('modal-kpi-standalone');
+      if (modal) modal.style.display = 'none';
+    }
 
-  // TỰ ĐỘNG LOAD DANH SÁCH NHÂN SỰ
-  document.addEventListener("DOMContentLoaded", function() {
-    if(typeof google !== 'undefined' && google.script && google.script.run) {
+    // Mở / Đóng Modal Nhiệm vụ
+    function openTaskModalStandalone() {
+      const modal = document.getElementById('modal-task-standalone');
+      if (modal) modal.style.display = 'flex';
+    }
+    function closeTaskModalStandalone() {
+      const modal = document.getElementById('modal-task-standalone');
+      if (modal) modal.style.display = 'none';
+    }
+
+    // Submit KPI -> Bảng KPI_Progress
+    function submitKPIStandalone() {
+      const btn = event ? event.target : document.querySelector('#modal-kpi-standalone .rf-btn-submit');
+      const originalText = btn ? btn.innerHTML : 'Lưu Thiết Lập';
+      if (btn) { btn.innerHTML = 'Đang lưu...'; btn.disabled = true; }
+
+      const payload = {
+        user: document.getElementById('kpiUserSelect').value,
+        kpiName: document.getElementById('kpiNameInput').value,
+        target: document.getElementById('kpiTargetInput').value,
+        unit: document.getElementById('kpiUnitSelect').value,
+        reward: document.getElementById('kpiRewardInput').value,
+        guide: document.getElementById('kpiGuideInput').value
+      };
+
+      if (!payload.user || !payload.kpiName) {
+        alert("Vui lòng chọn nhân sự và nhập tên KPI!");
+        if (btn) { btn.innerHTML = originalText; btn.disabled = false; }
+        return;
+      }
+
       google.script.run
-        .withSuccessHandler(function(employees) {
-          const kpiSelect = document.getElementById('kpiUserSelect');
-          const taskSelect = document.getElementById('task-user');
-          
-          if(kpiSelect && taskSelect && employees && employees.length > 0) {
-            employees.forEach(function(name) {
-              let optKpi = document.createElement('option');
-              optKpi.value = name;
-              optKpi.innerHTML = name;
-              kpiSelect.appendChild(optKpi);
-              
-              let optTask = document.createElement('option');
-              optTask.value = name;
-              optTask.innerHTML = name;
-              taskSelect.appendChild(optTask);
-            });
+        .withSuccessHandler(function (res) {
+          if (btn) { btn.innerHTML = originalText; btn.disabled = false; }
+          if (res && res.success) {
+            alert("Đã thiết lập KPI thành công!");
+            closeKpiModalStandalone();
+            // Reset form
+            document.getElementById('kpiNameInput').value = '';
+            document.getElementById('kpiTargetInput').value = '';
+            document.getElementById('kpiRewardInput').value = '';
+            document.getElementById('kpiUnitSelect').value = '%';
+            document.getElementById('kpiGuideInput').value = '';
+            // Kích hoạt reload data ở frontend
+            window.dispatchEvent(new CustomEvent('triggerReloadData'));
+          } else {
+            alert("Lỗi: " + (res ? res.message : "Không rõ"));
           }
         })
-        .api_getActiveEmployees();
+        .withFailureHandler(function (err) {
+          if (btn) { btn.innerHTML = originalText; btn.disabled = false; }
+          alert("Lỗi kết nối Server: " + err.message);
+        })
+        .api_insertManualKPI(payload);
     }
-  });
-</script>
+
+    // Submit Nhiệm vụ -> Bảng BonusPenalty (Thưởng Xu)
+    function submitTaskStandalone() {
+      const btn = event ? event.target : document.querySelector('#modal-task-standalone .rf-btn-submit');
+      const originalText = btn ? btn.innerHTML : 'Giao Việc';
+      if (btn) { btn.innerHTML = 'Đang lưu...'; btn.disabled = true; }
+
+      const payload = {
+        user: document.getElementById('task-user').value,
+        title: document.getElementById('task-title').value,
+        note: document.getElementById('task-note').value,
+        target: document.getElementById('task-target').value,
+        unit: document.getElementById('task-unit').value,
+        startTime: document.getElementById('task-start').value,
+        endTime: document.getElementById('task-end').value,
+        amount: document.getElementById('task-reward').value.replace(/[^0-9-]/g, ''),
+        penalty: document.getElementById('task-penalty').value.replace(/[^0-9-]/g, ''),
+        type: 'XU_REWARD'
+      };
+
+      if (!payload.user || !payload.title) {
+        alert("Vui lòng chọn nhân sự và nhập tiêu đề nhiệm vụ!");
+        if (btn) { btn.innerHTML = originalText; btn.disabled = false; }
+        return;
+      }
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (btn) { btn.innerHTML = originalText; btn.disabled = false; }
+          if (res && res.success) {
+            alert("Đã giao nhiệm vụ thành công! Nhân sự cần báo cáo hoàn thành để nhận Xu.");
+            closeTaskModalStandalone();
+            // Reset form
+            document.getElementById('task-title').value = '';
+            document.getElementById('task-note').value = '';
+            document.getElementById('task-target').value = '';
+            document.getElementById('task-unit').value = '';
+            document.getElementById('task-reward').value = '';
+            document.getElementById('task-penalty').value = '';
+            document.getElementById('task-start').value = '';
+            document.getElementById('task-end').value = '';
+            // Kích hoạt reload data ở frontend
+            window.dispatchEvent(new CustomEvent('triggerReloadData'));
+          } else {
+            alert("Lỗi: " + (res ? res.message : "Không rõ"));
+          }
+        })
+        .withFailureHandler(function (err) {
+          if (btn) { btn.innerHTML = originalText; btn.disabled = false; }
+          alert("Lỗi kết nối Server: " + err.message);
+        })
+        .api_insertManualTask(payload);
+    }
+
+    // TỰ ĐỘNG LOAD DANH SÁCH NHÂN SỰ
+    document.addEventListener("DOMContentLoaded", function () {
+      if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+          .withSuccessHandler(function (employees) {
+            const kpiSelect = document.getElementById('kpiUserSelect');
+            const taskSelect = document.getElementById('task-user');
+
+            if (kpiSelect && taskSelect && employees && employees.length > 0) {
+              employees.forEach(function (name) {
+                let optKpi = document.createElement('option');
+                optKpi.value = name;
+                optKpi.innerHTML = name;
+                kpiSelect.appendChild(optKpi);
+
+                let optTask = document.createElement('option');
+                optTask.value = name;
+                optTask.innerHTML = name;
+                taskSelect.appendChild(optTask);
+              });
+            }
+          })
+          .api_getActiveEmployees();
+      }
+    });
+  </script>
 </body>
+
 </html>

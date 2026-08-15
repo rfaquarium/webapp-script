@@ -5,6 +5,28 @@
 // =========================================================================
 
 const AnalyticsTab = React.memo(function AnalyticsTab({ data, pushData, isAdmin, mode, userConfigs }) {
+    const currentRole = localStorage.getItem('rf_role');
+    const isBoss = currentRole === 'TỐI CAO';
+    
+    // 1. BẢO MẬT & PHÂN QUYỀN
+    if (!isBoss) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[65vh] text-center animate-fade-in p-6">
+                <div className="relative mb-8 group">
+                    <div className="absolute inset-0 bg-rose-600 rounded-full blur-[50px] opacity-20 group-hover:opacity-40 transition-opacity duration-700"></div>
+                    <div className="w-28 h-28 rounded-full bg-black/80 border border-rose-500/30 flex items-center justify-center relative z-10 shadow-[0_0_40px_rgba(225,29,72,0.15)] backdrop-blur-xl">
+                        <i className="fas fa-lock text-5xl text-rose-500 drop-shadow-[0_0_15px_rgba(225,29,72,0.8)]"></i>
+                    </div>
+                </div>
+                <h2 className="text-3xl font-black text-rose-500 tracking-[0.25em] uppercase drop-shadow-[0_0_10px_rgba(225,29,72,0.5)] mb-4">Tuyệt Mật</h2>
+                <div className="w-16 h-[2px] bg-rose-500/50 mb-5 mx-auto"></div>
+                <p className="text-[13px] font-bold text-gray-400 max-w-md tracking-wide leading-relaxed">
+                    Khu vực này chứa dữ liệu P&L sinh tử của doanh nghiệp.<br/><br/>Chỉ tài khoản mang đặc quyền <span className="text-rose-400 drop-shadow-[0_0_5px_rgba(225,29,72,0.8)]">TỐI CAO</span> mới được phép truy cập.
+                </p>
+            </div>
+        );
+    }
+
     const [dateRange, setDateRange] = React.useState('30'); // '7', '30', 'thisMonth', 'lastMonth', 'custom'
     const [customStart, setCustomStart] = React.useState('');
     const [customEnd, setCustomEnd] = React.useState('');

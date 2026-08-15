@@ -1302,8 +1302,7 @@ const FinanceTab = React.memo(function FinanceTab({ orders, erpData, pushDeltas,
 
   const [activeSubTab, setActiveSubTab] = React.useState('CASHBOOK');
   const [filterTime, setFilterTime] = React.useState('Tháng Này'); 
-  const [filterStart, setFilterStart] = React.useState('');
-  const [filterEnd, setFilterEnd] = React.useState('');
+  const [customMonth, setCustomMonth] = React.useState('');
   const [filterAccount, setFilterAccount] = React.useState('ALL');
   const [displayLimit, setDisplayLimit] = React.useState(50);
   const [localAccounts, setLocalAccounts] = React.useState({}); 
@@ -1312,18 +1311,14 @@ const FinanceTab = React.memo(function FinanceTab({ orders, erpData, pushDeltas,
   const isDateInRange = (dateStr) => {
     if (!dateStr) return false;
     const d = new Date(dateStr); const today = new Date();
-    if (filterTime === 'Tất Cả') return true;
-    if (filterTime === 'Năm Nay') return d.getFullYear() === today.getFullYear();
     if (filterTime === 'Tháng Này') return d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
     if (filterTime === 'Tháng Trước') { const m = new Date(today); m.setMonth(m.getMonth() - 1); return d.getMonth() === m.getMonth() && d.getFullYear() === m.getFullYear(); }
-    if (filterTime.startsWith('Tháng ')) { const m = parseInt(filterTime.replace('Tháng ', ''), 10); return d.getMonth() + 1 === m && d.getFullYear() === today.getFullYear(); }
-    if (filterTime === 'Tuỳ Chọn') {
-        if (!filterStart || !filterEnd) return true;
-        const start = new Date(filterStart + 'T00:00:00');
-        const end = new Date(filterEnd + 'T23:59:59');
-        return d >= start && d <= end;
+    if (filterTime === 'Chọn Tháng') {
+        if (!customMonth) return true;
+        const [year, month] = customMonth.split('-');
+        return d.getFullYear() === parseInt(year, 10) && d.getMonth() === (parseInt(month, 10) - 1);
     }
-    return false;
+    return true;
   };
 
   const accountsData = React.useMemo(() => {
@@ -1869,24 +1864,7 @@ const FinanceTab = React.memo(function FinanceTab({ orders, erpData, pushDeltas,
                   </button>
                   <input type="file" ref={shopeeIncomeInputRef} accept=".xlsx, .xls" className="hidden" onChange={handleImportShopeeIncome} />
 
-                  <button onClick={async () => {
-                      triggerToast('Đang kết nối API GHN...', 'fa-spinner fa-spin', 'info');
-                      try {
-                          const res = await runGAS('syncGHNViaAPI');
-                          if (res.success) {
-                              triggerToast(res.message, 'fa-check', 'success');
-                              if (res.count > 0) window.dispatchEvent(new CustomEvent('triggerReloadData'));
-                          } else {
-                              triggerToast(res.message, 'fa-times', 'danger');
-                          }
-                      } catch(e) { triggerToast('Lỗi server', 'fa-times', 'danger'); }
-                  }} className="w-10 h-10 shrink-0 bg-[#1a1a1a] hover:bg-orange-500/20 text-gray-400 hover:text-orange-500 border border-[#333] hover:border-orange-500/50 rounded-xl flex items-center justify-center transition-all" title="Đồng bộ doanh thu COD từ GHN qua API">
-                      <i className="fas fa-sync text-[15px]"></i>
-                  </button>
 
-                  <button onClick={() => setShowReceiptScanner(true)} className="w-10 h-10 shrink-0 bg-[#1a1a1a] hover:bg-yellow-500/20 text-gray-400 hover:text-yellow-500 border border-[#333] hover:border-yellow-500/50 rounded-xl flex items-center justify-center transition-all" title="Quét Ảnh Bill">
-                      <i className="fas fa-camera text-[15px]"></i>
-                  </button>
 
                   <button onClick={handleSyncBIDV} className="w-10 h-10 shrink-0 bg-[#1a1a1a] hover:bg-emerald-500/20 text-gray-400 hover:text-emerald-500 border border-[#333] hover:border-emerald-500/50 rounded-xl flex items-center justify-center transition-all" title="Đồng bộ BIDV">
                       <i className="fas fa-university text-[15px]"></i>
@@ -1907,9 +1885,14 @@ const FinanceTab = React.memo(function FinanceTab({ orders, erpData, pushDeltas,
                       {accountsData.map(a => <option key={a.id} value={a.id}>{parseAccountInfo(a).name}</option>)}
                   </select>
               )}
-              <select value={filterTime} onChange={e => setFilterTime(e.target.value)} className="bg-[#141414] border border-[#333] hover:border-[#444] text-[#d4af37] text-[10px] font-black px-3 py-2 rounded-lg outline-none transition-colors">
-                  <option>Hôm Nay</option><option>Tháng Này</option><option>Tháng Trước</option><option>Tuỳ Chọn</option><option>Tất Cả</option>
+              <select value={filterTime} onChange={e => { setFilterTime(e.target.value); if (e.target.value !== 'Chọn Tháng') setCustomMonth(''); }} className="bg-[#141414] border border-[#333] hover:border-[#444] text-[#d4af37] text-[10px] font-black px-3 py-2 rounded-lg outline-none transition-colors">
+                  <option value="Tháng Này">Tháng Này</option>
+                  <option value="Tháng Trước">Tháng Trước</option>
+                  <option value="Chọn Tháng">Chọn Tháng</option>
               </select>
+              {filterTime === 'Chọn Tháng' && (
+                  <input type="month" value={customMonth} onChange={e => setCustomMonth(e.target.value)} className="bg-[#141414] border border-[#333] text-[#d4af37] text-[10px] font-black px-2 py-1.5 rounded-lg outline-none" />
+              )}
           </div>
       </div>
 

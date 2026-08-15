@@ -1,0 +1,201 @@
+<script type="text/babel">
+  const TabErrors = React.memo(function TabErrors(props) {
+    const { runGAS, triggerToast, activeTab, currentUser } = props;
+    
+    const [isLoading, setIsLoading] = React.useState(true);
+    const [kcsErrors, setKcsErrors] = React.useState([]);
+    const [invErrors, setInvErrors] = React.useState([]);
+    const [activeSubTab, setActiveSubTab] = React.useState('KCS'); // 'KCS' | 'INV'
+    const [selectedQcItem, setSelectedQcItem] = React.useState(null);
+
+    React.useEffect(() => {
+      if (activeTab === 'ERRORS') {
+        fetchErrors();
+      }
+    }, [activeTab]);
+
+    const fetchErrors = async () => {
+      setIsLoading(true);
+      try {
+        const pin = window.localStorage.getItem('rf_pin') || '';
+        const res = await runGAS('getDashboardErrors', { pin: pin });
+        if (res && res.success) {
+          setKcsErrors(res.data.kcsErrors || []);
+          setInvErrors(res.data.invErrors || []);
+        } else {
+          if (triggerToast) triggerToast('Lỗi tải dữ liệu: ' + (res?.message || ''), 'fa-times', 'danger');
+        }
+      } catch (err) {
+        console.error(err);
+        if (triggerToast) triggerToast('Lỗi kết nối máy chủ', 'fa-network-wired', 'danger');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    const handleViewQcError = (item) => {
+        setSelectedQcItem(item);
+    };
+
+    if (activeTab !== 'ERRORS') return null;
+
+    return (
+      <div className="flex flex-col w-full h-full bg-[#0d0e12] animate-fade-in text-white overflow-hidden">
+        
+        {/* Header - Workbench style */}
+        <div className="flex-shrink-0 px-6 py-5 border-b border-[#242630] bg-[#0d0e12] flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-black tracking-tight text-white flex items-center gap-2">
+              <i className="fas fa-shield-halved text-[#fb7185]"></i> Lỗi & KCS
+            </h1>
+            <p className="text-[#8a8d98] text-[13px] mt-1">Bảng điều khiển trung tâm xử lý hàng từ chối KCS và kiểm kho sai lệch.</p>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={fetchErrors} disabled={isLoading} className="px-4 py-2 bg-[#16171d] hover:bg-[#20222a] border border-[#242630] rounded-lg text-[12px] font-semibold transition-colors flex items-center gap-2 disabled:opacity-50">
+              <i className={`fas fa-sync-alt ${isLoading ? 'fa-spin' : ''}`}></i> Làm mới
+            </button>
+          </div>
+        </div>
+
+        {/* Sub-tabs */}
+        <div className="flex-shrink-0 px-6 pt-4 border-b border-[#242630] flex gap-6">
+          <button 
+            onClick={() => setActiveSubTab('KCS')}
+            className={`pb-3 text-[13px] font-bold tracking-wide uppercase transition-colors relative ${activeSubTab === 'KCS' ? 'text-white' : 'text-[#8a8d98] hover:text-[#e2e4e9]'}`}
+          >
+            Lỗi Sản Xuất (KCS)
+            {kcsErrors.length > 0 && <span className="ml-2 bg-[#fb7185]/20 text-[#fb7185] px-1.5 py-0.5 rounded text-[10px]">{kcsErrors.length}</span>}
+            {activeSubTab === 'KCS' && <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#d4af37]"></div>}
+          </button>
+
+          <button 
+            onClick={() => setActiveSubTab('INV')}
+            className={`pb-3 text-[13px] font-bold tracking-wide uppercase transition-colors relative ${activeSubTab === 'INV' ? 'text-white' : 'text-[#8a8d98] hover:text-[#e2e4e9]'}`}
+          >
+            Cảnh Báo Tồn Kho
+            {invErrors.length > 0 && <span className="ml-2 bg-[#f2a65a]/20 text-[#f2a65a] px-1.5 py-0.5 rounded text-[10px]">{invErrors.length}</span>}
+            {activeSubTab === 'INV' && <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#d4af37]"></div>}
+          </button>
+        </div>
+
+        {/* Main Content Area */}
+        <div className="flex-1 overflow-auto bg-[#0d0e12] p-6">
+            {isLoading ? (
+                <div className="flex items-center justify-center h-40 text-[#8a8d98] gap-2 text-sm">
+                    <i className="fas fa-spinner fa-spin text-[#d4af37]"></i> Đang tải dữ liệu...
+                </div>
+            ) : activeSubTab === 'KCS' ? (
+                kcsErrors.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-40 border border-dashed border-[#242630] rounded-xl text-[#8a8d98]">
+                        <i className="fas fa-check-circle text-2xl mb-2 text-emerald-500/50"></i>
+                        <span className="text-[13px]">Tuyệt vời, không có lệnh sản xuất nào bị từ chối KCS.</span>
+                    </div>
+                ) : (
+                    <div className="rounded-xl border border-[#242630] overflow-hidden bg-[#16171d]">
+                        <table className="w-full text-left border-collapse">
+                            <thead>
+                                <tr className="border-b border-[#242630] bg-[#0d0e12]/50 text-[10px] uppercase tracking-wider text-[#8a8d98]">
+                                    <th className="p-3 font-semibold w-24">Mã Lệnh</th>
+                                    <th className="p-3 font-semibold">Tên Sản Phẩm</th>
+                                    <th className="p-3 font-semibold">Khâu Lỗi</th>
+                                    <th className="p-3 font-semibold">Thợ Phụ Trách</th>
+                                    <th className="p-3 font-semibold">Ngày Báo</th>
+                                    <th className="p-3 font-semibold text-right">Thao Tác</th>
+                                </tr>
+                            </thead>
+                            <tbody className="text-[13px] divide-y divide-[#242630]">
+                                {kcsErrors.map((err, i) => {
+                                    const isP1Error = String(err.qc_note || '').includes('P1') || !err.p2_user;
+                                    return (
+                                        <tr key={i} className="hover:bg-[#20222a]/50 transition-colors">
+                                            <td className="p-3 font-mono text-[#d4af37]">{err.id}</td>
+                                            <td className="p-3 font-medium text-[#e2e4e9]">{err.name}</td>
+                                            <td className="p-3">
+                                                <span className="inline-flex px-2 py-1 bg-rose-500/10 text-rose-500 rounded font-semibold text-[10px] uppercase">
+                                                    Khâu {isP1Error ? '1' : '2'}
+                                                </span>
+                                            </td>
+                                            <td className="p-3 text-[#8a8d98]">
+                                                <div className="flex flex-col">
+                                                    <span className="text-white">{isP1Error ? err.p1_user : err.p2_user}</span>
+                                                    <span className="text-[10px] opacity-70">Mã Đơn: {err.orderId}</span>
+                                                </div>
+                                            </td>
+                                            <td className="p-3 text-[#8a8d98] text-[11px]">
+                                                {err.deadline ? new Date(err.deadline).toLocaleDateString('vi-VN') : 'N/A'}
+                                            </td>
+                                            <td className="p-3 text-right">
+                                                <button onClick={() => handleViewQcError(err)} className="px-3 py-1.5 bg-[#fb7185]/10 hover:bg-[#fb7185]/20 text-[#fb7185] border border-[#fb7185]/30 rounded-[6px] text-[11px] font-bold tracking-wide transition-all">
+                                                    XEM CHI TIẾT
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                )
+            ) : (
+                invErrors.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-40 border border-dashed border-[#242630] rounded-xl text-[#8a8d98]">
+                        <i className="fas fa-boxes text-2xl mb-2 text-emerald-500/50"></i>
+                        <span className="text-[13px]">Toàn bộ kho hàng hoạt động ổn định. Tồn kho khớp.</span>
+                    </div>
+                ) : (
+                    <div className="rounded-xl border border-[#242630] overflow-hidden bg-[#16171d]">
+                        <table className="w-full text-left border-collapse">
+                            <thead>
+                                <tr className="border-b border-[#242630] bg-[#0d0e12]/50 text-[10px] uppercase tracking-wider text-[#8a8d98]">
+                                    <th className="p-3 font-semibold">Mã SKU</th>
+                                    <th className="p-3 font-semibold">Tên Vật Tư / Thành Phẩm</th>
+                                    <th className="p-3 font-semibold">Loại Lỗi</th>
+                                    <th className="p-3 font-semibold">Tồn Thực Tế</th>
+                                    <th className="p-3 font-semibold">Mức Tối Thiểu</th>
+                                </tr>
+                            </thead>
+                            <tbody className="text-[13px] divide-y divide-[#242630]">
+                                {invErrors.map((err, i) => {
+                                    const isNegative = err._errorType === 'ÂM KHO';
+                                    return (
+                                        <tr key={i} className="hover:bg-[#20222a]/50 transition-colors">
+                                            <td className="p-3 font-mono text-[#8a8d98]">{err.sku}</td>
+                                            <td className="p-3 font-medium text-[#e2e4e9]">{err.name}</td>
+                                            <td className="p-3">
+                                                <span className={`inline-flex px-2 py-1 rounded font-semibold text-[10px] uppercase ${isNegative ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20' : 'bg-[#f2a65a]/10 text-[#f2a65a] border border-[#f2a65a]/20'}`}>
+                                                    {err._errorType}
+                                                </span>
+                                            </td>
+                                            <td className="p-3 font-mono">
+                                                <span className={isNegative ? 'text-rose-500 font-bold' : 'text-[#f2a65a] font-bold'}>
+                                                    {err.quantity}
+                                                </span>
+                                            </td>
+                                            <td className="p-3 text-[#8a8d98] font-mono">
+                                                {err.minStock || 0}
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                )
+            )}
+        </div>
+
+        {/* Modal QC Detail (Re-used) */}
+        {selectedQcItem && typeof window.PinQcModal !== 'undefined' && (
+            <window.PinQcModal 
+                item={selectedQcItem}
+                readOnly={true}
+                onClose={() => setSelectedQcItem(null)}
+                onSave={() => setSelectedQcItem(null)}
+            />
+        )}
+      </div>
+    );
+  });
+
+  window.TabErrors = TabErrors;
+</script>

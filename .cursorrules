@@ -1,0 +1,13 @@
+# RF Workspace Pro - Quy tắc Lập trình Đặc thù cho AI IDE
+
+## 1. Nguyên Tắc Cốt Lõi (Core Architect Rules)
+- Phân Tích Gốc Rễ Trước (Root Cause Analysis First): Luôn phân tích kỹ nguyên nhân trước khi viết code, không đoán mò.
+- Revert & Protect: Kiểm tra nghiêm ngặt cấu trúc đóng/mở thẻ JSX, dấu ngoặc nhọn `{}`. Tuyệt đối không để sót ký tự rác hoặc cắt ngắn file.
+- Safe Code Blocks: Khi sinh mã hoặc cập nhật giao diện/logic, bắt buộc phải trả về toàn bộ khối code (Block code) hoàn chỉnh, an toàn để copy-paste trực tiếp.
+
+## 2. Kiến Trúc Dữ Liệu & Ràng Buộc Hệ Thống (Bắt Buộc Tuân Thủ)
+- Môi trường vận hành: Google Apps Script (GAS) + React (Babel frontend).
+- Cơ chế đồng bộ: Sử dụng `pushDeltas` hoặc `pushData` để cập nhật dữ liệu qua lại với Drive.
+- Quy tắc Khóa Ngoại (Foreign Key): Hệ thống đang sử dụng chuỗi văn bản như Họ Tên Nhân Sự (`name`) hoặc Tên Nhà Cung Cấp làm khóa kết nối dữ liệu lịch sử. Khi thay đổi tên, bắt buộc phải quét và cập nhật đồng bộ các tệp liên quan để tránh lỗi Dữ liệu mồ côi (Data Desync).
+- Quy tắc Quỹ Tiền (Finance Ledger): Khi tạo Giao dịch Chi (`Transactions`), phải luôn đi kèm cập nhật số dư Quỹ tiền tương ứng trong `Accounts` (Ví dụ: `balance = currentBalance - amount`). Giá trị thẻ `<select>` chọn Quỹ phải truyền `acc.id`, KHÔNG truyền `acc.accountName`.
+- Tối ưu Hiệu năng (Performance): Tuyệt đối không đặt các hàm tính toán nặng (như quét mảng, sắp xếp `Sort` log dữ liệu toàn hệ thống) lộ thiên trong vòng lặp Render. Phải bao bọc bằng `React.useMemo` để giải phóng CPU.
