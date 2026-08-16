@@ -17,7 +17,79 @@ const ADMIN_PIN = ''; // Đã chuyển sang quản lý qua sheet Config_NhanSu �
 const CHANNELS = ['Shopee VN', 'Tiktok Shop', 'Bán Lẻ', 'Bán Sỉ', 'Cộng Tác Viên', 'Shopee SG', 'Shopee MA', 'Shopee TH', 'Shopee PH', 'Bảo Hành'];
 const ORDER_STATUS = { AUTO_SCAN: 'Quét Tự Động', PENDING_PROD: 'Chờ Sản Xuất', READY_PACK: 'Sẵn sàng đóng gói', PENDING_HANDOVER: 'Chờ Bàn Giao', HANDED_OVER: 'Đã Bàn Giao', CANCELLED: 'Đơn Huỷ' };
 const CATEGORIES = ['LAYOUT', 'BỂ KÍNH', 'PHỤ KIỆN', 'DANH MỤC SẢN XUẤT', 'HÀNG HỎNG VỠ'];
-const SUB_CATEGORIES = { 'LAYOUT': ['LINH THÚ', 'VÁCH SUỐI', 'HẺM NÚI', 'NATURE', 'NHẤT TRỤ', 'TRĂNG', 'BONSAI', 'CẦU VỒNG', 'BIOTOP CUỘI', 'HANG ĐỘNG', 'RỪNG', 'ĐẢO BAY', 'CỔNG VÒM', 'COVER'], 'BỂ KÍNH': ['BỂ MINI', 'TERRARIUM', 'BÁN CẠN', 'BỂ BETTA', 'BỂ NÂNG ĐÁY'], 'PHỤ KIỆN': ['CÁT, PHÂN NỀN', 'BƠM LỌC', 'VẬT LIỆU LỌC', 'ĐÈN LED', 'THỨC ĂN', 'PHỤ KIỆN KHÁC'], 'DANH MỤC SẢN XUẤT': ['NGUYÊN LIỆU LAYOUT', 'NGUYÊN LIỆU BỂ KÍNH', 'NGUYÊN LIỆU ĐÓNG GÓI', 'VẬT TƯ SẢN XUẤT'] };
+const SUB_CATEGORIES = { 
+    'LAYOUT': ['LINH THÚ', 'VÁCH SUỐI', 'HẺM NÚI', 'NATURE', 'NHẤT TRỤ', 'TRĂNG', 'BONSAI', 'CẦU VỒNG', 'BIOTOP CUỘI', 'HANG ĐỘNG', 'RỪNG', 'ĐẢO BAY', 'CỔNG VÒM', 'COVER'], 
+    'BỂ KÍNH': ['BỂ MINI', 'TERRARIUM', 'BÁN CẠN', 'BỂ BETTA', 'BỂ NÂNG ĐÁY'], 
+    'PHỤ KIỆN': ['CÁT, PHÂN NỀN', 'BƠM LỌC', 'VẬT LIỆU LỌC', 'ĐÈN LED', 'THỨC ĂN', 'PHỤ KIỆN KHÁC'], 
+    'DANH MỤC SẢN XUẤT': ['NGUYÊN LIỆU LAYOUT', 'NGUYÊN LIỆU BỂ KÍNH', 'NGUYÊN LIỆU ĐÓNG GÓI', 'VẬT TƯ SẢN XUẤT'] 
+};
+
+// Phân nhóm hiển thị Danh mục Kho: THÀNH PHẨM vs NGUYÊN VẬT LIỆU SẢN XUẤT
+const INVENTORY_GROUPS = {
+    FINISHED: { label: 'HÀNG HOÁ THÀNH PHẨM', icon: 'fa-cube', categories: ['LAYOUT', 'BỂ KÍNH', 'PHỤ KIỆN'] },
+    RAW_MATERIALS: { label: 'NGUYÊN LIỆU SẢN XUẤT', icon: 'fa-boxes-stacked', categories: ['DANH MỤC SẢN XUẤT'] },
+    DEFECT: { label: 'HÀNG HỎNG VỠ', icon: 'fa-heart-crack', categories: ['HÀNG HỎNG VỠ'] }
+};
+
+/**
+ * Hàm tính toán chi phí và quy đổi đơn vị định mức BOM chuẩn xác
+ * Hỗ trợ tự động nhận diện: Kg/Gam, Lít/Ml, Mét/Cm/Mm ngay cả khi tên hàng có đuôi (Kg), (L)
+ */
+function calculateBomItemCost(mat, rawQty, rawBomUnit) {
+    const qty = Number(rawQty) || 0;
+    const unitPrice = Number(mat?.costPrice || mat?.price || 0);
+    if (!unitPrice || !qty) return { unitPrice, convertedPrice: unitPrice, subTotal: 0, convertedQty: qty, conversionNote: '' };
+
+    let bomUnit = String(rawBomUnit || mat?.unit || '').toLowerCase().trim();
+    let matUnit = String(mat?.unit || '').toLowerCase().trim();
+    let matName = String(mat?.name || '').toLowerCase();
+
+    // Nhận diện khối lượng: Kg / Gam
+    const isMatKg = matUnit === 'kg' || matUnit === 'cân' || matUnit === 'kí' || matUnit === 'kilogram' || 
+                    matName.includes('(kg)') || matName.includes(' kg') || matName.includes('/kg');
+    const isBomGram = bomUnit === 'gam' || bomUnit === 'g' || bomUnit === 'gram' || bomUnit === 'gr';
+    const isBomKg = bomUnit === 'kg' || bomUnit === 'cân' || bomUnit === 'kí' || bomUnit === 'kilogram';
+    const isMatGram = matUnit === 'gam' || matUnit === 'g' || matUnit === 'gram' || matUnit === 'gr';
+
+    // Nhận diện thể tích: Lít / Ml
+    const isMatLit = matUnit === 'lít' || matUnit === 'lit' || matUnit === 'l' || matName.includes('(l)') || matName.includes('(lít)');
+    const isBomMl = bomUnit === 'ml' || bomUnit === 'mililit' || bomUnit === 'cc';
+
+    // Nhận diện chiều dài/diện tích: Mét / Cm / Mm
+    const isMatMet = matUnit === 'm' || matUnit === 'mét' || matUnit === 'met' || matName.includes('(m)') || matName.includes('(mét)');
+    const isBomCm = bomUnit === 'cm' || bomUnit === 'centimet';
+    const isBomMm = bomUnit === 'mm' || bomUnit === 'milimet';
+
+    let convertedPrice = unitPrice;
+    let convertedQty = qty;
+    let conversionNote = '';
+
+    if (isMatKg && isBomGram) {
+        convertedPrice = unitPrice / 1000;
+        convertedQty = qty / 1000;
+        conversionNote = '1kg = 1.000g';
+    } else if (isMatGram && isBomKg) {
+        convertedPrice = unitPrice * 1000;
+        convertedQty = qty * 1000;
+        conversionNote = '1g = 0.001kg';
+    } else if (isMatLit && isBomMl) {
+        convertedPrice = unitPrice / 1000;
+        convertedQty = qty / 1000;
+        conversionNote = '1L = 1.000ml';
+    } else if (isMatMet && isBomCm) {
+        convertedPrice = unitPrice / 100;
+        convertedQty = qty / 100;
+        conversionNote = '1m = 100cm';
+    } else if (isMatMet && isBomMm) {
+        convertedPrice = unitPrice / 1000;
+        convertedQty = qty / 1000;
+        conversionNote = '1m = 1.000mm';
+    }
+
+    const subTotal = qty * convertedPrice;
+    return { unitPrice, convertedPrice, subTotal, convertedQty, conversionNote };
+}
+
 const CAT_THU = ['Bán Hàng', 'COD Đối Tác Giao Hàng', 'Sàn TMĐT', 'Đầu Tư', 'Thu Khác', 'Bán Phế Liệu'];
 const CAT_CHI = ['Nguyên Liệu Sản Xuất', 'Vật Tư Sản Xuất', 'Quảng Cáo & Marketing', 'Thanh Toán Hoá Đơn', 'Phần Mềm Dịch Vụ', 'Cước Vận Chuyển', 'Bảo Hành Đơn Hàng', 'Lương Nhân Sự', 'Công Cụ Máy Móc', 'Trang Thiết Bị', 'Khác'];
 
@@ -96,7 +168,7 @@ const getLocalISODate = () => {
     }
 };
 
-const formatMoney = (m) => new Intl.NumberFormat('vi-VN').format(m || 0) + 'đ';
+const formatMoney = (m) => new Intl.NumberFormat('vi-VN').format(Math.round(m || 0)) + 'đ';
 
 const extractTime = (val) => { 
     if(!val) return '';

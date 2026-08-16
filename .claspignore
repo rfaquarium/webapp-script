@@ -1,5 +1,6 @@
-# Bỏ qua toàn bộ file CSDL CSV cục bộ
+# Bỏ qua toàn bộ file CSDL CSV & Excel cục bộ
 *.csv
+*.xlsx
 
 # Bỏ qua các file cấu hình IDE & Git
 .git/
@@ -10,3 +11,9 @@ node_modules/
 package.json
 package-lock.json
 README.md
+
+# Bỏ qua các file Web Worker & Push Relay không thuộc Google Apps Script
+push_relay_worker.js
+sw.js
+install.cmd
+clasp_output.log

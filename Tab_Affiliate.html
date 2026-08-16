@@ -82,6 +82,7 @@ function TabAffiliate({ orders, ctvFinance, pushDeltas, currentUser, triggerToas
       let totalOrderCOD = 0;
       
       ctvOrders.forEach(o => {
+          if (o.status === 'Hàng Hoàn' || o.status === 'Đơn Huỷ') return;
           // Tính nợ từ đơn: Bán được 100k, thu COD 120k -> Nợ -20k (Shop nợ CTV)
           // Bán được 100k, thu COD 0k -> Nợ +100k (CTV nợ Shop)
           const rev = Number(o.revenue) || 0;
@@ -151,7 +152,7 @@ function TabAffiliate({ orders, ctvFinance, pushDeltas, currentUser, triggerToas
       setIsProcessing(false);
   };
 
-  const formatMoney = (n) => Number(n).toLocaleString('vi-VN');
+  const formatMoney = (n) => Math.round(Number(n || 0)).toLocaleString('vi-VN');
 
   return (
     <div className="p-2 sm:p-4 space-y-4 sm:space-y-6 animate-fade-in custom-scrollbar overflow-x-hidden">

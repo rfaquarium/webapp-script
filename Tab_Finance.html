@@ -65,7 +65,7 @@ const getBankVisuals = (accName, type) => {
 };
 
 const MetricField = React.memo(({ label, field, value, isEditing, onChange, color, canView = true, disabled = false }) => {
-    const formatMoney = (val) => Number(val || 0).toLocaleString('vi-VN');
+    const formatMoney = (val) => Math.round(Number(val || 0)).toLocaleString('vi-VN');
     return (
         <div className={`bg-[#0a0a0a] border border-[#222] p-2.5 rounded-xl flex flex-col justify-center ${disabled ? 'opacity-70' : ''}`}>
             <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">{label}</span>
@@ -351,7 +351,14 @@ function ImportStatementModal({ onClose, pushDeltas, triggerToast, erpData, cate
                 let workbook;
                 let isCSV = false;
                 try { workbook = window.XLSX.read(data, { type: 'binary' }); } 
-                catch (err) { isCSV = true; }
+                catch (err) { 
+                    if (err && err.message && err.message.toLowerCase().includes('password')) {
+                        triggerToast('File đang bị khóa mật khẩu! Hãy mở bằng Excel và lưu lại thành file không pass.', 'fa-lock', 'danger');
+                        setIsProcessing(false);
+                        return;
+                    }
+                    isCSV = true; 
+                }
 
                 if(isCSV) {
                    const readerCSV = new FileReader();
@@ -1269,7 +1276,7 @@ const FinanceTab = React.memo(function FinanceTab({ orders, erpData, pushDeltas,
   const isBoss = localStorage.getItem('rf_boss') === 'true';
   const currentRole = localStorage.getItem('rf_role') || '';
   const canManageFinance = isBoss || currentRole === 'TỐI CAO' || currentRole === 'KẾ TOÁN';
-  const formatMoney = (val) => Number(val || 0).toLocaleString('vi-VN');
+  const formatMoney = (val) => Math.round(Number(val || 0)).toLocaleString('vi-VN');
   const secureMoney = (val) => canManageFinance ? formatMoney(val) : '*******';
 
   const DEFAULT_CATEGORIES = {
@@ -2306,7 +2313,7 @@ const BusinessReportTab = React.memo(function BusinessReportTab({ erpData, pushD
         );
     }
 
-    const formatMoney = (val) => Number(val || 0).toLocaleString('vi-VN');
+    const formatMoney = (val) => Math.round(Number(val || 0)).toLocaleString('vi-VN');
     const REPORT_CHANNELS = ['Shopee VN', 'Tiktok Shop', 'Bán Lẻ', 'Bán Sỉ', 'Cộng Tác Viên', 'Xuất Khẩu'];
 
     const [filter, setFilter] = React.useState('Tháng Này');

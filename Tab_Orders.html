@@ -812,13 +812,11 @@
                 const cus = String(o.customer || '').toLowerCase();
                 const matchSearch = mvd.includes(searchCode.toLowerCase()) || cus.includes(searchCode.toLowerCase());
 
-                // Với đơn hoàn, dùng ngày xử lý hoàn (returnedAt / reconciledAt / updatedAt) để xuất hiện ở tháng xử lý hiện tại
+                // Với đơn hoàn, dùng ngày xử lý hoàn (returnedAt / updatedAt) để xuất hiện ở tháng xử lý hiện tại
                 const isReturnStatus = o._effectiveStatus === 'HÀNG HOÀN CHỜ XỬ LÝ' || String(o.status || '').toUpperCase().includes('HOÀN');
-                let dateToFilter = o.createdAt || o.date;
+                let dateToFilter = o.date || o.createdAt;
                 if (isReturnStatus) {
-                    dateToFilter = o.returnedAt || o.reconciledAt || o.updatedAt || o.createdAt || o.date;
-                } else if (o.reconciledAt) {
-                    dateToFilter = o.reconciledAt || o.createdAt || o.date;
+                    dateToFilter = o.returnedAt || o.updatedAt || o.date || o.createdAt;
                 }
 
                 // Đơn hàng đang vận hành (chưa đóng) luôn luôn được hiển thị ở chế độ 'Tháng Này' để không bao giờ bị trôi mất đơn
@@ -897,13 +895,24 @@
                                 const accs = typeof o.accessories === 'string' ? JSON.parse(o.accessories) : o.accessories || [];
                                 if (Array.isArray(accs)) {
                                     for (let a of accs) {
-                                        if (a.hasProduction === false || a.hasProduction === 'false') {
-                                            const required = Number(a.quantity || 1);
-                                            const stock = productStockMap[String(a.name).trim()] || 0;
-                                            if (stock < required) {
-                                                isMissingAccessories = true;
-                                                break;
-                                            }
+                                        if (!a) continue;
+                                        if (a.hasProduction === true || a.hasProduction === 'true') continue;
+                                        const aName = String(a.name || a.Name || '').trim();
+                                        if (!aName) continue;
+
+                                        // Bỏ qua nếu là mặt hàng Sản xuất (Layout / Bể kính)
+                                        const matchProd = (erpProducts || erpData?.Products || []).find(p => String(p.name).trim().toLowerCase() === aName.toLowerCase());
+                                        if (matchProd) {
+                                            const cat = String(matchProd.category || '').toUpperCase().trim();
+                                            const subCat = String(matchProd.sub_category || '').toUpperCase().trim();
+                                            if (cat === 'LAYOUT' || cat === 'BỂ KÍNH' || subCat === 'LAYOUT' || subCat === 'BỂ KÍNH') continue;
+                                        }
+
+                                        const required = Number(a.quantity || a.qty || 1);
+                                        const stock = productStockMap[aName] !== undefined ? productStockMap[aName] : (matchProd ? Number(matchProd.quantity || 0) : 0);
+                                        if (stock < required) {
+                                            isMissingAccessories = true;
+                                            break;
                                         }
                                     }
                                 }
@@ -986,13 +995,24 @@
                                 const accs = typeof o.accessories === 'string' ? JSON.parse(o.accessories) : o.accessories || [];
                                 if (Array.isArray(accs)) {
                                     for (let a of accs) {
-                                        if (a.hasProduction === false || a.hasProduction === 'false') {
-                                            const required = Number(a.quantity || 1);
-                                            const stock = productStockMap[String(a.name).trim()] || 0;
-                                            if (stock < required) {
-                                                isMissingAccessories = true;
-                                                break;
-                                            }
+                                        if (!a) continue;
+                                        if (a.hasProduction === true || a.hasProduction === 'true') continue;
+                                        const aName = String(a.name || a.Name || '').trim();
+                                        if (!aName) continue;
+
+                                        // Bỏ qua nếu là mặt hàng Sản xuất (Layout / Bể kính)
+                                        const matchProd = (erpProducts || erpData?.Products || []).find(p => String(p.name).trim().toLowerCase() === aName.toLowerCase());
+                                        if (matchProd) {
+                                            const cat = String(matchProd.category || '').toUpperCase().trim();
+                                            const subCat = String(matchProd.sub_category || '').toUpperCase().trim();
+                                            if (cat === 'LAYOUT' || cat === 'BỂ KÍNH' || subCat === 'LAYOUT' || subCat === 'BỂ KÍNH') continue;
+                                        }
+
+                                        const required = Number(a.quantity || a.qty || 1);
+                                        const stock = productStockMap[aName] !== undefined ? productStockMap[aName] : (matchProd ? Number(matchProd.quantity || 0) : 0);
+                                        if (stock < required) {
+                                            isMissingAccessories = true;
+                                            break;
                                         }
                                     }
                                 }
@@ -1029,80 +1049,80 @@
                 label: 'Chờ Sản Xuất',
                 count: stats.pending,
                 icon: 'fa-tools',
-                activeClass: 'bg-gradient-to-r from-amber-500 to-amber-600 text-black border-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.45)] font-black',
-                inactiveClass: 'bg-[#181206] text-amber-300/80 border border-amber-500/30 hover:border-amber-400 hover:text-amber-200 hover:bg-amber-500/10',
-                activeBadgeClass: 'bg-black/35 text-black font-black',
-                inactiveBadgeClass: 'bg-amber-950/70 text-amber-300 border border-amber-500/30'
+                activeClass: 'bg-[#d4af37]/15 text-[#d4af37] border-[#d4af37]/30 shadow-[0_0_10px_rgba(212,175,55,0.15)] font-bold',
+                inactiveClass: 'bg-[#121214] text-zinc-400 border-white/[0.06] hover:border-white/[0.12] hover:text-zinc-200 hover:bg-white/[0.02]',
+                activeBadgeClass: 'bg-[#d4af37] text-black font-black',
+                inactiveBadgeClass: 'bg-zinc-800 text-zinc-400 border border-white/[0.06]'
             },
             {
                 id: 'Chờ Phụ Kiện',
                 label: 'Chờ Phụ Kiện',
                 count: stats.waitAcc,
                 icon: 'fa-puzzle-piece',
-                activeClass: 'bg-gradient-to-r from-cyan-500 to-teal-500 text-black border-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.45)] font-black',
-                inactiveClass: 'bg-[#06161a] text-cyan-300/80 border border-cyan-500/30 hover:border-cyan-400 hover:text-cyan-200 hover:bg-cyan-500/10',
-                activeBadgeClass: 'bg-black/35 text-black font-black',
-                inactiveBadgeClass: 'bg-cyan-950/70 text-cyan-300 border border-cyan-500/30'
+                activeClass: 'bg-[#06b6d4]/15 text-[#22d3ee] border-[#06b6d4]/30 shadow-[0_0_10px_rgba(6,182,212,0.15)] font-bold',
+                inactiveClass: 'bg-[#121214] text-zinc-400 border-white/[0.06] hover:border-white/[0.12] hover:text-zinc-200 hover:bg-white/[0.02]',
+                activeBadgeClass: 'bg-[#06b6d4] text-black font-black',
+                inactiveBadgeClass: 'bg-zinc-800 text-zinc-400 border border-white/[0.06]'
             },
             {
                 id: 'Sẵn Sàng Đóng Gói',
                 label: 'Sẵn Sàng Đóng Gói',
                 count: stats.ready,
                 icon: 'fa-box-open',
-                activeClass: 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white border-purple-400 shadow-[0_0_15px_rgba(147,51,234,0.45)] font-black',
-                inactiveClass: 'bg-[#140824] text-purple-300/80 border border-purple-500/30 hover:border-purple-400 hover:text-purple-200 hover:bg-purple-500/10',
-                activeBadgeClass: 'bg-white/25 text-white font-black',
-                inactiveBadgeClass: 'bg-purple-950/70 text-purple-300 border border-purple-500/30'
+                activeClass: 'bg-[#a855f7]/15 text-[#c084fc] border-[#a855f7]/30 shadow-[0_0_10px_rgba(168,85,247,0.15)] font-bold',
+                inactiveClass: 'bg-[#121214] text-zinc-400 border-white/[0.06] hover:border-white/[0.12] hover:text-zinc-200 hover:bg-white/[0.02]',
+                activeBadgeClass: 'bg-[#a855f7] text-white font-black',
+                inactiveBadgeClass: 'bg-zinc-800 text-zinc-400 border border-white/[0.06]'
             },
             {
                 id: 'Chờ Bàn Giao',
                 label: 'Chờ Bàn Giao',
                 count: stats.shipping,
                 icon: 'fa-truck-loading',
-                activeClass: 'bg-gradient-to-r from-sky-500 to-blue-600 text-white border-sky-400 shadow-[0_0_15px_rgba(14,165,233,0.45)] font-black',
-                inactiveClass: 'bg-[#081424] text-sky-300/80 border border-sky-500/30 hover:border-sky-400 hover:text-sky-200 hover:bg-sky-500/10',
-                activeBadgeClass: 'bg-white/25 text-white font-black',
-                inactiveBadgeClass: 'bg-sky-950/70 text-sky-300 border border-sky-500/30'
+                activeClass: 'bg-[#3b82f6]/15 text-[#60a5fa] border-[#3b82f6]/30 shadow-[0_0_10px_rgba(59,130,246,0.15)] font-bold',
+                inactiveClass: 'bg-[#121214] text-zinc-400 border-white/[0.06] hover:border-white/[0.12] hover:text-zinc-200 hover:bg-white/[0.02]',
+                activeBadgeClass: 'bg-[#3b82f6] text-white font-black',
+                inactiveBadgeClass: 'bg-zinc-800 text-zinc-400 border border-white/[0.06]'
             },
             {
                 id: 'Đã Bàn Giao',
                 label: 'Đã Bàn Giao',
                 count: stats.done,
                 icon: 'fa-check-double',
-                activeClass: 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.45)] font-black',
-                inactiveClass: 'bg-[#061810] text-emerald-300/80 border border-emerald-500/30 hover:border-emerald-400 hover:text-emerald-200 hover:bg-emerald-500/10',
-                activeBadgeClass: 'bg-white/25 text-white font-black',
-                inactiveBadgeClass: 'bg-emerald-950/70 text-emerald-300 border border-emerald-500/30'
+                activeClass: 'bg-[#10b981]/15 text-[#34d399] border-[#10b981]/30 shadow-[0_0_10px_rgba(16,185,129,0.15)] font-bold',
+                inactiveClass: 'bg-[#121214] text-zinc-400 border-white/[0.06] hover:border-white/[0.12] hover:text-zinc-200 hover:bg-white/[0.02]',
+                activeBadgeClass: 'bg-[#10b981] text-white font-black',
+                inactiveBadgeClass: 'bg-zinc-800 text-zinc-400 border border-white/[0.06]'
             },
             {
                 id: 'Đơn Huỷ',
                 label: 'Đơn Huỷ',
                 count: stats.cancel,
                 icon: 'fa-ban',
-                activeClass: 'bg-gradient-to-r from-rose-600 to-red-600 text-white border-rose-400 shadow-[0_0_15px_rgba(225,29,72,0.45)] font-black',
-                inactiveClass: 'bg-[#22080c] text-rose-300/80 border border-rose-500/30 hover:border-rose-400 hover:text-rose-200 hover:bg-rose-500/10',
-                activeBadgeClass: 'bg-white/25 text-white font-black',
-                inactiveBadgeClass: 'bg-rose-950/70 text-rose-300 border border-rose-500/30'
+                activeClass: 'bg-[#f43f5e]/15 text-[#fb7185] border-[#f43f5e]/30 shadow-[0_0_10px_rgba(244,63,94,0.15)] font-bold',
+                inactiveClass: 'bg-[#121214] text-zinc-400 border-white/[0.06] hover:border-white/[0.12] hover:text-zinc-200 hover:bg-white/[0.02]',
+                activeBadgeClass: 'bg-[#f43f5e] text-white font-black',
+                inactiveBadgeClass: 'bg-zinc-800 text-zinc-400 border border-white/[0.06]'
             },
             {
                 id: 'Hàng Hoàn',
                 label: 'Hàng Hoàn Chờ Xử',
                 count: stats.returns,
                 icon: 'fa-undo-alt',
-                activeClass: 'bg-gradient-to-r from-orange-500 to-amber-600 text-black border-orange-400 shadow-[0_0_15px_rgba(249,115,22,0.45)] font-black',
-                inactiveClass: 'bg-[#221006] text-orange-300/80 border border-orange-500/30 hover:border-orange-400 hover:text-orange-200 hover:bg-orange-500/10',
-                activeBadgeClass: 'bg-black/35 text-black font-black',
-                inactiveBadgeClass: 'bg-orange-950/70 text-orange-300 border border-orange-500/30'
+                activeClass: 'bg-[#f97316]/15 text-[#fb923c] border-[#f97316]/30 shadow-[0_0_10px_rgba(249,115,22,0.15)] font-bold',
+                inactiveClass: 'bg-[#121214] text-zinc-400 border-white/[0.06] hover:border-white/[0.12] hover:text-zinc-200 hover:bg-white/[0.02]',
+                activeBadgeClass: 'bg-[#f97316] text-white font-black',
+                inactiveBadgeClass: 'bg-zinc-800 text-zinc-400 border border-white/[0.06]'
             },
             {
                 id: 'Hoàn Thành',
                 label: 'Hoàn Thành',
                 count: stats.completed,
                 icon: 'fa-certificate',
-                activeClass: 'bg-gradient-to-r from-teal-500 to-emerald-600 text-white border-teal-300 shadow-[0_0_15px_rgba(20,184,166,0.45)] font-black',
-                inactiveClass: 'bg-[#061814] text-teal-300/80 border border-teal-500/30 hover:border-teal-400 hover:text-teal-200 hover:bg-teal-500/10',
-                activeBadgeClass: 'bg-white/25 text-white font-black',
-                inactiveBadgeClass: 'bg-teal-950/70 text-teal-300 border border-teal-500/30'
+                activeClass: 'bg-[#14b8a6]/15 text-[#2dd4bf] border-[#14b8a6]/30 shadow-[0_0_10px_rgba(20,184,166,0.15)] font-bold',
+                inactiveClass: 'bg-[#121214] text-zinc-400 border-white/[0.06] hover:border-white/[0.12] hover:text-zinc-200 hover:bg-white/[0.02]',
+                activeBadgeClass: 'bg-[#14b8a6] text-white font-black',
+                inactiveBadgeClass: 'bg-zinc-800 text-zinc-400 border border-white/[0.06]'
             }
         ], [stats]);
 
@@ -1120,56 +1140,60 @@
             return { urgentAlerts };
         }, [orders]);
 
+        const parseRevenue = (raw) => {
+            if (raw === null || raw === undefined || raw === '') return 0;
+            if (typeof raw === 'number') {
+                if (isNaN(raw) || !isFinite(raw) || raw < 0 || raw >= 200000000) return 0;
+                return Math.round(raw);
+            }
+            let s = String(raw).trim().replace(/[đĐ\s]/g, '');
+            if (!s) return 0;
+            if (/[a-zA-Z]/.test(s)) return 0;
+            
+            // Xử lý dấu chấm phẩy phân cách hàng nghìn / thập phân
+            if (/^\d{1,3}(\.\d{3})+$/.test(s)) {
+                s = s.replace(/\./g, '');
+            } else if (/^\d{1,3}(,\d{3})+$/.test(s)) {
+                s = s.replace(/,/g, '');
+            } else {
+                s = s.replace(/,/g, '.');
+            }
+            const num = Math.round(parseFloat(s));
+            if (isNaN(num) || !isFinite(num) || num < 0 || num >= 200000000) return 0;
+            return num;
+        };
+
         const summaryStats = React.useMemo(() => {
-            let totalOrderValue = 0;
-            let totalCancelledValue = 0;
+            let totalRevenue = 0;
             let totalReturnedValue = 0;
             let totalRetail = 0;
             let totalCtv = 0;
 
-            let debugRetailOrders = [];
-
             baseFiltered.forEach(o => {
-                const val = Number(o.revenue) || 0;
+                const val = parseRevenue(o.revenue);
                 const st = String(o._effectiveStatus || o.status || '').toUpperCase().trim();
                 const ch = String(o.channel || '').toUpperCase().trim();
-                const sale = String(o.responsibleUser || o.sale || o.createdBy || '').toUpperCase().trim();
 
-                const isCancelled = st === 'ĐƠN HUỶ' || st === 'HUỶ' || st === 'ĐƠN HỦY' || st === 'HỦY';
-                const isReturned = st === 'HÀNG HOÀN' || (st.includes('HOÀN') && !st.includes('HOÀN THÀNH'));
+                const isCancelled = st === 'ĐƠN HUỶ' || st === 'HUỶ' || st === 'ĐƠN HỦY' || st === 'HỦY' || st.includes('HUỶ') || st.includes('HỦY');
+                const isReturned = st === 'HÀNG HOÀN' || (st.includes('HOÀN') && !st.includes('HOÀN THÀNH') && !st.includes('HOÀN TẤT'));
 
-                totalOrderValue += val;
-
-                if (isCancelled) {
-                    totalCancelledValue += val;
-                }
                 if (isReturned) {
                     totalReturnedValue += val;
                 }
 
-                const valid = !isCancelled && !isReturned;
+                if (!isCancelled && !isReturned) {
+                    totalRevenue += val;
 
-                if (ch.includes('BÁN LẺ') || ch.includes('BAN LE') || ch.includes('ZALO') || ch.includes('FACEBOOK') || ch.includes('MESSENGER')) {
-                    if (valid) {
+                    if (ch.includes('BÁN LẺ') || ch.includes('BAN LE') || ch.includes('ZALO') || ch.includes('FACEBOOK') || ch.includes('MESSENGER')) {
                         totalRetail += val;
-                        debugRetailOrders.push({
-                            'Mã Đơn': o.orderCode,
-                            'Kênh': o.channel,
-                            'Sale': sale || 'Không có',
-                            'Trạng Thái': st,
-                            'Doanh Thu': Number(val).toLocaleString('vi-VN')
-                        });
                     }
-                }
 
-                if (ch.includes('CỘNG TÁC VIÊN') || ch === 'CTV') {
-                    if (valid) totalCtv += val;
+                    if (ch.includes('CỘNG TÁC VIÊN') || ch === 'CTV') {
+                        totalCtv += val;
+                    }
                 }
             });
 
-
-
-            const totalRevenue = totalOrderValue - totalCancelledValue - totalReturnedValue;
             return { totalReturnedValue, totalRevenue, totalRetail, totalCtv };
         }, [baseFiltered]);
 
@@ -1676,48 +1700,48 @@
                             {(isAdmin || isCTV) && (
                                 <button
                                     onClick={() => setAddingMode(true)}
-                                    className="w-10 h-10 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-black font-black flex items-center justify-center shadow-[0_0_15px_rgba(245,158,11,0.4)] border border-amber-300 transition-all duration-200 hover:scale-105 active:scale-95"
+                                    className="w-9 h-9 rounded-xl bg-[#d4af37]/10 hover:bg-[#d4af37]/20 text-[#d4af37] font-medium flex items-center justify-center border border-[#d4af37]/30 transition-all duration-200 active:scale-95"
                                     title="Thêm Đơn Mới"
                                 >
-                                    <i className="fas fa-plus text-base"></i>
+                                    <i className="fas fa-plus"></i>
                                 </button>
                             )}
                             {isAdmin && (
                                 <>
                                     <button
                                         onClick={() => window.dispatchEvent(new CustomEvent('openBulkImport'))}
-                                        className="w-10 h-10 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black flex items-center justify-center shadow-[0_0_15px_rgba(16,185,129,0.4)] border border-emerald-400/50 transition-all duration-200 hover:scale-105 active:scale-95"
+                                        className="w-9 h-9 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 flex items-center justify-center border border-white/[0.08] transition-all duration-200 active:scale-95"
                                         title="Nhập File Excel"
                                     >
-                                        <i className="fas fa-file-excel text-base"></i>
+                                        <i className="fas fa-file-excel"></i>
                                     </button>
                                     <button
                                         onClick={() => setIsScanningReturn(true)}
-                                        className="w-10 h-10 rounded-xl bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-black flex items-center justify-center shadow-[0_0_15px_rgba(249,115,22,0.4)] border border-orange-400/50 transition-all duration-200 hover:scale-105 active:scale-95"
+                                        className="w-9 h-9 rounded-xl bg-[#f97316]/10 hover:bg-[#f97316]/20 text-[#f97316] flex items-center justify-center border border-[#f97316]/30 transition-all duration-200 active:scale-95"
                                         title="Quét Đơn Hoàn"
                                     >
-                                        <i className="fas fa-undo text-base"></i>
+                                        <i className="fas fa-undo"></i>
                                     </button>
                                     <button
                                         onClick={() => setIsBulkFinanceOpen(true)}
-                                        className="w-10 h-10 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-black flex items-center justify-center shadow-[0_0_15px_rgba(6,182,212,0.4)] border border-cyan-400/50 transition-all duration-200 hover:scale-105 active:scale-95"
+                                        className="w-9 h-9 rounded-xl bg-[#06b6d4]/10 hover:bg-[#06b6d4]/20 text-[#06b6d4] flex items-center justify-center border border-[#06b6d4]/30 transition-all duration-200 active:scale-95"
                                         title="Đối Soát"
                                     >
-                                        <i className="fas fa-check-double text-base"></i>
+                                        <i className="fas fa-check-double"></i>
                                     </button>
                                     <button
                                         onClick={() => setIsScanningCancel(true)}
-                                        className="w-10 h-10 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white font-black flex items-center justify-center shadow-[0_0_15px_rgba(225,29,72,0.4)] border border-rose-400/50 transition-all duration-200 hover:scale-105 active:scale-95"
+                                        className="w-9 h-9 rounded-xl bg-[#f43f5e]/10 hover:bg-[#f43f5e]/20 text-[#f43f5e] flex items-center justify-center border border-[#f43f5e]/30 transition-all duration-200 active:scale-95"
                                         title="Quét Đơn Huỷ"
                                     >
-                                        <i className="fas fa-ban text-base"></i>
+                                        <i className="fas fa-ban"></i>
                                     </button>
                                     <button
                                         onClick={() => setShowRevenueStats(prev => !prev)}
-                                        className={`w-10 h-10 rounded-xl font-black flex items-center justify-center transition-all duration-200 hover:scale-105 active:scale-95 ${showRevenueStats ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-[0_0_18px_rgba(147,51,234,0.55)] border border-purple-300 ring-2 ring-purple-400/40' : 'bg-[#180e28] text-purple-300 border border-purple-500/40 hover:border-purple-400 hover:text-purple-100 hover:bg-purple-600/25 shadow-[0_0_10px_rgba(147,51,234,0.2)]'}`}
+                                        className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 active:scale-95 ${showRevenueStats ? 'bg-[#a855f7]/20 text-[#c084fc] border border-[#a855f7]/50' : 'bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 border border-white/[0.08]'}`}
                                         title="Xem Thống Kê Doanh Thu"
                                     >
-                                        <i className="fas fa-chart-bar text-base"></i>
+                                        <i className="fas fa-chart-bar"></i>
                                     </button>
                                 </>
                             )}
@@ -1823,48 +1847,48 @@
                     {[
                         {
                             id: 'ALL',
-                            label: 'Tất Cả Kênh',
+                            label: 'Tất Cả',
                             icon: 'fa-store',
-                            activeClass: 'bg-gradient-to-r from-amber-500 to-amber-600 text-black shadow-[0_0_15px_rgba(245,158,11,0.4)] border-amber-300 font-extrabold',
-                            inactiveClass: 'bg-[#18140e] text-amber-300/85 border border-amber-500/35 hover:border-amber-400 hover:text-amber-200 hover:bg-amber-500/10',
-                            activeIconClass: 'text-black',
-                            inactiveIconClass: 'text-amber-400'
+                            activeClass: 'bg-[#d4af37]/15 text-[#d4af37] border-[#d4af37]/40 shadow-[0_0_10px_rgba(212,175,55,0.15)] font-bold',
+                            inactiveClass: 'bg-[#121214] text-zinc-400 border-white/[0.06] hover:border-white/[0.12] hover:text-zinc-200',
+                            activeIconClass: 'text-[#d4af37]',
+                            inactiveIconClass: 'text-zinc-400'
                         },
                         {
                             id: 'SHOPEE',
                             label: 'Shopee',
                             icon: 'fa-shopping-bag',
-                            activeClass: 'bg-gradient-to-r from-[#ee4d2d] to-[#ff5722] text-white shadow-[0_0_15px_rgba(238,77,45,0.45)] border-[#ff7a59] font-extrabold',
-                            inactiveClass: 'bg-[#1c0e09] text-orange-300/85 border border-[#ee4d2d]/35 hover:border-[#ee4d2d] hover:text-[#ee4d2d] hover:bg-[#ee4d2d]/10',
-                            activeIconClass: 'text-white',
-                            inactiveIconClass: 'text-[#ee4d2d]'
+                            activeClass: 'bg-[#ea580c]/15 text-[#f97316] border-[#ea580c]/40 shadow-[0_0_10px_rgba(234,88,12,0.15)] font-bold',
+                            inactiveClass: 'bg-[#121214] text-zinc-400 border-white/[0.06] hover:border-white/[0.12] hover:text-[#f97316]',
+                            activeIconClass: 'text-[#f97316]',
+                            inactiveIconClass: 'text-zinc-400'
                         },
                         {
                             id: 'TIKTOK',
                             label: 'TikTok',
                             icon: 'fa-video',
-                            activeClass: 'bg-gradient-to-r from-[#00f2fe] via-[#4facfe] to-[#fe2c55] text-white shadow-[0_0_15px_rgba(0,242,254,0.4)] border-cyan-300 font-extrabold',
-                            inactiveClass: 'bg-[#08151c] text-cyan-300/85 border border-cyan-500/35 hover:border-cyan-400 hover:text-cyan-200 hover:bg-cyan-500/10',
-                            activeIconClass: 'text-white',
-                            inactiveIconClass: 'text-cyan-400'
+                            activeClass: 'bg-[#0891b2]/15 text-[#06b6d4] border-[#0891b2]/40 shadow-[0_0_10px_rgba(8,145,178,0.15)] font-bold',
+                            inactiveClass: 'bg-[#121214] text-zinc-400 border-white/[0.06] hover:border-white/[0.12] hover:text-[#06b6d4]',
+                            activeIconClass: 'text-[#06b6d4]',
+                            inactiveIconClass: 'text-zinc-400'
                         },
                         {
                             id: 'BÁN LẺ',
                             label: 'Bán Lẻ',
                             icon: 'fa-box',
-                            activeClass: 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-[0_0_15px_rgba(59,130,246,0.4)] border-blue-400 font-extrabold',
-                            inactiveClass: 'bg-[#0c1426] text-blue-300/85 border border-blue-500/35 hover:border-blue-400 hover:text-blue-200 hover:bg-blue-500/10',
-                            activeIconClass: 'text-white',
-                            inactiveIconClass: 'text-blue-400'
+                            activeClass: 'bg-[#2563eb]/15 text-[#60a5fa] border-[#2563eb]/40 shadow-[0_0_10px_rgba(37,99,235,0.15)] font-bold',
+                            inactiveClass: 'bg-[#121214] text-zinc-400 border-white/[0.06] hover:border-white/[0.12] hover:text-[#60a5fa]',
+                            activeIconClass: 'text-[#60a5fa]',
+                            inactiveIconClass: 'text-zinc-400'
                         },
                         {
                             id: 'CTV',
                             label: 'CTV',
                             icon: 'fa-handshake',
-                            activeClass: 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-[0_0_15px_rgba(168,85,247,0.4)] border-purple-400 font-extrabold',
-                            inactiveClass: 'bg-[#180d26] text-purple-300/85 border border-purple-500/35 hover:border-purple-400 hover:text-purple-200 hover:bg-purple-500/10',
-                            activeIconClass: 'text-white',
-                            inactiveIconClass: 'text-purple-400'
+                            activeClass: 'bg-[#a855f7]/15 text-[#c084fc] border-[#a855f7]/40 shadow-[0_0_10px_rgba(168,85,247,0.15)] font-bold',
+                            inactiveClass: 'bg-[#121214] text-zinc-400 border-white/[0.06] hover:border-white/[0.12] hover:text-[#c084fc]',
+                            activeIconClass: 'text-[#c084fc]',
+                            inactiveIconClass: 'text-zinc-400'
                         }
                     ].map(ch => {
                         const isActive = filterChannel === ch.id;

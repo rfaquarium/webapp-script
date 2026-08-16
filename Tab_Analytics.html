@@ -140,8 +140,12 @@ const AnalyticsTab = React.memo(function AnalyticsTab({ data, pushData, isAdmin,
             }
             
             orderCount++;
-            const gmv = Number(o.revenue) || Number(o.retailTotal) || 0;
-            const discount = Number(o.discount) || 0;
+            let gmv = Number(o.revenue) || Number(o.retailTotal) || 0;
+            let discount = Number(o.discount) || 0;
+            
+            // Failsafe: Bỏ qua nếu có ai đó lỡ quét mã vạch / mã vận đơn vào ô Doanh Thu (vd: > 5 tỷ)
+            if (gmv > 5000000000) gmv = 0; 
+            if (discount > 5000000000) discount = 0;
             
             totalGMV += gmv;
             totalDiscount += discount;
@@ -215,7 +219,7 @@ const AnalyticsTab = React.memo(function AnalyticsTab({ data, pushData, isAdmin,
         };
     }, [data, dateRange, customStart, customEnd, filterChannel, dynamicCosts]);
 
-    const displayMoney = (val) => Number(val || 0).toLocaleString('vi-VN');
+    const displayMoney = (val) => Math.round(Number(val || 0)).toLocaleString('vi-VN');
 
     const handleImportKiotViet = async (e) => {
         const file = e.target.files[0];

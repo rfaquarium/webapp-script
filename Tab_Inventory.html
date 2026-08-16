@@ -319,23 +319,12 @@ function VariantGroupCard({ group, setEditProd, setAddVarGroup, pushData, data }
 
                                                 const name = mat?.name || b.materialSku || b.material_id || 'Vật tư chưa chọn';
                                                 const skuStr = mat?.sku || b.materialSku || '';
-                                                const qty = Number(b.defaultQty ?? b.quantity ?? 0);
-                                                const bomUnit = String(b.unit || mat?.unit || '').toLowerCase().trim();
-                                                const matUnit = String(mat?.unit || '').toLowerCase().trim();
+                                                const rawQty = Number(b.defaultQty ?? b.quantity ?? 0);
+                                                const bomUnit = b.unit || mat?.unit || '';
                                                 
-                                                let unitPrice = Number(mat?.costPrice || mat?.price || 0);
-                                                let convertedPrice = unitPrice;
-                                                
-                                                // Tự động quy đổi nếu đơn vị ERP và BOM khác nhau (Kg -> gam, L -> ml)
-                                                if ((matUnit === 'kg' || matUnit === 'cân') && (bomUnit === 'gam' || bomUnit === 'g' || bomUnit === 'gram')) {
-                                                    convertedPrice = unitPrice / 1000;
-                                                } else if ((matUnit === 'lít' || matUnit === 'l' || matUnit === 'lit') && (bomUnit === 'ml' || bomUnit === 'mililit')) {
-                                                    convertedPrice = unitPrice / 1000;
-                                                } else if ((matUnit === 'm' || matUnit === 'mét' || matUnit === 'met') && (bomUnit === 'cm' || bomUnit === 'centimet')) {
-                                                    convertedPrice = unitPrice / 100;
-                                                }
-                                                
-                                                const subTotal = qty * convertedPrice;
+                                                const { unitPrice, convertedPrice, subTotal, conversionNote } = typeof calculateBomItemCost === 'function'
+                                                    ? calculateBomItemCost(mat, rawQty, bomUnit)
+                                                    : { unitPrice: Number(mat?.costPrice || 0), convertedPrice: Number(mat?.costPrice || 0), subTotal: rawQty * Number(mat?.costPrice || 0), conversionNote: '' };
 
                                                 return (
                                                     <tr key={b.id || idx} className="hover:bg-white/[0.02] text-[11px]">
@@ -344,11 +333,18 @@ function VariantGroupCard({ group, setEditProd, setAddVarGroup, pushData, data }
                                                             {skuStr && <div className="text-[9px] text-[#60a5fa] font-mono">{skuStr}</div>}
                                                         </td>
                                                         <td className="py-2.5 px-3 text-center font-bold text-indigo-400 whitespace-nowrap">
-                                                            {qty} <span className="text-[9px] text-gray-400 font-normal">{b.unit || mat?.unit || ''}</span>
+                                                            {rawQty} <span className="text-[9px] text-gray-400 font-normal">{bomUnit}</span>
                                                         </td>
                                                         {canViewCost && (
                                                             <td className="py-2.5 px-3 text-right font-medium text-gray-400 whitespace-nowrap">
-                                                                {unitPrice > 0 ? formatMoney(unitPrice) + 'đ' : '-'}
+                                                                {unitPrice > 0 ? (
+                                                                    <div>
+                                                                        <div>{formatMoney(unitPrice)}đ<span className="text-[9px] opacity-60">/{mat?.unit || 'ĐV'}</span></div>
+                                                                        {conversionNote && (
+                                                                            <div className="text-[8px] text-indigo-400 font-mono">({formatMoney(convertedPrice)}đ/{bomUnit})</div>
+                                                                        )}
+                                                                    </div>
+                                                                ) : '-'}
                                                             </td>
                                                         )}
                                                         {canViewCost && (
@@ -363,29 +359,21 @@ function VariantGroupCard({ group, setEditProd, setAddVarGroup, pushData, data }
                                     </table>
                                 </div>
 
-                                {canViewCost && bomItems.some(b => {
-                                    const mat = (data?.Products || []).find(p => (b.material_id && p.id === b.material_id) || (b.materialSku && String(p.sku).toUpperCase() === String(b.materialSku).toUpperCase()));
-                                    return (Number(b.defaultQty ?? b.quantity ?? 0) * Number(mat?.costPrice || mat?.price || 0)) > 0;
-                                }) && (
+                                {canViewCost && (
                                     <div className="bg-indigo-950/30 border border-indigo-500/20 p-3 rounded-xl flex justify-between items-center">
-                                        <span className="text-[11px] font-black text-indigo-300 uppercase tracking-wider">Ước tính tổng chi phí vật tư:</span>
-                                        <span className="text-[15px] font-black text-emerald-400">
+                                        <div className="flex items-center gap-2">
+                                            <i className="fas fa-calculator text-indigo-400 text-sm"></i>
+                                            <span className="text-[11px] font-black text-indigo-300 uppercase tracking-wider">Ước tính tổng chi phí vật tư:</span>
+                                        </div>
+                                        <span className="text-[16px] font-black text-emerald-400 font-mono">
                                             {formatMoney(bomItems.reduce((sum, b) => {
                                                 const mat = (data?.Products || []).find(p => (b.material_id && p.id === b.material_id) || (b.materialSku && String(p.sku).toUpperCase() === String(b.materialSku).toUpperCase()));
-                                                const qty = Number(b.defaultQty ?? b.quantity ?? 0);
-                                                const bomUnit = String(b.unit || mat?.unit || '').toLowerCase().trim();
-                                                const matUnit = String(mat?.unit || '').toLowerCase().trim();
-                                                let unitPrice = Number(mat?.costPrice || mat?.price || 0);
-                                                let convertedPrice = unitPrice;
-                                                
-                                                if ((matUnit === 'kg' || matUnit === 'cân') && (bomUnit === 'gam' || bomUnit === 'g' || bomUnit === 'gram')) {
-                                                    convertedPrice = unitPrice / 1000;
-                                                } else if ((matUnit === 'lít' || matUnit === 'l' || matUnit === 'lit') && (bomUnit === 'ml' || bomUnit === 'mililit')) {
-                                                    convertedPrice = unitPrice / 1000;
-                                                } else if ((matUnit === 'm' || matUnit === 'mét' || matUnit === 'met') && (bomUnit === 'cm' || bomUnit === 'centimet')) {
-                                                    convertedPrice = unitPrice / 100;
-                                                }
-                                                return sum + (qty * convertedPrice);
+                                                const rawQty = Number(b.defaultQty ?? b.quantity ?? 0);
+                                                const bomUnit = b.unit || mat?.unit || '';
+                                                const { subTotal } = typeof calculateBomItemCost === 'function'
+                                                    ? calculateBomItemCost(mat, rawQty, bomUnit)
+                                                    : { subTotal: rawQty * Number(mat?.costPrice || 0) };
+                                                return sum + subTotal;
                                             }, 0))}đ
                                         </span>
                                     </div>
@@ -450,7 +438,19 @@ function ProductEditModal({ prod, onClose, pushData, currentCat, data }) {
   const [bomItems, setBomItems] = React.useState(initialBom);
 
   const materials = React.useMemo(() => {
-      return (data?.Products || []).filter(p => p.category === 'PHỤ KIỆN' || p.category === 'DANH MỤC SẢN XUẤT');
+      const rawCatList = ['DANH MỤC SẢN XUẤT', 'NGUYÊN LIỆU SẢN XUẤT', 'VẬT TƯ SẢN XUẤT', 'PHỤ KIỆN'];
+      return (data?.Products || []).filter(p => {
+          const cat = String(p.category || '').toUpperCase().trim();
+          const sku = String(p.sku || '').toUpperCase().trim();
+          return rawCatList.includes(cat) || 
+                 sku.startsWith('NLSX-') || 
+                 sku.startsWith('VTSX-') || 
+                 sku.startsWith('KINH') ||
+                 sku.startsWith('K4LI') || 
+                 sku.startsWith('K5LI') || 
+                 sku.startsWith('K8LI') || 
+                 sku.startsWith('K10LI');
+      });
   }, [data]);
 
   const existingSkus = React.useMemo(() => {
@@ -696,7 +696,7 @@ function ProductEditModal({ prod, onClose, pushData, currentCat, data }) {
                       </label>
                       <button 
                           type="button"
-                          onClick={() => setBomItems([...bomItems, { materialSku: '', defaultQty: 1, unit: 'Cái' }])} 
+                          onClick={() => setBomItems([...bomItems, { materialSku: '', defaultQty: 1, unit: 'gam' }])} 
                           className={"text-[10px] font-black bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600 hover:text-white px-2.5 py-1.5 rounded-lg transition-all border border-indigo-500/40 flex items-center shrink-0 shadow-sm"}
                       >
                           <i className={"fas fa-plus mr-1"}></i>THÊM VẬT TƯ
@@ -708,58 +708,116 @@ function ProductEditModal({ prod, onClose, pushData, currentCat, data }) {
                           Chưa có định mức vật tư. Bấm "+ THÊM VẬT TƯ" để cài đặt.
                       </div>
                   ) : (
-                      <div className="space-y-2.5 max-h-60 overflow-y-auto custom-scrollbar pr-1">
+                      <div className="space-y-2.5 max-h-64 overflow-y-auto custom-scrollbar pr-1">
                           {bomItems.map((bom, idx) => {
-                              const selectedMat = materials.find(m => m.sku === bom.materialSku);
-                              const currentUnit = bom.unit || selectedMat?.unit || '';
-                              return (
-                                  <div key={idx} className="flex gap-2 items-center bg-[#0a0a0c] p-2 rounded-xl border border-[#2e2e38] hover:border-indigo-500/50 transition-all">
-                                      <select 
-                                          value={bom.materialSku || ''} 
-                                          onChange={(e) => {
-                                              const newBom = [...bomItems];
-                                              newBom[idx].materialSku = e.target.value;
-                                              const mat = materials.find(m => m.sku === e.target.value);
-                                              if (mat) newBom[idx].unit = mat.unit || 'Cái';
-                                              setBomItems(newBom);
-                                          }}
-                                          className="flex-1 min-w-0 bg-[#16161e] border border-[#3a3a48] rounded-lg p-2 text-white text-[11px] font-bold outline-none focus:border-indigo-500 truncate"
-                                      >
-                                          <option value="">-- Chọn Vật Tư --</option>
-                                          {materials.map(m => <option key={m.id} value={m.sku}>{m.name} {m.sku ? `(${m.sku})` : ''}</option>)}
-                                      </select>
+                              const selectedMat = materials.find(m => m.sku === bom.materialSku || m.id === bom.material_id);
+                              const currentUnit = bom.unit || selectedMat?.unit || 'Cái';
+                              const rawQty = Number(bom.defaultQty ?? bom.quantity ?? 0);
+                              const { subTotal, convertedPrice, conversionNote } = typeof calculateBomItemCost === 'function'
+                                  ? calculateBomItemCost(selectedMat, rawQty, currentUnit)
+                                  : { subTotal: rawQty * Number(selectedMat?.costPrice || 0), convertedPrice: Number(selectedMat?.costPrice || 0), conversionNote: '' };
 
-                                      <div className="flex items-center gap-1 shrink-0">
-                                          <input 
-                                              type="number" 
-                                              step="any"
-                                              value={bom.defaultQty ?? ''} 
+                              return (
+                                  <div key={idx} className="bg-[#0a0a0c] p-2.5 rounded-xl border border-[#2e2e38] hover:border-indigo-500/50 transition-all space-y-2">
+                                      <div className="flex gap-2 items-center">
+                                          <select 
+                                              value={bom.materialSku || ''} 
                                               onChange={(e) => {
                                                   const newBom = [...bomItems];
-                                                  newBom[idx].defaultQty = e.target.value;
+                                                  newBom[idx].materialSku = e.target.value;
+                                                  const mat = materials.find(m => m.sku === e.target.value);
+                                                  if (mat) {
+                                                      const matUnit = String(mat.unit || '').toLowerCase();
+                                                      const matName = String(mat.name || '').toLowerCase();
+                                                      if (matUnit === 'kg' || matName.includes('(kg)')) newBom[idx].unit = 'gam';
+                                                      else if (matUnit === 'lít' || matName.includes('(l)')) newBom[idx].unit = 'ml';
+                                                      else if (matUnit === 'm' || matName.includes('(m)')) newBom[idx].unit = 'cm';
+                                                      else newBom[idx].unit = mat.unit || 'Cái';
+                                                  }
                                                   setBomItems(newBom);
                                               }}
-                                              className="w-20 bg-[#16161e] border border-[#3a3a48] rounded-lg p-2 text-indigo-400 font-black text-[11px] text-center outline-none focus:border-indigo-500"
-                                              placeholder="Số lượng"
-                                          />
-                                          {currentUnit && (
-                                              <span className="text-[10px] font-black text-gray-400 w-7 text-center truncate" title={currentUnit}>
-                                                  {currentUnit}
-                                              </span>
-                                          )}
-                                      </div>
+                                              className="flex-1 min-w-0 bg-[#16161e] border border-[#3a3a48] rounded-lg p-2 text-white text-[11px] font-bold outline-none focus:border-indigo-500 truncate"
+                                          >
+                                              <option value="">-- Chọn Nguyên Liệu / Vật Tư --</option>
+                                              {Object.entries(
+                                                  materials.reduce((acc, m) => {
+                                                      const grp = m.sub_category || m.category || 'NGUYÊN LIỆU KHÁC';
+                                                      if (!acc[grp]) acc[grp] = [];
+                                                      acc[grp].push(m);
+                                                      return acc;
+                                                  }, {})
+                                              ).map(([grp, items]) => (
+                                                  <optgroup key={grp} label={`📦 ${grp}`} className="bg-[#111118] text-[#d4af37] font-bold">
+                                                      {items.map(m => (
+                                                          <option key={m.id} value={m.sku} className="text-white">
+                                                              {m.name} {m.sku ? `(${m.sku})` : ''} {m.costPrice ? `- ${formatMoney(m.costPrice)}đ/${m.unit || 'ĐV'}` : ''}
+                                                          </option>
+                                                      ))}
+                                                  </optgroup>
+                                              ))}
+                                          </select>
 
-                                      <button 
-                                          type="button"
-                                          onClick={() => setBomItems(bomItems.filter((_, i) => i !== idx))} 
-                                          className="w-8 h-8 rounded-lg bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-white flex items-center justify-center transition-all shrink-0 border border-rose-500/20"
-                                          title="Xóa dòng vật tư này"
-                                      >
-                                          <i className="fas fa-trash-alt text-xs"></i>
-                                      </button>
+                                          <div className="flex items-center gap-1 shrink-0">
+                                              <input 
+                                                  type="number" 
+                                                  step="any"
+                                                  value={bom.defaultQty ?? ''} 
+                                                  onChange={(e) => {
+                                                      const newBom = [...bomItems];
+                                                      newBom[idx].defaultQty = e.target.value;
+                                                      setBomItems(newBom);
+                                                  }}
+                                                  className="w-16 bg-[#16161e] border border-[#3a3a48] rounded-lg p-2 text-indigo-400 font-black text-[11px] text-center outline-none focus:border-indigo-500"
+                                                  placeholder="SL"
+                                              />
+                                              <input
+                                                  type="text"
+                                                  value={bom.unit || ''}
+                                                  onChange={(e) => {
+                                                      const newBom = [...bomItems];
+                                                      newBom[idx].unit = e.target.value;
+                                                      setBomItems(newBom);
+                                                  }}
+                                                  placeholder="Đơn vị"
+                                                  className="w-14 bg-[#16161e] border border-[#3a3a48] rounded-lg p-2 text-gray-300 font-bold text-[10px] text-center outline-none focus:border-indigo-500"
+                                                  title="Đơn vị (VD: gam, kg, chai, m2, cái, tấm, ml)"
+                                              />
+                                          </div>
+
+                                          <button 
+                                              type="button"
+                                              onClick={() => setBomItems(bomItems.filter((_, i) => i !== idx))} 
+                                              className="w-8 h-8 rounded-lg bg-rose-500/10 hover:bg-rose-500 text-rose-400 hover:text-white flex items-center justify-center transition-all shrink-0 border border-rose-500/20"
+                                              title="Xóa dòng vật tư này"
+                                          >
+                                              <i className="fas fa-trash-alt text-xs"></i>
+                                          </button>
+                                      </div>
+                                      
+                                      {selectedMat && (
+                                          <div className="flex justify-between items-center px-1 text-[10px] text-gray-400 font-medium border-t border-white/5 pt-1">
+                                              <span>Giá vốn: <b className="text-gray-300">{formatMoney(selectedMat.costPrice || selectedMat.price || 0)}đ</b>/{selectedMat.unit || 'ĐV'} {conversionNote ? `(${conversionNote})` : ''}</span>
+                                              <span>Thành tiền: <b className="text-emerald-400 font-bold">{formatMoney(subTotal)}đ</b></span>
+                                          </div>
+                                      )}
                                   </div>
                               );
                           })}
+                          
+                          {/* Live Total Cost Preview */}
+                          <div className="bg-indigo-950/40 border border-indigo-500/30 p-2.5 rounded-xl flex justify-between items-center text-[11px] font-bold">
+                              <span className="text-indigo-300 uppercase tracking-wider">Tổng Chi Phí Vật Tư (BOM):</span>
+                              <span className="text-emerald-400 font-black text-[13px] font-mono">
+                                  {formatMoney(bomItems.reduce((sum, b) => {
+                                      const mat = materials.find(m => m.sku === b.materialSku || m.id === b.material_id);
+                                      const rawQty = Number(b.defaultQty ?? b.quantity ?? 0);
+                                      const { subTotal } = typeof calculateBomItemCost === 'function'
+                                          ? calculateBomItemCost(mat, rawQty, b.unit)
+                                          : { subTotal: rawQty * Number(mat?.costPrice || 0) };
+                                      return sum + subTotal;
+                                  }, 0))}đ
+                              </span>
+                          </div>
                       </div>
                   )}
               </div>
@@ -1260,7 +1318,31 @@ function InventoryListView({ data, pushData, isAdmin, triggerToast }) {
                   <input placeholder="Tìm kiếm tên, mã SKU..." value={search} onChange={(e) => setSearch(e.target.value)} className={"w-full px-4 py-3 text-[13px] font-bold outline-none bg-transparent text-white placeholder-gray-500 tracking-wide"} />
                   {search && <button onClick={() => setSearch('')} className={"pr-4 text-gray-400 hover:text-rose-400 transition-colors"}><i className={"fas fa-times-circle text-lg"}></i></button>}
               </div>
-              <div className="flex gap-2.5 ml-4">
+              <div className="flex gap-2 ml-4 flex-wrap">
+                  {(isAdmin || isAdminRole) && currentRole !== 'CTV' && (
+                      <button 
+                          onClick={async () => {
+                              if (!window.confirm("CẢNH BÁO TÍNH TOÁN HÀNG LOẠT:\n\nBạn có muốn tự động nội suy định mức BOM và cập nhật Giá Vốn (costPrice) cho toàn bộ Layout từ Sheet Định Mức Mẫu không?")) return;
+                              if (typeof triggerToast === 'function') triggerToast('Đang tính toán BOM & Giá Vốn...', 'fa-spinner fa-spin', 'info');
+                              try {
+                                  const res = await runGAS('autoCalculateBOMAndProductCosts');
+                                  if (res && res.success) {
+                                      if (typeof triggerToast === 'function') triggerToast('Đồng bộ BOM & Giá Vốn thành công!', 'fa-check', 'success');
+                                      alert(res.message);
+                                      if (typeof refreshData === 'function') refreshData();
+                                  } else {
+                                      alert(res?.message || 'Có lỗi xảy ra!');
+                                  }
+                              } catch(e) {
+                                  alert('Lỗi: ' + e.message);
+                              }
+                          }}
+                          className="bg-gradient-to-br from-indigo-600 to-blue-700 hover:from-indigo-500 hover:to-blue-600 text-white text-[11px] font-black px-3.5 py-3 rounded-xl shadow-sm hover:shadow-[0_0_20px_rgba(99,102,241,0.4)] active:scale-95 transition-all uppercase tracking-wider flex items-center gap-1.5 border border-white/10"
+                          title="Tự động tính BOM và Giá Vốn cho toàn bộ Layout từ Sheet Mẫu"
+                      >
+                          <i className="fas fa-calculator text-[10px]"></i> TÍNH BOM & GIÁ VỐN
+                      </button>
+                  )}
                   {(isAdmin || isAdminRole) && currentRole !== 'CTV' && (
                       <button onClick={() => setShowBulkEditPrice(true)} className="bg-gradient-to-br from-purple-600 to-indigo-700 hover:from-purple-500 hover:to-indigo-600 text-white text-[11px] font-black px-4 py-3 rounded-xl shadow-[0_0_20px_rgba(147,51,234,0.3)] hover:shadow-[0_0_25px_rgba(147,51,234,0.5)] active:scale-95 transition-all uppercase tracking-wider flex items-center gap-2 border border-white/10">
                           <i className="fas fa-edit"></i> SỬA GIÁ
@@ -1274,23 +1356,68 @@ function InventoryListView({ data, pushData, isAdmin, triggerToast }) {
               </div>
           </div>
 
-          <div className={"flex overflow-x-auto gap-2.5 pb-2 pt-1 custom-scrollbar"}>
-              {(typeof CATEGORIES !== 'undefined' ? CATEGORIES : ['LAYOUT', 'BỂ KÍNH', 'PHỤ KIỆN', 'DANH MỤC SẢN XUẤT']).map(c => {
-                  const isActive = catFilter === c && !isSearching;
-                  let colorStyles = 'bg-[#12131c]/60 text-gray-400 border-white/10 hover:border-white/20 hover:text-white';
-                  if (isActive) {
-                      if (c === 'LAYOUT') colorStyles = 'bg-gradient-to-r from-amber-500/25 via-amber-600/30 to-amber-500/15 border-amber-400 text-amber-300 shadow-[0_0_18px_rgba(245,158,11,0.35)] scale-[1.03]';
-                      else if (c === 'BỂ KÍNH') colorStyles = 'bg-gradient-to-r from-blue-500/25 via-sky-600/30 to-blue-500/15 border-sky-400 text-sky-300 shadow-[0_0_18px_rgba(56,189,248,0.35)] scale-[1.03]';
-                      else if (c === 'PHỤ KIỆN') colorStyles = 'bg-gradient-to-r from-purple-500/25 via-indigo-600/30 to-purple-500/15 border-purple-400 text-purple-300 shadow-[0_0_18px_rgba(168,85,247,0.35)] scale-[1.03]';
-                      else colorStyles = 'bg-gradient-to-r from-emerald-500/25 via-teal-600/30 to-emerald-500/15 border-emerald-400 text-emerald-300 shadow-[0_0_18px_rgba(16,185,129,0.35)] scale-[1.03]';
-                  }
-                  return (
-                      <button key={c} onClick={()=>{setCatFilter(c); setSubCatFilter(null); setSearch('');}} 
-                          className={`flex-shrink-0 px-5 py-3 rounded-xl text-[11px] font-black uppercase transition-all shadow-sm border ${colorStyles}`}>
-                          {c === 'DANH MỤC SẢN XUẤT' ? 'SẢN XUẤT' : c}
-                      </button>
-                  );
-              })}
+          {/* THANH DANH MỤC PHÂN CHIA RÕ RÀNG THÀNH PHẨM & NGUYÊN LIỆU */}
+          <div className="space-y-2">
+              <div className={"flex overflow-x-auto gap-2.5 pb-2 pt-1 custom-scrollbar items-center"}>
+                  {/* THÀNH PHẨM */}
+                  <div className="flex items-center gap-1.5 bg-zinc-950/60 p-1 rounded-2xl border border-white/5 shrink-0">
+                      <span className="text-[9px] font-black text-gray-500 uppercase tracking-widest px-2 hidden sm:inline-flex items-center gap-1">
+                          <i className="fas fa-cube text-[#d4af37]"></i> Thành Phẩm
+                      </span>
+                      {['LAYOUT', 'BỂ KÍNH', 'PHỤ KIỆN'].map(c => {
+                          const isActive = catFilter === c && !isSearching;
+                          let colorStyles = 'bg-[#12131c]/60 text-gray-400 border-white/10 hover:border-white/20 hover:text-white';
+                          if (isActive) {
+                              if (c === 'LAYOUT') colorStyles = 'bg-gradient-to-r from-amber-500/25 via-amber-600/30 to-amber-500/15 border-amber-400 text-amber-300 shadow-[0_0_18px_rgba(245,158,11,0.35)] scale-[1.03]';
+                              else if (c === 'BỂ KÍNH') colorStyles = 'bg-gradient-to-r from-blue-500/25 via-sky-600/30 to-blue-500/15 border-sky-400 text-sky-300 shadow-[0_0_18px_rgba(56,189,248,0.35)] scale-[1.03]';
+                              else if (c === 'PHỤ KIỆN') colorStyles = 'bg-gradient-to-r from-purple-500/25 via-indigo-600/30 to-purple-500/15 border-purple-400 text-purple-300 shadow-[0_0_18px_rgba(168,85,247,0.35)] scale-[1.03]';
+                          }
+                          return (
+                              <button key={c} onClick={()=>{setCatFilter(c); setSubCatFilter(null); setSearch('');}} 
+                                  className={`px-4 py-2.5 rounded-xl text-[11px] font-black uppercase transition-all shadow-sm border ${colorStyles}`}>
+                                  {c}
+                              </button>
+                          );
+                      })}
+                  </div>
+
+                  {/* NGUYÊN LIỆU SẢN XUẤT */}
+                  <div className="flex items-center gap-1.5 bg-zinc-950/60 p-1 rounded-2xl border border-emerald-500/20 shrink-0">
+                      <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest px-2 hidden sm:inline-flex items-center gap-1">
+                          <i className="fas fa-boxes-stacked"></i> Nguyên Liệu
+                      </span>
+                      {['DANH MỤC SẢN XUẤT'].map(c => {
+                          const isActive = catFilter === c && !isSearching;
+                          let colorStyles = isActive 
+                              ? 'bg-gradient-to-r from-emerald-500/30 via-teal-600/35 to-emerald-500/20 border-emerald-400 text-emerald-300 shadow-[0_0_18px_rgba(16,185,129,0.4)] scale-[1.03]'
+                              : 'bg-[#12131c]/60 text-emerald-400/80 border-emerald-500/20 hover:border-emerald-400/40 hover:text-emerald-300';
+                          return (
+                              <button key={c} onClick={()=>{setCatFilter(c); setSubCatFilter(null); setSearch('');}} 
+                                  className={`px-4 py-2.5 rounded-xl text-[11px] font-black uppercase transition-all shadow-sm border ${colorStyles}`}>
+                                  <i className="fas fa-hammer mr-1.5 text-[10px]"></i> SẢN XUẤT (VẬT TƯ)
+                              </button>
+                          );
+                      })}
+                  </div>
+
+                  {/* HÀNG HỎNG VỠ */}
+                  {CATEGORIES.includes('HÀNG HỎNG VỠ') && (
+                      <div className="flex items-center bg-zinc-950/60 p-1 rounded-2xl border border-white/5 shrink-0">
+                          {['HÀNG HỎNG VỠ'].map(c => {
+                              const isActive = catFilter === c && !isSearching;
+                              let colorStyles = isActive 
+                                  ? 'bg-gradient-to-r from-rose-500/25 to-red-600/30 border-rose-400 text-rose-300 shadow-[0_0_18px_rgba(244,63,94,0.35)] scale-[1.03]'
+                                  : 'bg-[#12131c]/60 text-gray-400 border-white/10 hover:border-white/20 hover:text-white';
+                              return (
+                                  <button key={c} onClick={()=>{setCatFilter(c); setSubCatFilter(null); setSearch('');}} 
+                                      className={`px-3.5 py-2.5 rounded-xl text-[11px] font-black uppercase transition-all shadow-sm border ${colorStyles}`}>
+                                      <i className="fas fa-heart-crack mr-1 text-[10px] text-rose-500"></i> HỎNG VỠ
+                                  </button>
+                              );
+                          })}
+                      </div>
+                  )}
+              </div>
           </div>
 
           {(isSearching || subCatFilter) ? (

@@ -25,44 +25,43 @@
       darkMode: 'class',
       theme: {
         extend: {
-          fontFamily: { sans: ['Inter', 'Plus Jakarta Sans', 'sans-serif'] },
+          fontFamily: { 
+            sans: ['Inter', 'Plus Jakarta Sans', 'sans-serif'],
+            display: ['Plus Jakarta Sans', 'Inter', 'sans-serif']
+          },
           colors: {
-            apple: {
-              bg: '#0d0e12',
-              card: '#16171d',
-              hover: '#20222a',
-              border: '#242630',
-              text: '#e2e4e9',
-              muted: '#8a8d98',
-              accentRed: '#e85d75',
-              accentPeach: '#f2a65a',
-              accentMint: '#1fbc9c',
-              accentBlue: '#6b8afd'
+            paper: {
+              1: 'oklch(var(--color-paper-1) / <alpha-value>)',
+              2: 'oklch(var(--color-paper-2) / <alpha-value>)',
+              3: 'oklch(var(--color-paper-3) / <alpha-value>)',
+            },
+            ink: {
+              1: 'oklch(var(--color-ink-1) / <alpha-value>)',
+              2: 'oklch(var(--color-ink-2) / <alpha-value>)',
+              3: 'oklch(var(--color-ink-3) / <alpha-value>)',
+            },
+            surface: {
+              1: 'oklch(var(--color-surface-1) / <alpha-value>)',
+              2: 'oklch(var(--color-surface-2) / <alpha-value>)',
+            },
+            accent: {
+              DEFAULT: 'oklch(var(--color-accent) / <alpha-value>)',
+              hover: 'oklch(var(--color-accent-hover) / <alpha-value>)',
+              text: 'oklch(var(--color-accent-text) / <alpha-value>)',
+            },
+            status: {
+              success: 'oklch(var(--color-success) / <alpha-value>)',
+              warning: 'oklch(var(--color-warning) / <alpha-value>)',
+              danger: 'oklch(var(--color-danger) / <alpha-value>)',
+              info: 'oklch(var(--color-info) / <alpha-value>)',
             }
           }
         }
-      },
-      safelist: [
-        'bg-zinc-950', 'text-white', 'border-zinc-700',
-        'bg-orange-600', 'border-orange-500',
-        'bg-amber-400', 'text-black', 'border-amber-300',
-        'bg-red-600', 'border-red-500',
-        'bg-blue-600', 'border-blue-500',
-        'bg-purple-600', 'border-purple-500',
-        'bg-emerald-600', 'border-emerald-500',
-        'bg-teal-600', 'border-teal-500',
-        'bg-pink-500', 'border-pink-400',
-        'bg-slate-500', 'border-slate-400',
-        'bg-amber-500/10', 'text-amber-500', 'border-amber-500/20',
-        'bg-orange-500/10', 'text-orange-500', 'border-orange-500/20',
-        'bg-sky-500/10', 'text-sky-400', 'border-sky-500/20',
-        'bg-emerald-500/10', 'text-emerald-400', 'border-emerald-500/20'
-      ]
+      }
     }
   </script>
   <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
-    rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -93,139 +92,105 @@
     }
   </script>
   <style>
-    /* === RICH FISH WORKSPACE PRO DESIGN TOKENS (APPLE / SHOPIFY DARK MODE) === */
+    /* === HALLMARK DESIGN TOKENS (MODERN WORKBENCH THEME) === */
     :root {
-      --rf-bg-main: #0d0e12;
-      --rf-card-bg: #16171d;
-      --rf-border: #242630;
+      --color-paper-1: #09090b;
+      --color-paper-2: #121214;
+      --color-paper-3: #1a1a1d;
+
+      --color-ink-1: #fafafa;
+      --color-ink-2: #a1a1aa;
+      --color-ink-3: #71717a;
+
+      --color-surface-1: #1f1f23;
+      --color-surface-2: #27272a;
+
+      --color-accent: #d4af37;
+      --color-accent-hover: #b89628;
+      --color-accent-text: #000000;
+
+      --color-success: #10b981;
+      --color-warning: #f59e0b;
+      --color-danger: #ef4444;
+      --color-info: #3b82f6;
+
+      --rf-bg-main: #09090b;
+      --rf-card-bg: #121214;
+      --rf-border: #27272a;
       --rf-primary: #d4af37;
-
-      --rf-primary-hover: #b8972e;
-
-      --rf-text-main: #e2e4e9;
-      --rf-text-muted: #8a8d98;
-
-      --rf-success: #1fbc9c;
-      --rf-success-bg: rgba(31, 188, 156, 0.12);
-
-      --rf-warning: #f2a65a;
-      --rf-warning-bg: rgba(242, 166, 90, 0.12);
-
-      --rf-danger: #e85d75;
-      --rf-danger-bg: rgba(232, 93, 117, 0.12);
-
-      --rf-info: #6b8afd;
-      --rf-info-bg: rgba(107, 138, 253, 0.12);
+      --rf-primary-hover: #b89628;
+      --rf-text-main: #fafafa;
+      --rf-text-muted: #a1a1aa;
     }
 
-    /* Flat Apple/Shopify UI Utilities */
-    .flat-card {
-      background-color: #16171d !important;
-      border: 1px solid #242630 !important;
-      border-radius: 16px !important;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2) !important;
+    /* Light Mode Overrides */
+    .is-light, [data-theme="light"] {
+      --color-paper-1: #fafafa;
+      --color-paper-2: #ffffff;
+      --color-paper-3: #f4f4f5;
+
+      --color-ink-1: #09090b;
+      --color-ink-2: #52525b;
+      --color-ink-3: #e4e4e7;
+
+      --color-surface-1: #f4f4f5;
+      --color-surface-2: #e4e4e7;
+      
+      --color-accent-text: #ffffff;
     }
 
-    .flat-input {
-      background-color: #111217 !important;
-      border: 1px solid #242630 !important;
-      color: #e2e4e9 !important;
-      border-radius: 12px !important;
-      outline: none !important;
-      transition: border-color 0.15s ease-in-out !important;
+    /* Workbench Utility Classes */
+    .hm-card {
+      background-color: var(--color-paper-2);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+      color: var(--color-ink-1);
     }
 
-    .flat-input:focus {
-      border-color: #3b82f6 !important;
+    .hm-input {
+      background-color: var(--color-paper-1);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: var(--color-ink-1);
+      border-radius: 6px;
+      outline: none;
+      transition: all 0.2s ease;
+    }
+    .hm-input:focus {
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 1px var(--color-accent);
     }
 
-    .rf-premium-glass {
-      background: rgba(18, 20, 29, 0.7) !important;
-      backdrop-filter: blur(20px) saturate(180%) !important;
-      -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
-      border: 1px solid rgba(255, 255, 255, 0.07) !important;
-      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5) !important;
+    .hm-btn-primary {
+      background-color: var(--color-accent);
+      color: var(--color-accent-text);
+      border: 1px solid var(--color-accent);
+      font-weight: 600;
+      border-radius: 6px;
+      transition: opacity 0.2s ease;
+    }
+    .hm-btn-primary:hover {
+      opacity: 0.9;
     }
 
-    .rf-input-glass {
-      background: rgba(0, 0, 0, 0.4) !important;
-      backdrop-filter: blur(8px) !important;
-      border: 1px solid rgba(255, 255, 255, 0.08) !important;
-      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    }
-
-    .rf-input-glass:focus {
-      border-color: rgba(212, 175, 55, 0.4) !important;
-      box-shadow: 0 0 15px rgba(212, 175, 55, 0.15), inset 0 0 8px rgba(0, 0, 0, 0.6) !important;
-      background: rgba(0, 0, 0, 0.6) !important;
-    }
-
-    /* Áp dụng nền chuẩn */
     body {
-      background-color: var(--rf-bg-main) !important;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #09090b;
+      color: #fafafa;
     }
 
-    /* Modal (Hộp thoại nổi) */
-    .modal-content,
-    .rf-modal-content {
-      border: 1px solid var(--rf-border) !important;
-      border-radius: 20px !important;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
+    /* Modal */
+    .modal-content, .rf-modal-content {
+      background-color: #121214 !important;
+      border: 1px solid rgba(255, 255, 255, 0.1) !important;
+      border-radius: 12px !important;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5) !important;
     }
 
-    /* Quy chuẩn Ô Nhập Liệu (Inputs & Selects) */
-    input.form-control,
-    select.form-select,
-    textarea.form-control {
-      background-color: #121318 !important;
-      border: 1px solid var(--rf-border) !important;
-      color: #ffffff !important;
-    }
-
-    input.form-control:focus,
-    select.form-select:focus {
-      border-color: var(--rf-primary) !important;
-      box-shadow: 0 0 0 0.2rem rgba(243, 156, 18, 0.25) !important;
-    }
-
-    /* Quy chuẩn Nút Bấm (Buttons) */
-    .btn-primary,
-    .rf-btn-primary {
-      background-color: var(--rf-primary) !important;
-      border-color: var(--rf-primary) !important;
-      color: #121318 !important;
-      font-weight: 700 !important;
-    }
-
-    .btn-primary:hover {
-      background-color: var(--rf-primary-hover) !important;
-    }
-
-    /* Quy chuẩn Badges Trạng Thái */
-    .badge-success {
-      background: var(--rf-success-bg);
-      color: var(--rf-success);
-      border: 1px solid var(--rf-success);
-    }
-
-    .badge-warning {
-      background: var(--rf-warning-bg);
-      color: var(--rf-warning);
-      border: 1px solid var(--rf-warning);
-    }
-
-    .badge-danger {
-      background: var(--rf-danger-bg);
-      color: var(--rf-danger);
-      border: 1px solid var(--rf-danger);
-    }
-
-    .badge-info {
-      background: var(--rf-info-bg);
-      color: var(--rf-info);
-      border: 1px solid var(--rf-info);
-    }
+    /* Badges */
+    .badge-success { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .badge-warning { background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); }
+    .badge-danger { background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
+    .badge-info { background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3); }
 
     /* =========================================================================
        ✨ ENHANCED PREMIUM DESIGN SYSTEM v3.0
@@ -392,10 +357,12 @@
       -moz-osx-font-smoothing: grayscale;
     }
 
-    body {
+    html, body {
       background-color: #09090b;
       margin: 0;
       padding: 0;
+      height: 100%;
+      overflow: hidden;
     }
 
     /* --- LIGHT MODE BACKGROUND --- */
@@ -1563,6 +1530,7 @@
     document.addEventListener("DOMContentLoaded", function () {
       if (typeof google !== 'undefined' && google.script && google.script.run) {
         google.script.run
+          .withFailureHandler(function (err) { console.error("Error loading employees:", err); })
           .withSuccessHandler(function (employees) {
             const kpiSelect = document.getElementById('kpiUserSelect');
             const taskSelect = document.getElementById('task-user');

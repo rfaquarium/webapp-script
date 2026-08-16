@@ -1,198 +1,547 @@
 <script type="text/babel">
   const TabErrors = React.memo(function TabErrors(props) {
-    const { runGAS, triggerToast, activeTab, currentUser } = props;
+    const { runGAS, triggerToast, activeTab, currentUser, prodItems = [], erpProducts = [], erpData = {}, orders = [], pushDeltas, isAdmin } = props;
     
-    const [isLoading, setIsLoading] = React.useState(true);
-    const [kcsErrors, setKcsErrors] = React.useState([]);
-    const [invErrors, setInvErrors] = React.useState([]);
+    const [isLoading, setIsLoading] = React.useState(false);
     const [activeSubTab, setActiveSubTab] = React.useState('KCS'); // 'KCS' | 'INV'
     const [selectedQcItem, setSelectedQcItem] = React.useState(null);
+    const [kcsFilter, setKcsFilter] = React.useState('ALL'); // 'ALL' | 'P1' | 'P2'
+    const [invFilter, setInvFilter] = React.useState('ALL'); // 'ALL' | 'NEGATIVE' | 'LOW'
+    const [searchQuery, setSearchQuery] = React.useState('');
+    const [restockingProduct, setRestockingProduct] = React.useState(null);
+    const [restockQty, setRestockQty] = React.useState(10);
 
-    React.useEffect(() => {
-      if (activeTab === 'ERRORS') {
-        fetchErrors();
-      }
-    }, [activeTab]);
+    // 1. TÍNH TOÁN REAL-TIME LỖI KCS TỪ PROPS
+    const liveKcsErrors = React.useMemo(() => {
+      const items = prodItems || [];
+      return items.filter(p => {
+        if (!p) return false;
+        const qc = String(p.qc_status || '').toUpperCase().trim();
+        const p1 = String(p.p1_status || '').toUpperCase().trim();
+        const p2 = String(p.p2_status || '').toUpperCase().trim();
+        const st = String(p.status || '').toUpperCase().trim();
+        const note = String(p.qc_note || '').trim();
 
-    const fetchErrors = async () => {
-      setIsLoading(true);
-      try {
-        const pin = window.localStorage.getItem('rf_pin') || '';
-        const res = await runGAS('getDashboardErrors', { pin: pin });
-        if (res && res.success) {
-          setKcsErrors(res.data.kcsErrors || []);
-          setInvErrors(res.data.invErrors || []);
-        } else {
-          if (triggerToast) triggerToast('Lỗi tải dữ liệu: ' + (res?.message || ''), 'fa-times', 'danger');
+        const isRejected = qc === 'FAIL' || qc === 'REJECT' || qc.includes('TỪ CHỐI') || qc.includes('LỖI') || p1 === 'REJECT' || p2 === 'REJECT' || st.includes('LỖI') || st.includes('SỬA');
+        const hasUnresolvedQcNote = note.length > 0 && qc !== 'PASS' && qc !== 'DONE' && qc !== 'HOÀN THÀNH';
+        return isRejected || hasUnresolvedQcNote;
+      });
+    }, [prodItems]);
+
+    // 2. TÍNH TOÁN REAL-TIME LỖI TỒN KHO TỪ PROPS
+    const liveInvErrors = React.useMemo(() => {
+      const list = erpProducts || erpData?.Products || [];
+      const errors = [];
+      list.forEach(item => {
+        if (!item || !item.name) return;
+        const qty = Number(item.quantity || 0);
+        const min = Number(item.minStock || 0);
+        
+        if (qty < 0) {
+          errors.push({ ...item, _errorType: 'ÂM KHO', _severity: 'high' });
+        } else if (min > 0 && qty <= min) {
+          errors.push({ ...item, _errorType: 'CHẠM ĐÁY TỒN KHO', _severity: 'warning' });
         }
-      } catch (err) {
-        console.error(err);
-        if (triggerToast) triggerToast('Lỗi kết nối máy chủ', 'fa-network-wired', 'danger');
-      } finally {
-        setIsLoading(false);
+      });
+      return errors;
+    }, [erpProducts, erpData?.Products]);
+
+    const filteredKcsErrors = React.useMemo(() => {
+      return liveKcsErrors.filter(err => {
+        const isP1 = String(err.qc_note || '').includes('P1') || !err.p2_user;
+        if (kcsFilter === 'P1' && !isP1) return false;
+        if (kcsFilter === 'P2' && isP1) return false;
+        if (searchQuery) {
+          const q = searchQuery.toLowerCase();
+          const name = String(err.name || '').toLowerCase();
+          const ordId = String(err.orderId || '').toLowerCase();
+          const id = String(err.id || '').toLowerCase();
+          return name.includes(q) || ordId.includes(q) || id.includes(q);
+        }
+        return true;
+      });
+    }, [liveKcsErrors, kcsFilter, searchQuery]);
+
+    const filteredInvErrors = React.useMemo(() => {
+      return liveInvErrors.filter(err => {
+        if (invFilter === 'NEGATIVE' && err._errorType !== 'ÂM KHO') return false;
+        if (invFilter === 'LOW' && err._errorType !== 'CHẠM ĐÁY TỒN KHO') return false;
+        if (searchQuery) {
+          const q = searchQuery.toLowerCase();
+          const sku = String(err.sku || '').toLowerCase();
+          const name = String(err.name || '').toLowerCase();
+          return sku.includes(q) || name.includes(q);
+        }
+        return true;
+      });
+    }, [liveInvErrors, invFilter, searchQuery]);
+
+    const handleRefresh = async () => {
+      setIsLoading(true);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('triggerReloadData'));
+      }
+      setTimeout(() => setIsLoading(false), 800);
+    };
+
+    const handleApproveQcPass = async (item) => {
+      if (!window.confirm(`Xác nhận DUYỆT ĐẠT KCS cho lệnh sản xuất [${item.name}] (${item.id})?`)) return;
+      try {
+        const updated = {
+          ...item,
+          qc_status: 'Pass',
+          status: 'Done',
+          qc_note: (item.qc_note ? item.qc_note + ' | ' : '') + `Đã duyệt lại bởi ${currentUser || 'Quản lý'}`
+        };
+        if (pushDeltas) {
+          await pushDeltas({ prodItems: [updated] }, `Đã duyệt Đạt KCS cho lệnh ${item.id}!`, 'fa-check-circle');
+          triggerToast(`Đã duyệt Đạt KCS cho lệnh ${item.id}`, 'fa-check', 'success');
+        }
+      } catch (e) {
+        triggerToast('Lỗi duyệt KCS: ' + e.message, 'fa-times', 'danger');
       }
     };
 
-    const handleViewQcError = (item) => {
-        setSelectedQcItem(item);
+    const handleRequestRework = async (item) => {
+      const reason = window.prompt(`Nhập ghi chú yêu cầu thợ sửa chữa [${item.name}]:`, item.qc_note || 'Khắc phục lỗi KCS');
+      if (reason === null) return;
+      try {
+        const updated = {
+          ...item,
+          status: 'Đang sửa',
+          qc_status: 'FAIL',
+          qc_note: reason.trim()
+        };
+        if (pushDeltas) {
+          await pushDeltas({ prodItems: [updated] }, `Đã chuyển lệnh ${item.id} sang Yêu Cầu Sửa Chữa!`, 'fa-tools');
+          triggerToast(`Đã gửi yêu cầu sửa chữa cho lệnh ${item.id}`, 'fa-tools', 'warning');
+        }
+      } catch (e) {
+        triggerToast('Lỗi gửi yêu cầu sửa: ' + e.message, 'fa-times', 'danger');
+      }
+    };
+
+    const handleDeleteOrder = async (item) => {
+      const confirm = window.confirm(`Bạn có chắc chắn muốn XÓA vĩnh viễn lệnh sản xuất [${item.name}] không? Hành động này không thể hoàn tác.`);
+      if (!confirm) return;
+      try {
+        if (pushDeltas) {
+          await pushDeltas({ deletes: { Production: [item.id] } }, `Đã xóa lệnh sản xuất ${item.id}`, 'fa-trash');
+          triggerToast(`Đã xóa lệnh ${item.id} thành công`, 'fa-check', 'success');
+        }
+      } catch (e) {
+        triggerToast('Lỗi xóa lệnh: ' + e.message, 'fa-times', 'danger');
+      }
+    };
+
+    const handleConfirmRestock = async () => {
+      if (!restockingProduct) return;
+      const qtyToAdd = Number(restockQty) || 0;
+      if (qtyToAdd <= 0) return triggerToast('Số lượng nhập phải lớn hơn 0', 'fa-times', 'warning');
+
+      try {
+        const currentQty = Number(restockingProduct.quantity || 0);
+        const newQty = currentQty + qtyToAdd;
+        const costPrice = Number(restockingProduct.costPrice || restockingProduct.price || 0);
+        const safeDate = typeof getLocalISODate === 'function' ? getLocalISODate().slice(0, 16).replace('T', ' ') : new Date().toISOString().slice(0, 16).replace('T', ' ');
+
+        const payload = {
+          Products: [{ id: restockingProduct.id, quantity: newQty, _diff: qtyToAdd }],
+          ImportExport: [{
+            id: 'IE_RESTOCK_ERR_' + Date.now(),
+            type: 'Nhập',
+            target: 'Bù Tồn Kho Sự Cố',
+            totalAmount: qtyToAdd * costPrice,
+            date: safeDate,
+            note: `Nhập bù tồn kho khẩn cấp cho SKU: ${restockingProduct.sku || restockingProduct.name}`,
+            itemsData: JSON.stringify([{ name: restockingProduct.name, qty: qtyToAdd, price: costPrice }])
+          }]
+        };
+
+        if (pushDeltas) {
+          await pushDeltas(payload, `Đã nhập bù ${qtyToAdd} ${restockingProduct.name}!`, 'fa-plus-circle');
+          triggerToast(`Đã nhập bổ sung ${qtyToAdd} ${restockingProduct.name}`, 'fa-check', 'success');
+        }
+        setRestockingProduct(null);
+      } catch (e) {
+        triggerToast('Lỗi nhập bù kho: ' + e.message, 'fa-times', 'danger');
+      }
     };
 
     if (activeTab !== 'ERRORS') return null;
 
     return (
-      <div className="flex flex-col w-full h-full bg-[#0d0e12] animate-fade-in text-white overflow-hidden">
+      <div className="flex flex-col w-full h-full bg-[#09090b] animate-fade-in text-zinc-100 overflow-hidden">
         
         {/* Header - Workbench style */}
-        <div className="flex-shrink-0 px-6 py-5 border-b border-[#242630] bg-[#0d0e12] flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+        <div className="flex-shrink-0 px-6 py-4 border-b border-white/[0.08] bg-[#121214] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-black tracking-tight text-white flex items-center gap-2">
-              <i className="fas fa-shield-halved text-[#fb7185]"></i> Lỗi & KCS
+            <h1 className="text-xl font-bold font-display tracking-tight text-white flex items-center gap-2">
+              <i className="fas fa-shield-halved text-rose-400"></i> Lỗi & KCS
             </h1>
-            <p className="text-[#8a8d98] text-[13px] mt-1">Bảng điều khiển trung tâm xử lý hàng từ chối KCS và kiểm kho sai lệch.</p>
+            <p className="text-zinc-400 text-[12px] mt-0.5">Bảng điều khiển trung tâm xử lý hàng từ chối KCS và cảnh báo kho sai lệch.</p>
           </div>
-          <div className="flex gap-2">
-            <button onClick={fetchErrors} disabled={isLoading} className="px-4 py-2 bg-[#16171d] hover:bg-[#20222a] border border-[#242630] rounded-lg text-[12px] font-semibold transition-colors flex items-center gap-2 disabled:opacity-50">
-              <i className={`fas fa-sync-alt ${isLoading ? 'fa-spin' : ''}`}></i> Làm mới
+          <div className="flex items-center gap-2">
+            <button onClick={handleRefresh} disabled={isLoading} className="px-3 py-1.5 bg-[#09090b] hover:bg-zinc-800 border border-white/10 rounded-md text-[12px] font-medium transition-colors flex items-center gap-1.5 disabled:opacity-50 text-zinc-200">
+              <i className={`fas fa-sync-alt text-[#d4af37] ${isLoading ? 'fa-spin' : ''}`}></i> Làm mới
             </button>
           </div>
         </div>
 
-        {/* Sub-tabs */}
-        <div className="flex-shrink-0 px-6 pt-4 border-b border-[#242630] flex gap-6">
-          <button 
-            onClick={() => setActiveSubTab('KCS')}
-            className={`pb-3 text-[13px] font-bold tracking-wide uppercase transition-colors relative ${activeSubTab === 'KCS' ? 'text-white' : 'text-[#8a8d98] hover:text-[#e2e4e9]'}`}
-          >
-            Lỗi Sản Xuất (KCS)
-            {kcsErrors.length > 0 && <span className="ml-2 bg-[#fb7185]/20 text-[#fb7185] px-1.5 py-0.5 rounded text-[10px]">{kcsErrors.length}</span>}
-            {activeSubTab === 'KCS' && <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#d4af37]"></div>}
-          </button>
+        {/* Sub-tabs & Quick Filter Bar */}
+        <div className="flex-shrink-0 px-6 py-3 border-b border-white/[0.08] bg-[#121214]/60 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={() => { setActiveSubTab('KCS'); setSearchQuery(''); }}
+              className={`px-3 py-1.5 rounded-md text-[12px] font-semibold tracking-wide transition-all flex items-center gap-2 ${activeSubTab === 'KCS' ? 'bg-[#d4af37]/15 text-[#d4af37] border border-[#d4af37]/30' : 'text-zinc-400 hover:text-zinc-100'}`}
+            >
+              <i className="fas fa-tools"></i> Lỗi Sản Xuất (KCS)
+              {liveKcsErrors.length > 0 && <span className="bg-rose-500 text-white font-bold px-1.5 py-0.2 rounded-full text-[10px]">{liveKcsErrors.length}</span>}
+            </button>
 
-          <button 
-            onClick={() => setActiveSubTab('INV')}
-            className={`pb-3 text-[13px] font-bold tracking-wide uppercase transition-colors relative ${activeSubTab === 'INV' ? 'text-white' : 'text-[#8a8d98] hover:text-[#e2e4e9]'}`}
-          >
-            Cảnh Báo Tồn Kho
-            {invErrors.length > 0 && <span className="ml-2 bg-[#f2a65a]/20 text-[#f2a65a] px-1.5 py-0.5 rounded text-[10px]">{invErrors.length}</span>}
-            {activeSubTab === 'INV' && <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#d4af37]"></div>}
-          </button>
+            <button 
+              onClick={() => { setActiveSubTab('INV'); setSearchQuery(''); }}
+              className={`px-3 py-1.5 rounded-md text-[12px] font-semibold tracking-wide transition-all flex items-center gap-2 ${activeSubTab === 'INV' ? 'bg-[#d4af37]/15 text-[#d4af37] border border-[#d4af37]/30' : 'text-zinc-400 hover:text-zinc-100'}`}
+            >
+              <i className="fas fa-boxes-stacked"></i> Cảnh Báo Tồn Kho
+              {liveInvErrors.length > 0 && <span className="bg-amber-500 text-black font-bold px-1.5 py-0.2 rounded-full text-[10px]">{liveInvErrors.length}</span>}
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Tìm kiếm mã, tên..."
+                className="w-48 sm:w-64 bg-[#09090b] border border-white/15 rounded-md pl-7 pr-3 py-1 text-[12px] text-zinc-100 focus:border-[#d4af37] outline-none placeholder:text-zinc-500"
+              />
+              <i className="fas fa-search absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500 text-[10px]"></i>
+            </div>
+
+            {activeSubTab === 'KCS' && (
+              <select value={kcsFilter} onChange={e => setKcsFilter(e.target.value)} className="bg-[#09090b] border border-white/15 rounded-md px-2 py-1 text-[12px] text-zinc-200 outline-none">
+                <option value="ALL">Tất cả khâu</option>
+                <option value="P1">Lỗi Khâu 1</option>
+                <option value="P2">Lỗi Khâu 2</option>
+              </select>
+            )}
+
+            {activeSubTab === 'INV' && (
+              <select value={invFilter} onChange={e => setInvFilter(e.target.value)} className="bg-[#09090b] border border-white/15 rounded-md px-2 py-1 text-[12px] text-zinc-200 outline-none">
+                <option value="ALL">Tất cả cảnh báo</option>
+                <option value="NEGATIVE">Chỉ Âm Kho</option>
+                <option value="LOW">Chạm Đáy Tồn</option>
+              </select>
+            )}
+          </div>
         </div>
 
         {/* Main Content Area */}
-        <div className="flex-1 overflow-auto bg-[#0d0e12] p-6">
-            {isLoading ? (
-                <div className="flex items-center justify-center h-40 text-[#8a8d98] gap-2 text-sm">
-                    <i className="fas fa-spinner fa-spin text-[#d4af37]"></i> Đang tải dữ liệu...
-                </div>
-            ) : activeSubTab === 'KCS' ? (
-                kcsErrors.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-40 border border-dashed border-[#242630] rounded-xl text-[#8a8d98]">
-                        <i className="fas fa-check-circle text-2xl mb-2 text-emerald-500/50"></i>
-                        <span className="text-[13px]">Tuyệt vời, không có lệnh sản xuất nào bị từ chối KCS.</span>
-                    </div>
-                ) : (
-                    <div className="rounded-xl border border-[#242630] overflow-hidden bg-[#16171d]">
-                        <table className="w-full text-left border-collapse">
-                            <thead>
-                                <tr className="border-b border-[#242630] bg-[#0d0e12]/50 text-[10px] uppercase tracking-wider text-[#8a8d98]">
-                                    <th className="p-3 font-semibold w-24">Mã Lệnh</th>
-                                    <th className="p-3 font-semibold">Tên Sản Phẩm</th>
-                                    <th className="p-3 font-semibold">Khâu Lỗi</th>
-                                    <th className="p-3 font-semibold">Thợ Phụ Trách</th>
-                                    <th className="p-3 font-semibold">Ngày Báo</th>
-                                    <th className="p-3 font-semibold text-right">Thao Tác</th>
-                                </tr>
-                            </thead>
-                            <tbody className="text-[13px] divide-y divide-[#242630]">
-                                {kcsErrors.map((err, i) => {
-                                    const isP1Error = String(err.qc_note || '').includes('P1') || !err.p2_user;
-                                    return (
-                                        <tr key={i} className="hover:bg-[#20222a]/50 transition-colors">
-                                            <td className="p-3 font-mono text-[#d4af37]">{err.id}</td>
-                                            <td className="p-3 font-medium text-[#e2e4e9]">{err.name}</td>
-                                            <td className="p-3">
-                                                <span className="inline-flex px-2 py-1 bg-rose-500/10 text-rose-500 rounded font-semibold text-[10px] uppercase">
-                                                    Khâu {isP1Error ? '1' : '2'}
-                                                </span>
-                                            </td>
-                                            <td className="p-3 text-[#8a8d98]">
-                                                <div className="flex flex-col">
-                                                    <span className="text-white">{isP1Error ? err.p1_user : err.p2_user}</span>
-                                                    <span className="text-[10px] opacity-70">Mã Đơn: {err.orderId}</span>
-                                                </div>
-                                            </td>
-                                            <td className="p-3 text-[#8a8d98] text-[11px]">
-                                                {err.deadline ? new Date(err.deadline).toLocaleDateString('vi-VN') : 'N/A'}
-                                            </td>
-                                            <td className="p-3 text-right">
-                                                <button onClick={() => handleViewQcError(err)} className="px-3 py-1.5 bg-[#fb7185]/10 hover:bg-[#fb7185]/20 text-[#fb7185] border border-[#fb7185]/30 rounded-[6px] text-[11px] font-bold tracking-wide transition-all">
-                                                    XEM CHI TIẾT
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
-                )
+        <div className="flex-1 overflow-auto p-4 lg:p-6 custom-scrollbar">
+          {isLoading ? (
+            <div className="flex items-center justify-center h-48 text-zinc-400 gap-2 text-[13px]">
+              <i className="fas fa-spinner fa-spin text-[#d4af37]"></i> Đang tải dữ liệu...
+            </div>
+          ) : activeSubTab === 'KCS' ? (
+            filteredKcsErrors.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-48 border border-dashed border-white/10 rounded-xl text-zinc-400 bg-[#121214]/30">
+                <i className="fas fa-check-circle text-3xl mb-2 text-emerald-400 opacity-80"></i>
+                <span className="text-[13px] font-medium text-zinc-200">Tuyệt vời, không có lệnh sản xuất nào bị từ chối KCS.</span>
+                <span className="text-[11px] text-zinc-500 mt-0.5">Mọi đơn hàng đều vượt qua quy chuẩn kiểm định chất lượng xưởng.</span>
+              </div>
             ) : (
-                invErrors.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-40 border border-dashed border-[#242630] rounded-xl text-[#8a8d98]">
-                        <i className="fas fa-boxes text-2xl mb-2 text-emerald-500/50"></i>
-                        <span className="text-[13px]">Toàn bộ kho hàng hoạt động ổn định. Tồn kho khớp.</span>
-                    </div>
-                ) : (
-                    <div className="rounded-xl border border-[#242630] overflow-hidden bg-[#16171d]">
-                        <table className="w-full text-left border-collapse">
-                            <thead>
-                                <tr className="border-b border-[#242630] bg-[#0d0e12]/50 text-[10px] uppercase tracking-wider text-[#8a8d98]">
-                                    <th className="p-3 font-semibold">Mã SKU</th>
-                                    <th className="p-3 font-semibold">Tên Vật Tư / Thành Phẩm</th>
-                                    <th className="p-3 font-semibold">Loại Lỗi</th>
-                                    <th className="p-3 font-semibold">Tồn Thực Tế</th>
-                                    <th className="p-3 font-semibold">Mức Tối Thiểu</th>
-                                </tr>
-                            </thead>
-                            <tbody className="text-[13px] divide-y divide-[#242630]">
-                                {invErrors.map((err, i) => {
-                                    const isNegative = err._errorType === 'ÂM KHO';
-                                    return (
-                                        <tr key={i} className="hover:bg-[#20222a]/50 transition-colors">
-                                            <td className="p-3 font-mono text-[#8a8d98]">{err.sku}</td>
-                                            <td className="p-3 font-medium text-[#e2e4e9]">{err.name}</td>
-                                            <td className="p-3">
-                                                <span className={`inline-flex px-2 py-1 rounded font-semibold text-[10px] uppercase ${isNegative ? 'bg-rose-500/10 text-rose-500 border border-rose-500/20' : 'bg-[#f2a65a]/10 text-[#f2a65a] border border-[#f2a65a]/20'}`}>
-                                                    {err._errorType}
-                                                </span>
-                                            </td>
-                                            <td className="p-3 font-mono">
-                                                <span className={isNegative ? 'text-rose-500 font-bold' : 'text-[#f2a65a] font-bold'}>
-                                                    {err.quantity}
-                                                </span>
-                                            </td>
-                                            <td className="p-3 text-[#8a8d98] font-mono">
-                                                {err.minStock || 0}
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
-                )
-            )}
+              <div className="rounded-lg border border-white/[0.08] overflow-hidden bg-[#121214] shadow-sm">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-white/[0.08] bg-[#09090b] text-[10px] uppercase tracking-wider text-zinc-400">
+                      <th className="p-3 font-semibold w-28">Mã Lệnh</th>
+                      <th className="p-3 font-semibold">Tên Sản Phẩm</th>
+                      <th className="p-3 font-semibold">Khâu / Ghi Chú Lỗi</th>
+                      <th className="p-3 font-semibold">Thợ Phụ Trách</th>
+                      <th className="p-3 font-semibold">Hạn Bàn Giao</th>
+                      <th className="p-3 font-semibold text-right">Xử Lý</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-[12px] divide-y divide-white/[0.06]">
+                    {filteredKcsErrors.map((err, i) => {
+                      const isP1Error = String(err.qc_note || '').includes('P1') || !err.p2_user;
+                      
+                      let qcParsed = null;
+                      let markerCount = 0;
+                      let rawNote = err.qc_note || '';
+                      
+                      try {
+                        if (rawNote.trim().startsWith('{')) {
+                          qcParsed = JSON.parse(rawNote);
+                          if (qcParsed.front) markerCount += qcParsed.front.length;
+                          if (qcParsed.side) markerCount += qcParsed.side.length;
+                        }
+                      } catch(e) {}
+
+                      return (
+                        <tr key={i} className="hover:bg-zinc-800/40 transition-colors">
+                          <td className="p-3 font-mono font-bold text-[#d4af37]">{err.id}</td>
+                          <td className="p-3">
+                            <div className="font-semibold text-zinc-100">{err.name}</div>
+                            <div className="text-[10px] text-zinc-400 font-mono">Đơn: {err.orderId || 'N/A'}</div>
+                          </td>
+                          <td className="p-3">
+                            <span className="inline-flex px-2 py-0.5 bg-rose-500/15 text-rose-400 rounded font-bold text-[10px] uppercase">
+                              Khâu {isP1Error ? '1' : '2'}
+                            </span>
+                            {qcParsed ? (
+                              <div className="mt-1.5 flex flex-col gap-1">
+                                <div className="text-[11px] text-rose-300/80 italic">
+                                  <i className="fas fa-draw-polygon mr-1"></i> Có {markerCount} vị trí đánh dấu lỗi
+                                </div>
+                                <button 
+                                  onClick={() => setSelectedQcItem(err)}
+                                  className="self-start text-[10px] bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 px-2 py-1 rounded transition-colors flex items-center gap-1 border border-rose-500/30"
+                                >
+                                  <i className="fas fa-image"></i> Xem Ảnh KCS
+                                </button>
+                              </div>
+                            ) : (
+                              err.qc_note && (
+                                <div className="text-[11px] text-zinc-400 mt-1 italic line-clamp-2 max-w-md">
+                                  <i className="fas fa-comment-dots mr-1 opacity-70"></i>{err.qc_note}
+                                </div>
+                              )
+                            )}
+                          </td>
+                          <td className="p-3 text-zinc-400">
+                            <div className="text-zinc-200 font-medium">{isP1Error ? (err.p1_user || 'Chưa gán') : (err.p2_user || 'Chưa gán')}</div>
+                            <div className="text-[10px] opacity-70">{err.type || 'Sản xuất'}</div>
+                          </td>
+                          <td className="p-3 text-zinc-400 font-mono text-[11px]">
+                            {err.deadline ? new Date(err.deadline).toLocaleDateString('vi-VN') : 'Trong ngày'}
+                          </td>
+                          <td className="p-3 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button onClick={() => handleDeleteOrder(err)} className="px-2 py-1 bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/30 rounded text-[11px] font-semibold transition-all" title="Xóa lệnh này">
+                                <i className="fas fa-trash"></i>
+                              </button>
+                              <button onClick={() => handleRequestRework(err)} className="px-2.5 py-1 bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 rounded text-[11px] font-semibold transition-all">
+                                Yêu Cầu Sửa
+                              </button>
+                              <button onClick={() => handleApproveQcPass(err)} className="px-2.5 py-1 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30 rounded text-[11px] font-semibold transition-all">
+                                Duyệt Đạt
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )
+          ) : (
+            filteredInvErrors.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-48 border border-dashed border-white/10 rounded-xl text-zinc-400 bg-[#121214]/30">
+                <i className="fas fa-boxes-stacked text-3xl mb-2 text-emerald-400 opacity-80"></i>
+                <span className="text-[13px] font-medium text-zinc-200">Toàn bộ kho hàng đang an toàn.</span>
+                <span className="text-[11px] text-zinc-500 mt-0.5">Không phát hiện SKU nào bị âm kho hoặc rơi xuống dưới định mức tối thiểu.</span>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-white/[0.08] overflow-hidden bg-[#121214] shadow-sm">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-white/[0.08] bg-[#09090b] text-[10px] uppercase tracking-wider text-zinc-400">
+                      <th className="p-3 font-semibold">Mã SKU</th>
+                      <th className="p-3 font-semibold">Tên Vật Tư / Sản Phẩm</th>
+                      <th className="p-3 font-semibold">Loại Cảnh Báo</th>
+                      <th className="p-3 font-semibold">Tồn Hiện Tại</th>
+                      <th className="p-3 font-semibold">Mức Tối Thiểu</th>
+                      <th className="p-3 font-semibold text-right">Hành Động</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-[12px] divide-y divide-white/[0.06]">
+                    {filteredInvErrors.map((err, i) => {
+                      const isNegative = err._errorType === 'ÂM KHO';
+                      return (
+                        <tr key={i} className="hover:bg-zinc-800/40 transition-colors">
+                          <td className="p-3 font-mono font-medium text-zinc-400">{err.sku || 'N/A'}</td>
+                          <td className="p-3 font-semibold text-zinc-100">{err.name}</td>
+                          <td className="p-3">
+                            <span className={`inline-flex px-2 py-0.5 rounded font-bold text-[10px] uppercase ${isNegative ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30' : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'}`}>
+                              {err._errorType}
+                            </span>
+                          </td>
+                          <td className="p-3 font-mono font-bold">
+                            <span className={isNegative ? 'text-rose-400' : 'text-amber-400'}>
+                              {err.quantity || 0} {err.unit || 'Cái'}
+                            </span>
+                          </td>
+                          <td className="p-3 text-zinc-400 font-mono">
+                            {err.minStock || 0} {err.unit || 'Cái'}
+                          </td>
+                          <td className="p-3 text-right">
+                            <button
+                              onClick={() => { setRestockingProduct(err); setRestockQty(Math.max(10, (err.minStock || 10) - (err.quantity || 0))); }}
+                              className="px-2.5 py-1 bg-[#d4af37]/15 hover:bg-[#d4af37]/25 text-[#d4af37] border border-[#d4af37]/30 rounded text-[11px] font-semibold transition-all"
+                            >
+                              <i className="fas fa-plus mr-1"></i> Nhập Bù
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
         </div>
 
-        {/* Modal QC Detail (Re-used) */}
-        {selectedQcItem && typeof window.PinQcModal !== 'undefined' && (
-            <window.PinQcModal 
-                item={selectedQcItem}
-                readOnly={true}
-                onClose={() => setSelectedQcItem(null)}
-                onSave={() => setSelectedQcItem(null)}
-            />
+        {/* Modal Nhập Bù Kho Nhanh */}
+        {restockingProduct && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setRestockingProduct(null)}>
+            <div className="bg-[#121214] border border-white/15 rounded-xl p-5 w-full max-w-sm shadow-2xl animate-scale-in" onClick={e => e.stopPropagation()}>
+              <h3 className="font-bold text-sm text-zinc-100 mb-2 flex items-center gap-2">
+                <i className="fas fa-boxes-stacked text-[#d4af37]"></i> Nhập Bù Tồn Kho Nhanh
+              </h3>
+              <p className="text-[12px] text-zinc-400 mb-3">
+                Sản phẩm: <span className="font-semibold text-zinc-200">{restockingProduct.name}</span>
+              </p>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-[11px] text-zinc-400 mb-1 font-medium">Số Lượng Nhập Bổ Sung ({restockingProduct.unit || 'Cái'}):</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={restockQty}
+                    onChange={e => setRestockQty(e.target.value)}
+                    className="w-full bg-[#09090b] border border-white/20 rounded-md px-3 py-2 text-sm text-white font-mono focus:border-[#d4af37] outline-none"
+                  />
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <button onClick={() => setRestockingProduct(null)} className="flex-1 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-md text-[12px] font-medium transition-colors">
+                    Hủy
+                  </button>
+                  <button onClick={handleConfirmRestock} className="flex-1 py-2 bg-[#d4af37] hover:bg-[#b89628] text-black rounded-md text-[12px] font-bold transition-colors">
+                    Xác Nhận Nhập
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
+        {/* Modal Xem Ảnh KCS & Markers */}
+        {selectedQcItem && (() => {
+          let qcParsed = null;
+          try {
+            if (selectedQcItem.qc_note && selectedQcItem.qc_note.trim().startsWith('{')) {
+              qcParsed = JSON.parse(selectedQcItem.qc_note);
+            }
+          } catch(e) {}
+          
+          const frontPhoto = selectedQcItem.qc_front_photo || selectedQcItem.p1_photo || selectedQcItem.p2_photo;
+          const sidePhoto = selectedQcItem.qc_side_photo;
+          
+          const hasFront = frontPhoto && qcParsed && qcParsed.front && qcParsed.front.length > 0;
+          const hasSide = sidePhoto && qcParsed && qcParsed.side && qcParsed.side.length > 0;
+
+          return (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setSelectedQcItem(null)}>
+              <div className="bg-[#121214] border border-white/15 rounded-xl flex flex-col w-full max-w-4xl max-h-[90vh] shadow-2xl animate-scale-in overflow-hidden" onClick={e => e.stopPropagation()}>
+                
+                {/* Header */}
+                <div className="flex items-center justify-between px-5 py-4 border-b border-white/10 bg-[#09090b]">
+                  <h3 className="font-bold text-lg text-zinc-100 flex items-center gap-2">
+                    <i className="fas fa-search-plus text-rose-400"></i> Chi Tiết Lỗi KCS - {selectedQcItem.id}
+                  </h3>
+                  <button onClick={() => setSelectedQcItem(null)} className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-zinc-400 transition-colors">
+                    <i className="fas fa-times"></i>
+                  </button>
+                </div>
+
+                {/* Body - Image Viewer with absolute markers */}
+                <div className="flex-1 overflow-auto p-6 flex flex-col items-center gap-8 bg-[#0a0a0c]">
+                  
+                  {!hasFront && !hasSide && (
+                    <div className="text-zinc-500 italic text-sm py-10">Không tìm thấy dữ liệu ảnh hoặc tọa độ đánh dấu lỗi hợp lệ.</div>
+                  )}
+
+                  {hasFront && (
+                    <div className="w-full max-w-3xl flex flex-col gap-2">
+                      <div className="font-bold text-zinc-300 uppercase tracking-wider text-[12px]"><i className="fas fa-camera mr-1 text-emerald-400"></i> Mặt Trước ({qcParsed.front.length} Lỗi)</div>
+                      <div className="relative rounded-lg overflow-hidden border border-white/10 bg-black flex items-center justify-center min-h-[200px]">
+                        <img src={frontPhoto} alt="Mặt trước" className="max-w-full max-h-[60vh] object-contain" />
+                        
+                        {/* Overlay Markers */}
+                        <div className="absolute inset-0">
+                          {qcParsed.front.map((m, idx) => (
+                            <div 
+                              key={idx}
+                              className="absolute w-6 h-6 -ml-3 -mt-3 rounded-full border-2 border-rose-500 bg-rose-500/20 flex items-center justify-center animate-pulse group cursor-help shadow-[0_0_10px_rgba(244,63,94,0.5)]"
+                              style={{ left: `${m.x}%`, top: `${m.y}%` }}
+                            >
+                              <div className="w-1.5 h-1.5 bg-rose-500 rounded-full"></div>
+                              <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 bg-black/90 border border-rose-500/50 text-rose-100 text-[11px] px-2.5 py-1.5 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-10 shadow-lg pointer-events-none">
+                                {m.comment || 'Vị trí lỗi'}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {hasSide && (
+                    <div className="w-full max-w-3xl flex flex-col gap-2">
+                      <div className="font-bold text-zinc-300 uppercase tracking-wider text-[12px]"><i className="fas fa-camera mr-1 text-blue-400"></i> Mặt Hông ({qcParsed.side.length} Lỗi)</div>
+                      <div className="relative rounded-lg overflow-hidden border border-white/10 bg-black flex items-center justify-center min-h-[200px]">
+                        <img src={sidePhoto} alt="Mặt hông" className="max-w-full max-h-[60vh] object-contain" />
+                        
+                        {/* Overlay Markers */}
+                        <div className="absolute inset-0">
+                          {qcParsed.side.map((m, idx) => (
+                            <div 
+                              key={idx}
+                              className="absolute w-6 h-6 -ml-3 -mt-3 rounded-full border-2 border-amber-500 bg-amber-500/20 flex items-center justify-center animate-pulse group cursor-help shadow-[0_0_10px_rgba(245,158,11,0.5)]"
+                              style={{ left: `${m.x}%`, top: `${m.y}%` }}
+                            >
+                              <div className="w-1.5 h-1.5 bg-amber-500 rounded-full"></div>
+                              <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 bg-black/90 border border-amber-500/50 text-amber-100 text-[11px] px-2.5 py-1.5 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-10 shadow-lg pointer-events-none">
+                                {m.comment || 'Vị trí lỗi'}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                </div>
+
+                {/* Footer Actions */}
+                <div className="flex items-center justify-between px-5 py-4 border-t border-white/10 bg-[#09090b]">
+                  <button onClick={() => { handleDeleteOrder(selectedQcItem); setSelectedQcItem(null); }} className="px-4 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded text-[12px] font-medium transition-colors">
+                    <i className="fas fa-trash mr-1.5"></i> Xóa Lệnh
+                  </button>
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => setSelectedQcItem(null)} className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded text-[12px] font-medium transition-colors">
+                      Đóng
+                    </button>
+                    <button onClick={() => { handleRequestRework(selectedQcItem); setSelectedQcItem(null); }} className="px-4 py-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-400 rounded text-[12px] font-bold transition-colors">
+                      <i className="fas fa-tools mr-1.5"></i> Yêu Cầu Sửa
+                    </button>
+                    <button onClick={() => { handleApproveQcPass(selectedQcItem); setSelectedQcItem(null); }} className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-black rounded text-[12px] font-bold transition-colors shadow-[0_0_15px_rgba(16,185,129,0.3)]">
+                      <i className="fas fa-check-circle mr-1.5"></i> Bỏ Qua & Duyệt
+                    </button>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          );
+        })()}
+
       </div>
     );
   });

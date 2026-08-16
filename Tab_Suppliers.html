@@ -83,7 +83,7 @@ const SuppliersTab = React.memo(function SuppliersTab({ data, pushData, isAdmin,
 
     const toggleExpand = (id) => setExpandedIds(prev => ({ ...prev, [id]: !prev[id] }));
     const toggleHistoryFilter = (supId, filterType) => setHistoryFilters(prev => ({ ...prev, [supId]: filterType }));
-    const displayMoney = (val) => Number(val || 0).toLocaleString('vi-VN');
+    const displayMoney = (val) => Math.round(Number(val || 0)).toLocaleString('vi-VN');
 
     const getSupplierIcon = (category) => {
         switch(category) {

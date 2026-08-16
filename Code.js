@@ -5,23 +5,28 @@ var SCHEMA = {
   Attendance: ['id', 'user', 'date', 'morningIn', 'morningOut', 'afternoonIn', 'afternoonOut', 'leaveType', 'leaveReportAt', 'shift', 'timeIn', 'timeOut', 'totalHours', 'status', 'penalty', 'isEdited', 'leaveStart', 'leaveEnd', 'note'],
   Documents: ['id', 'category', 'title', 'description', 'link', 'createdAt', 'createdBy', 'attachments', 'testLink', 'readBy'],
   Trainings: ['id', 'title', 'content', 'targetRole', 'createdAt', 'createdBy', 'readUsers'],
-  Models3D: ['id', 'name', 'url', 'productId', 'materials', 'createdAt', 'createdBy'],
+  Models3D: ['id', 'name', 'url', 'createdAt', 'createdBy', 'productId', 'materials'],
   Reimbursements: ['id', 'staffName', 'reason', 'amount', 'qrCodeUrl', 'status', 'createdAt'],
-  Monthly_Snapshots: ['id', 'month', 'user', 'totalSalary', 'totalHours', 'totalAdvance', 'totalDebt', 'createdAt', 'snapshotData']
+  Monthly_Snapshots: ['id', 'month', 'user', 'totalSalary', 'totalHours', 'totalAdvance', 'totalDebt', 'createdAt', 'snapshotData'],
+  Config_NhanSu: ['Tên Nhân Sự', 'ID Ảnh', 'Chức Danh', 'Chức Danh Phụ', 'Phân Quyền', 'Mã PIN', 'Lương Cơ Bản', 'Lương Chức Vụ', 'Phụ Cấp Xăng Xe', 'Khoản Trừ Vi Phạm', 'id'],
+  Tracking_Log: ['Thời gian', 'Tên nhân sự', 'Hoàn thành', 'Hỏi AI', 'Ghi chú thêm']
 };
 
 var SCHEMA_ERP = {
   Products: ['id', 'sku', 'name', 'unit', 'image', 'category', 'sub_category', 'costPrice', 'price', 'quantity', 'minStock', 'maxStock', 'realImage', 'importUnit', 'conversionRate', 'model3D'],
-  Accounts: ['id', 'accountName', 'balance'],
+  Accounts: ['id', 'accountName', 'balance', 'type', 'accountNumber', 'accountOwner'],
   Suppliers: ['id', 'name', 'phone', 'totalDebt', 'category', 'note'],
   Transactions: ['id', 'type', 'category', 'amount', 'fromAccount', 'toAccount', 'title', 'date', 'note', 'isAuto'],
   ImportExport: ['id', 'type', 'target', 'totalAmount', 'date', 'note', 'itemsData'],
   ProfitReports: ['id', 'period', 'channel', 'revenue', 'orderCount', 'platformFee', 'returns', 'discount', 'ads', 'cogs', 'salary', 'operation'],
   BonusPenalty: ['id', 'user', 'amount', 'type', 'note', 'date', 'orderCode'],
-  KPI_Progress: ['id', 'user', 'kpiName', 'current', 'target', 'unit', 'lastUpdated', 'startTime', 'endTime', 'reward', 'isClaimed', 'penalty', 'guide'],
+  KPI_Progress: ['id', 'user', 'kpiName', 'current', 'target', 'unit', 'lastUpdated', 'startTime', 'endTime', 'reward', 'isClaimed', 'guide'],
   PurchasedServices: ['id', 'invoiceCode', 'supplier', 'taxCode', 'category', 'date', 'amount', 'payer', 'paymentMethod', 'note', 'expiryDate', 'createdAt', 'createdBy'],
   BOM_Config: ['id', 'layoutCode', 'materialSku', 'defaultQty', 'unit'],
-  Monthly_Snapshots: ['id', 'month', 'user', 'totalSalary', 'totalHours', 'totalAdvance', 'totalDebt', 'createdAt', 'snapshotData']
+  Monthly_Snapshots: ['id', 'month', 'user', 'totalSalary', 'totalHours', 'totalAdvance', 'totalDebt', 'createdAt', 'snapshotData'],
+  Config_KPI: ['id', 'Nhóm Hàng', 'Từ Khoá', 'Tên Hàng', 'Thời gian Khâu 1', 'Tiền Khâu 1', 'Thời gian Khâu 2', 'Tiền Khâu 2', 'Thời gian Đóng Gói', 'Thưởng Đóng Gói', 'Thưởng Chở Kho'],
+  CTV_Finance: ['id', 'date', 'type', 'amount', 'note', 'user', 'status'],
+  Config_GiaLayout: ['Size_Max', 'Do_Chi_Tiet', 'He_So_Gia', 'Phi_Gui_Xuong', 'Phi_Gan_Reu']
 };
 
 function doGet(e) {
@@ -1271,7 +1276,7 @@ function formatProduct(p) {
   };
 }
 
-function formatAccount(a) { return { "id": a.id, "accountName": a.accountName || '', "balance": a.balance || 0 }; }
+function formatAccount(a) { return { "id": a.id, "accountName": a.accountName || '', "balance": a.balance || 0, "type": a.type || '', "accountNumber": a.accountNumber || '', "accountOwner": a.accountOwner || '' }; }
 function formatSupplier(s) { return { "id": s.id, "name": s.name || '', "phone": s.phone || '', "totalDebt": s.totalDebt || 0, "category": s.category || '', "note": s.note || '' }; }
 function formatTransaction(t) { return { "id": t.id, "type": t.type || '', "category": t.category || '', "amount": t.amount || 0, "fromAccount": t.fromAccount || '', "toAccount": t.toAccount || '', "title": t.title || '', "date": t.date || '', "note": t.note || '', "isAuto": t.isAuto || '' }; }
 function formatImportExport(i) { return { "id": i.id, "type": i.type || '', "target": i.target || '', "totalAmount": i.totalAmount || 0, "date": i.date || '', "note": i.note || '', "itemsData": i.itemsData || '' }; }
@@ -3232,6 +3237,9 @@ function syncGHNViaAPI() {
     var statusCol = headers.indexOf('status');
     var channelCol = headers.indexOf('channel');
     var codCol = headers.indexOf('cod');
+    var custCol = headers.indexOf('customer');
+    var respCol = headers.indexOf('responsibleUser');
+    var updCol = headers.indexOf('updatedBy');
 
     if (idCol === -1 || codeCol === -1 || statusCol === -1) return { success: false, message: 'Sheet Orders thiếu cột chuẩn' };
 
@@ -3244,7 +3252,16 @@ function syncGHNViaAPI() {
       // Chỉ đồng bộ những đơn Đang Giao, Đã Bàn Giao và mã đơn bắt đầu bằng GHN hoặc kênh GHN
       if ((status === 'Đang Giao' || status === 'Đã Bàn Giao' || status === 'Chờ Bàn Giao') && code.length > 5) {
         if (code.toUpperCase().startsWith('GHN') || channel.toUpperCase().includes('GHN')) {
-          ordersToSync.push({ rowIndex: i + 1, code: code, id: oData[i][idCol], cod: Number(oData[i][codCol]) || 0 });
+          ordersToSync.push({ 
+            rowIndex: i + 1, 
+            code: code, 
+            id: oData[i][idCol], 
+            cod: Number(oData[i][codCol]) || 0,
+            channel: channel,
+            customer: custCol !== -1 ? oData[i][custCol] : '',
+            responsibleUser: respCol !== -1 ? oData[i][respCol] : '',
+            updatedBy: updCol !== -1 ? oData[i][updCol] : ''
+          });
         }
       }
     }
@@ -3256,6 +3273,7 @@ function syncGHNViaAPI() {
     var countSuccess = 0;
     var modifiedOrders = false;
     var financeTransactions = [];
+    var ctvTransactionsToAppend = [];
 
     for (var j = 0; j < ordersToSync.length; j++) {
       var item = ordersToSync[j];
@@ -3316,9 +3334,46 @@ function syncGHNViaAPI() {
                 true
               ]);
             }
+
+            // Ghi nhận Phí Vận Chuyển / Hoàn Hàng cho CTV
+            var isCTV = String(item.channel).toUpperCase().includes('CTV') || String(item.channel).toUpperCase().includes('CỘNG TÁC VIÊN');
+            var ctvUser = String(item.responsibleUser || item.updatedBy || item.customer || '').trim();
+            if (isCTV && ctvUser && totalFee > 0) {
+              if (newStatus === 'Hoàn Thành') {
+                 ctvTransactionsToAppend.push([
+                     Utilities.getUuid(),
+                     new Date().toISOString().substring(0,10),
+                     'PHÍ VẬN CHUYỂN',
+                     totalFee,
+                     'Phí giao hàng GHN: ' + item.code,
+                     ctvUser,
+                     'Hoàn Thành'
+                 ]);
+              } else if (newStatus === 'Hàng Hoàn') {
+                 ctvTransactionsToAppend.push([
+                     Utilities.getUuid(),
+                     new Date().toISOString().substring(0,10),
+                     'PHÍ HOÀN HÀNG',
+                     totalFee,
+                     'Phí hoàn/chuyển hoàn GHN: ' + item.code,
+                     ctvUser,
+                     'Hoàn Thành'
+                 ]);
+              }
+            }
           }
         }
       }
+    }
+
+    if (ctvTransactionsToAppend.length > 0) {
+      var ctvSheet = ss.getSheetByName('CTV_Finance');
+      if (!ctvSheet) {
+        ctvSheet = ss.insertSheet('CTV_Finance');
+        ctvSheet.appendRow(['id', 'date', 'type', 'amount', 'note', 'user', 'status']);
+        ctvSheet.getRange("A1:G1").setFontWeight("bold").setBackground("#d4af37");
+      }
+      ctvSheet.getRange(ctvSheet.getLastRow() + 1, 1, ctvTransactionsToAppend.length, ctvTransactionsToAppend[0].length).setValues(ctvTransactionsToAppend);
     }
 
     if (financeTransactions.length > 0) {
@@ -4507,7 +4562,18 @@ function safeDeductInventoryOnHandover(ordersToHandover, ss) {
     var oCode = (order.orderCode || '').split(' | ')[0] || (order.id ? String(order.id).substring(0, 5) : '');
     if (oCode) orderCodes.push(oCode);
 
-    // 1. Phụ kiện đóng gói (luôn trừ kho)
+    // 1. Sản phẩm từ Production (Bể Kính / Layout): Trừ kho cho các món có lệnh sản xuất
+    var orderProds = prodData.filter(function (p) { return p && String(p.orderId) === String(order.id); });
+    var prodNamesAdded = {};
+    orderProds.forEach(function (rp) {
+      if (rp && rp.name) {
+        allItemsToExport.push({ name: rp.name, qty: 1 });
+        var k = String(rp.name).trim().toLowerCase();
+        prodNamesAdded[k] = (prodNamesAdded[k] || 0) + 1;
+      }
+    });
+
+    // 2. Phụ kiện đóng gói: Chỉ trừ những món CHƯA được tính trong Production
     var accs = [];
     if (typeof order.accessories === 'string') {
       try { accs = JSON.parse(order.accessories); } catch (e) { }
@@ -4519,15 +4585,23 @@ function safeDeductInventoryOnHandover(ordersToHandover, ss) {
         if (!a) return;
         var aName = typeof a === 'string' ? a : (a.name || a.Name || '');
         var qty = typeof a === 'object' ? (Number(a.quantity || a.qty) || 1) : 1;
-        if (aName) allItemsToExport.push({ name: aName, qty: qty });
+        var aNameKey = String(aName).trim().toLowerCase();
+
+        // Nếu món này đã được đưa vào danh sách xuất từ lệnh Production tương ứng thì trừ bớt
+        if (prodNamesAdded[aNameKey] && prodNamesAdded[aNameKey] > 0) {
+          var remainingQty = Math.max(0, qty - prodNamesAdded[aNameKey]);
+          prodNamesAdded[aNameKey] -= (qty - remainingQty);
+          if (remainingQty > 0) {
+            allItemsToExport.push({ name: aName, qty: remainingQty });
+          }
+        } else if (typeof a === 'object' && (a.hasProduction === true || a.hasProduction === 'true') && orderProds.length > 0) {
+          // Bỏ qua nếu là món hàng sản xuất nhưng đã có Production xử lý
+          return;
+        } else if (aName) {
+          allItemsToExport.push({ name: aName, qty: qty });
+        }
       });
     }
-
-    // 2. Sản phẩm từ Production (Bể Kính / Layout): Trừ kho cho TẤT CẢ (dù lấy từ kho hay mới sản xuất)
-    var orderProds = prodData.filter(function (p) { return p && String(p.orderId) === String(order.id); });
-    orderProds.forEach(function (rp) {
-      if (rp && rp.name) allItemsToExport.push({ name: rp.name, qty: 1 });
-    });
   });
 
   // Gom nhóm và trừ kho cho TẤT CẢ các đơn
@@ -4632,7 +4706,9 @@ function repairKPIProgressSheetHeaders() {
  * =========================================================================
  */
 function api_insertManualKPI(payload) {
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(15000);
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheet = ss.getSheetByName('KPI_Progress');
     if (!sheet) {
@@ -4667,6 +4743,8 @@ function api_insertManualKPI(payload) {
     return { success: true, message: 'Đã thêm KPI thủ công thành công!' };
   } catch (error) {
     return { success: false, message: error.toString() };
+  } finally {
+    lock.releaseLock();
   }
 }
 
@@ -4676,7 +4754,9 @@ function api_insertManualKPI(payload) {
  * =========================================================================
  */
 function api_insertManualTask(payload) {
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(15000);
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheet = ss.getSheetByName('KPI_Progress');
     if (!sheet) {
@@ -4715,6 +4795,8 @@ function api_insertManualTask(payload) {
     return { success: true, message: 'Đã giao nhiệm vụ thành công! Nhân sự cần báo cáo hoàn thành để nhận Xu.' };
   } catch (error) {
     return { success: false, message: error.toString() };
+  } finally {
+    lock.releaseLock();
   }
 }
 
@@ -4722,7 +4804,9 @@ function api_insertManualTask(payload) {
  * API XỬ LÝ DƯ NỢ LƯƠNG ÂM THEO CHUẨN ERP
  */
 function api_settleMonthlyDebt(payload) {
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(15000);
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var bpSheet = ss.getSheetByName('BonusPenalty');
     if (!bpSheet) {
@@ -4785,6 +4869,8 @@ function api_settleMonthlyDebt(payload) {
 
   } catch (error) {
     return { success: false, message: 'Lỗi Backend: ' + error.toString() };
+  } finally {
+    lock.releaseLock();
   }
 }
 
@@ -4792,7 +4878,9 @@ function api_settleMonthlyDebt(payload) {
  * API HOÀN THÀNH LÔ BỂ KÍNH (Batch Production)
  */
 function api_completeBatchProduction(idList) {
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(15000);
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheet = ss.getSheetByName('Production');
     if (!sheet) return { success: false, message: 'Không tìm thấy bảng Production' };
@@ -4829,6 +4917,8 @@ function api_completeBatchProduction(idList) {
     return { success: true, message: 'Đã cập nhật ' + idList.length + ' lệnh' };
   } catch (error) {
     return { success: false, message: error.toString() };
+  } finally {
+    lock.releaseLock();
   }
 }
 
@@ -5283,16 +5373,24 @@ function processSlaAutomation(orderId) {
     var isAllAccAvailable = true;
     if (Array.isArray(accList) && accList.length > 0) {
       accList.forEach(function (acc) {
+        if (!acc) return;
+        if (acc.hasProduction === true || acc.hasProduction === 'true') return;
+
         var accName = typeof acc === 'string' ? acc : (acc.name || acc.Name || '');
         var accQty = typeof acc === 'object' ? (Number(acc.quantity || acc.qty) || 1) : 1;
 
         var foundStock = 0;
+        var foundCat = '';
         for (var p = 1; p < prData.length; p++) {
           if (String(prData[p][prNameCol]).trim().toLowerCase() === String(accName).trim().toLowerCase()) {
             foundStock = Number(prData[p][prQtyCol]) || 0;
+            var catCol = prHead.indexOf('category');
+            if (catCol !== -1) foundCat = String(prData[p][catCol]).toUpperCase().trim();
             break;
           }
         }
+        if (foundCat === 'LAYOUT' || foundCat === 'BỂ KÍNH') return;
+
         if (foundStock < accQty) {
           isAllAccAvailable = false;
         }
@@ -5756,6 +5854,27 @@ function processMaterialDeduction(prodId, materialUsageData) {
     }
 
     var layoutName = String(targetProd.name || '').trim();
+    var layoutNameLower = layoutName.toLowerCase();
+    
+    // Tìm SKU của sản phẩm tương ứng trong Products nếu có
+    var pRange = productSheet.getDataRange();
+    var pData = pRange.getValues();
+    var prHeaders = pData[0];
+    var prSkuIdx = prHeaders.indexOf('sku');
+    var prNameIdx = prHeaders.indexOf('name');
+    var prQtyIdx = prHeaders.indexOf('quantity');
+    var prCostIdx = prHeaders.indexOf('costPrice');
+    var prUnitIdx = prHeaders.indexOf('unit');
+
+    var targetSku = '';
+    for (var p = 1; p < pData.length; p++) {
+      var pN = String(pData[p][prNameIdx] || '').trim().toLowerCase();
+      var pS = String(pData[p][prSkuIdx] || '').trim().toLowerCase();
+      if (pN === layoutNameLower || pS === layoutNameLower || (pS && layoutNameLower.indexOf(pS) !== -1)) {
+        targetSku = String(pData[p][prSkuIdx] || '').trim();
+        break;
+      }
+    }
 
     // 1. Quét BOM_Config
     var bomData = bomSheet.getDataRange().getValues();
@@ -5768,8 +5887,16 @@ function processMaterialDeduction(prodId, materialUsageData) {
     var bomMap = {};
     for (var b = 1; b < bomData.length; b++) {
       var layoutCode = String(bomData[b][bLayoutIdx] || '').trim();
-      // Tìm kiếm danh sách vật tư theo layoutCode khớp với Production.name HOẶC SKU
-      if (layoutCode && (layoutCode.toLowerCase() === layoutName.toLowerCase())) {
+      var layoutCodeLower = layoutCode.toLowerCase();
+      
+      // Khớp theo SKU, Tên hoặc Mã Ver
+      var isMatch = layoutCode && (
+        layoutCodeLower === layoutNameLower || 
+        (targetSku && layoutCodeLower === targetSku.toLowerCase()) ||
+        (layoutNameLower.indexOf(layoutCodeLower) !== -1)
+      );
+
+      if (isMatch) {
         var sku = String(bomData[b][bSkuIdx] || '').trim();
         var q = Number(bomData[b][bQtyIdx]) || 0;
         var u = String(bomData[b][bUnitIdx] || '').trim();
@@ -5785,15 +5912,6 @@ function processMaterialDeduction(prodId, materialUsageData) {
     }
 
     // 2. Trừ tồn kho trong Products
-    var pRange = productSheet.getDataRange();
-    var pData = pRange.getValues();
-    var prHeaders = pData[0];
-    var prSkuIdx = prHeaders.indexOf('sku');
-    var prNameIdx = prHeaders.indexOf('name');
-    var prQtyIdx = prHeaders.indexOf('quantity');
-    var prCostIdx = prHeaders.indexOf('costPrice');
-    var prUnitIdx = prHeaders.indexOf('unit');
-
     var itemsDeducted = [];
     var totalCost = 0;
     var isProductChanged = false;
@@ -5822,18 +5940,33 @@ function processMaterialDeduction(prodId, materialUsageData) {
         var matUnit = String(pData[p][prUnitIdx] || '').toLowerCase().trim();
         bomUnit = bomUnit ? bomUnit.toLowerCase().trim() : matUnit;
         
+        var matNameLower = String(pData[p][prNameIdx] || '').toLowerCase();
+        var isMatKg = matUnit === 'kg' || matUnit === 'cân' || matUnit === 'kí' || matUnit === 'kilogram' || 
+                      matNameLower.indexOf('(kg)') !== -1 || matNameLower.indexOf(' kg') !== -1 || matNameLower.indexOf('/kg') !== -1;
+        var isBomGram = bomUnit === 'gam' || bomUnit === 'g' || bomUnit === 'gram' || bomUnit === 'gr';
+        
+        var isMatLit = matUnit === 'lít' || matUnit === 'lit' || matUnit === 'l' || matNameLower.indexOf('(l)') !== -1 || matNameLower.indexOf('(lít)') !== -1;
+        var isBomMl = bomUnit === 'ml' || bomUnit === 'mililit' || bomUnit === 'cc';
+        
+        var isMatMet = matUnit === 'm' || matUnit === 'mét' || matUnit === 'met' || matNameLower.indexOf('(m)') !== -1 || matNameLower.indexOf('(mét)') !== -1;
+        var isBomCm = bomUnit === 'cm' || bomUnit === 'centimet';
+        var isBomMm = bomUnit === 'mm' || bomUnit === 'milimet';
+        
         var convertedDeductQty = deductQty;
         var convertedCost = cost;
         
-        if ((matUnit === 'kg' || matUnit === 'cân') && (bomUnit === 'gam' || bomUnit === 'g' || bomUnit === 'gram')) {
+        if (isMatKg && isBomGram) {
             convertedDeductQty = deductQty / 1000;
             convertedCost = cost / 1000;
-        } else if ((matUnit === 'lít' || matUnit === 'l' || matUnit === 'lit') && (bomUnit === 'ml' || bomUnit === 'mililit')) {
+        } else if (isMatLit && isBomMl) {
             convertedDeductQty = deductQty / 1000;
             convertedCost = cost / 1000;
-        } else if ((matUnit === 'm' || matUnit === 'mét' || matUnit === 'met') && (bomUnit === 'cm' || bomUnit === 'centimet')) {
+        } else if (isMatMet && isBomCm) {
             convertedDeductQty = deductQty / 100;
             convertedCost = cost / 100;
+        } else if (isMatMet && isBomMm) {
+            convertedDeductQty = deductQty / 1000;
+            convertedCost = cost / 1000;
         }
         
         var newQty = Math.max(0, curQty - convertedDeductQty);
@@ -6546,7 +6679,11 @@ function autoGenerateAndSyncLayoutBOM() {
 // =========================================================================
 // API DASHBOARD LỖI KCS & TỒN KHO
 // =========================================================================
-function api_getDashboardErrors() {
+function getDashboardErrors(params) {
+  return api_getDashboardErrors(params);
+}
+
+function api_getDashboardErrors(params) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     
@@ -6557,16 +6694,23 @@ function api_getDashboardErrors() {
       var pData = prodSheet.getDataRange().getValues();
       var pHead = pData[0];
       var qcStatusCol = pHead.indexOf('qc_status');
-      if (qcStatusCol > -1) {
-        for (var i = 1; i < pData.length; i++) {
-          var qc = String(pData[i][qcStatusCol] || '').toUpperCase();
-          if (qc.indexOf('TỪ CHỐI') > -1 || qc.indexOf('BÁO LỖI') > -1 || qc === 'LỖI') {
-            var rowObj = {};
-            pHead.forEach(function(h, idx) {
-              rowObj[h] = pData[i][idx];
-            });
-            kcsErrors.push(rowObj);
-          }
+      var p1StatusCol = pHead.indexOf('p1_status');
+      var p2StatusCol = pHead.indexOf('p2_status');
+      var statusCol = pHead.indexOf('status');
+      
+      for (var i = 1; i < pData.length; i++) {
+        var qc = String(pData[i][qcStatusCol] || '').toUpperCase().trim();
+        var p1 = String(pData[i][p1StatusCol] || '').toUpperCase().trim();
+        var p2 = String(pData[i][p2StatusCol] || '').toUpperCase().trim();
+        var st = String(pData[i][statusCol] || '').toUpperCase().trim();
+        
+        var isQcError = (qc === 'FAIL' || qc === 'REJECT' || qc.indexOf('TỪ CHỐI') > -1 || qc.indexOf('LỖI') > -1 || p1 === 'REJECT' || p2 === 'REJECT' || st.indexOf('LỖI') > -1 || st.indexOf('SỬA') > -1);
+        if (isQcError) {
+          var rowObj = {};
+          pHead.forEach(function(h, idx) {
+            rowObj[h] = pData[i][idx];
+          });
+          kcsErrors.push(rowObj);
         }
       }
     }
@@ -6585,13 +6729,12 @@ function api_getDashboardErrors() {
           var qty = Number(iData[j][qtyCol]) || 0;
           var min = Number(iData[j][minCol]) || 0;
           var max = Number(iData[j][maxCol]) || 0;
-          // Phát hiện lỗi tồn: âm kho, dưới mức tối thiểu quá sâu, hoặc trên mức tối đa
-          if (qty < 0 || (min > 0 && qty < min) || (max > 0 && qty > max)) {
+          if (qty < 0 || (min > 0 && qty <= min)) {
             var rObj = {};
             iHead.forEach(function(h, idx) {
               rObj[h] = iData[j][idx];
             });
-            rObj._errorType = qty < 0 ? 'ÂM KHO' : (qty < min ? 'DƯỚI ĐỊNH MỨC' : 'VƯỢT ĐỊNH MỨC');
+            rObj._errorType = qty < 0 ? 'ÂM KHO' : 'CHẠM ĐÁY TỒN KHO';
             invErrors.push(rObj);
           }
         }
@@ -6602,4 +6745,457 @@ function api_getDashboardErrors() {
   } catch (err) {
     return { success: false, message: 'Lỗi tải Dashboard: ' + err.message };
   }
+}
+
+/**
+ * RICH FISH AQUARIUM - AUTO GENERATE BOM & COGS ENGINE
+ * Tự động tính số vật tư và gán thẳng giá vốn vào Products từ Sheet Định Mức Mẫu
+ */
+function autoCalculateBOMAndProductCosts() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) {
+    return { success: false, message: '⚠️ Hệ thống đang bận, vui lòng thử lại sau vài giây!' };
+  }
+
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const estimateSheet = ss.getSheetByName('Bản để làm appp không sài đến') || ss.getSheetByName('DinhMuc_Mau') || ss.getActiveSheet();
+    const prodSheet = ss.getSheetByName('Products');
+    const bomSheet = ss.getSheetByName('BOM_Config');
+
+    if (!estimateSheet || !prodSheet || !bomSheet) {
+      return { success: false, message: '❌ Không tìm thấy đủ các sheet: Products, BOM_Config, hoặc Sheet Định Mức!' };
+    }
+
+    const estData = estimateSheet.getDataRange().getValues();
+    const prodData = prodSheet.getDataRange().getValues();
+    const prodHeaders = prodData[0];
+    const skuIdx = prodHeaders.indexOf('sku');
+    const nameIdx = prodHeaders.indexOf('name');
+    const costIdx = prodHeaders.indexOf('costPrice');
+    const catIdx = prodHeaders.indexOf('category');
+
+    // 1. ÁNH XẠ CỘT TRÊN SHEET ĐỊNH MỨC MẪU
+    // Cột mặc định theo sheet "Bản để làm appp không sài đến":
+    // C (2): San Miếng, D (3): Tai Mèo, E (4): Nham Xanh, F (5): Cuội, G (6): Sạn, H (7): Vỉa, I (8): Da Voi
+    // J (9): San Cành, K (10): Đỗ Quyên, L (11): Rễ Rừng, M (12): Thạch Sùng, N (13): Nhọ Nồi
+    // O (14): Rêu Xanh, P (15): Rêu Đỏ, Q (16): Fomex 8li, R (17): Fomex 10li, S (18): Keo DK, T (19): Keo GC
+    const colMap = {
+      sanMieng: 2, taiMeo: 3, nhamXanh: 4, cuoi: 5, san: 6, via: 7, daVoi: 8,
+      sanCanh: 9, doQuyen: 10, reRung: 11, thachSung: 12, nhoNoi: 13,
+      reuXanh: 14, reuDo: 15, fomex8: 16, fomex10: 17, keoDK: 18, keoGC: 19
+    };
+
+    // Quét 6 dòng đầu tiên để map động nếu các cột có dịch chuyển
+    for (let c = 0; c < (estData[0] ? estData[0].length : 25); c++) {
+      let combinedHeader = '';
+      for (let r = 0; r < Math.min(6, estData.length); r++) {
+        combinedHeader += ' ' + String(estData[r][c] || '');
+      }
+      const hStr = combinedHeader.toLowerCase();
+      if (hStr.includes('san miếng') || hStr.includes('san mieng')) colMap.sanMieng = c;
+      else if (hStr.includes('tai mèo') || hStr.includes('tai meo')) colMap.taiMeo = c;
+      else if (hStr.includes('nham xanh') || hStr.includes('nham')) colMap.nhamXanh = c;
+      else if (hStr.includes('cuội') || hStr.includes('cuoi')) colMap.cuoi = c;
+      else if (hStr.includes('sạn') || hStr.includes('san')) colMap.san = c;
+      else if (hStr.includes('vỉa') || hStr.includes('via')) colMap.via = c;
+      else if (hStr.includes('da voi')) colMap.daVoi = c;
+      else if (hStr.includes('san cành') || hStr.includes('san canh')) colMap.sanCanh = c;
+      else if (hStr.includes('đỗ quyên') || hStr.includes('do quyen')) colMap.doQuyen = c;
+      else if (hStr.includes('rễ rừng') || hStr.includes('re rung')) colMap.reRung = c;
+      else if (hStr.includes('thạch sùng') || hStr.includes('thach sung')) colMap.thachSung = c;
+      else if (hStr.includes('nhọ nồi') || hStr.includes('nho noi')) colMap.nhoNoi = c;
+      else if (hStr.includes('rêu xanh') || hStr.includes('reu xanh')) colMap.reuXanh = c;
+      else if (hStr.includes('rêu đỏ') || hStr.includes('reu do')) colMap.reuDo = c;
+      else if (hStr.includes('fomex 8li') || hStr.includes('fomex 8')) colMap.fomex8 = c;
+      else if (hStr.includes('fomex 10li') || hStr.includes('fomex 10')) colMap.fomex10 = c;
+      else if (hStr.includes('dựng khung') || hStr.includes('dung khung')) colMap.keoDK = c;
+      else if (hStr.includes('gia cố') || hStr.includes('gia co')) colMap.keoGC = c;
+    }
+
+    // Đơn giá vật tư gốc
+    const MATERIAL_COST = {
+      'NLSX-LUASANMIENG': 35000, 'NLSX-TAIMEO': 5000, 'NLSX-NHAM': 5000,
+      'NLSX-CUOI': 5000, 'NLSX-SAN': 5000, 'NLSX-VIA': 7000, 'NLSX-DAVOI': 7000,
+      'NLSX-LUASANCANH': 35000, 'NLSX-DOQUYEN': 120000, 'NLSX-RE': 100000,
+      'NLSX-THACHSUNG': 35000, 'NLSX-NOIN': 70000, 'NLSX-REU-A04': 450,
+      'NLSX-REU-A11': 450, 'NLSX-FOMEX-8li': 100779, 'NLSX-FOMEX10-54': 117576,
+      'NLSX-502-1CHAI': 22000
+    };
+
+    // 2. BÓC TÁCH MẪU CHUẨN TỪ CÁC DÒNG SIZE 30x20x20 (hoặc dòng mẫu đầu tiên của mã)
+    const baseMap = {};
+    for (let r = 0; r < estData.length; r++) {
+      const sku = String(estData[r][0] || '').trim().toUpperCase();
+      if (!sku || sku === 'MÃ' || sku === 'MA' || sku.startsWith('TÊN')) continue;
+      
+      const parts = sku.split('-');
+      const prefix = parts.length >= 2 ? parts.slice(0, 2).join('-') : parts[0];
+      const row = estData[r];
+      
+      const parsedData = {
+        sanMieng: Number(row[colMap.sanMieng]) || 0,
+        taiMeo: Number(row[colMap.taiMeo]) || 0,
+        nhamXanh: Number(row[colMap.nhamXanh]) || 0,
+        cuoi: Number(row[colMap.cuoi]) || 0,
+        san: Number(row[colMap.san]) || 0,
+        via: Number(row[colMap.via]) || 0,
+        daVoi: Number(row[colMap.daVoi]) || 0,
+        sanCanh: Number(row[colMap.sanCanh]) || 0,
+        doQuyen: Number(row[colMap.doQuyen]) || 0,
+        reRung: Number(row[colMap.reRung]) || 0,
+        thachSung: Number(row[colMap.thachSung]) || 0,
+        nhoNoi: Number(row[colMap.nhoNoi]) || 0,
+        reuXanh: Number(row[colMap.reuXanh]) || 0,
+        reuDo: Number(row[colMap.reuDo]) || 0,
+        keoDK: Number(row[colMap.keoDK]) || 40,
+        keoGC: Number(row[colMap.keoGC]) || 120
+      };
+
+      // Ưu tiên dòng 302020 làm chuẩn gốc
+      if (sku.includes('302020') || !baseMap[prefix]) {
+        baseMap[prefix] = parsedData;
+      }
+    }
+
+    // 3. TỰ ĐỘNG TÍNH TOÁN CHO TẤT CẢ SẢN PHẨM LAYOUT TRONG PRODUCTS
+    const newBomRows = [['id', 'layoutCode', 'materialSku', 'defaultQty', 'unit']];
+    let updatedProductsCount = 0;
+
+    // Giữ lại BOM Bể Kính cũ
+    const oldBom = bomSheet.getDataRange().getValues();
+    for (let b = 1; b < oldBom.length; b++) {
+      const code = String(oldBom[b][1] || '').trim();
+      if (code.startsWith('BE') || code.startsWith('TERA') || code.startsWith('BETTA')) {
+        newBomRows.push(oldBom[b]);
+      }
+    }
+
+    for (let p = 1; p < prodData.length; p++) {
+      const cat = String(prodData[p][catIdx] || '').toUpperCase();
+      if (cat !== 'LAYOUT') continue;
+
+      const prodSku = String(prodData[p][skuIdx] || '').trim();
+      const prodName = String(prodData[p][nameIdx] || '').trim();
+      if (!prodSku) continue;
+
+      // Phân tích mã ver và kích thước
+      let match = prodSku.match(/^([A-Z]+-\d{3})-(\d{2,3})(\d{2})(\d{2})$/);
+      let prefix = '';
+      let L = 30, W = 20, H = 20;
+
+      if (match) {
+        prefix = match[1];
+        L = parseInt(match[2]);
+        W = parseInt(match[3]);
+        H = parseInt(match[4]);
+      } else {
+        const nameDimMatch = prodName.match(/(\d+)\s*x\s*(\d+)\s*x\s*(\d+)/i);
+        const namePrefixMatch = prodSku.match(/^([A-Z]+-\d{3})/);
+        if (nameDimMatch && namePrefixMatch) {
+          prefix = namePrefixMatch[1];
+          L = parseInt(nameDimMatch[1]);
+          W = parseInt(nameDimMatch[2]);
+          H = parseInt(nameDimMatch[3]);
+        }
+      }
+
+      const base = baseMap[prefix];
+      if (!base) continue;
+
+      // Hệ số mở rộng theo thể tích và diện tích đáy
+      const V0 = 30 * 20 * 20;
+      const S0 = 30 * 20;
+      const V = L * W * H;
+      const S = L * W;
+
+      const kStone = Math.pow(V / V0, 0.65);
+      const kWood = Math.pow(V / V0, 0.75);
+      const kMoss = Math.pow(S / S0, 0.65);
+      const kKeo = Math.pow(V / V0, 0.70);
+
+      // Fomex
+      const isBigTank = (L >= 40 || W >= 23);
+      const fomexAreaM2 = Number(((S * 0.9) / 10000).toFixed(4));
+      const fomexSku = isBigTank ? 'NLSX-FOMEX10-54' : 'NLSX-FOMEX-8li';
+      const fomexPrice = isBigTank ? MATERIAL_COST['NLSX-FOMEX10-54'] : MATERIAL_COST['NLSX-FOMEX-8li'];
+
+      let totalCOGS = 0;
+
+      // A. Tính Đá (gam -> Kg)
+      const stoneList = [
+        { sku: 'NLSX-TAIMEO', val: base.taiMeo },
+        { sku: 'NLSX-NHAM', val: base.nhamXanh },
+        { sku: 'NLSX-CUOI', val: base.cuoi },
+        { sku: 'NLSX-SAN', val: base.san },
+        { sku: 'NLSX-VIA', val: base.via },
+        { sku: 'NLSX-DAVOI', val: base.daVoi }
+      ];
+
+      stoneList.forEach(st => {
+        if (st.val > 0) {
+          const qtyKg = Number(((st.val * kStone) / 1000).toFixed(3));
+          totalCOGS += qtyKg * (MATERIAL_COST[st.sku] || 5000);
+          newBomRows.push([`BOM_${prodSku}_${st.sku}`, prodSku, st.sku, qtyKg, 'Cân']);
+        }
+      });
+
+      // B. Tính Lũa (gam -> Kg)
+      const woodList = [
+        { sku: 'NLSX-LUASANMIENG', val: base.sanMieng },
+        { sku: 'NLSX-LUASANCANH', val: base.sanCanh },
+        { sku: 'NLSX-DOQUYEN', val: base.doQuyen },
+        { sku: 'NLSX-RE', val: base.reRung },
+        { sku: 'NLSX-THACHSUNG', val: base.thachSung },
+        { sku: 'NLSX-NOIN', val: base.nhoNoi }
+      ];
+
+      woodList.forEach(w => {
+        if (w.val > 0) {
+          const qtyKg = Number(((w.val * kWood) / 1000).toFixed(3));
+          totalCOGS += qtyKg * (MATERIAL_COST[w.sku] || 45000);
+          newBomRows.push([`BOM_${prodSku}_${w.sku}`, prodSku, w.sku, qtyKg, 'Cân']);
+        }
+      });
+
+      // C. Tính Rêu (gam)
+      if (base.reuXanh > 0) {
+        const qtyG = Math.round(base.reuXanh * kMoss);
+        totalCOGS += qtyG * MATERIAL_COST['NLSX-REU-A04'];
+        newBomRows.push([`BOM_${prodSku}_REU_XANH`, prodSku, 'NLSX-REU-A04', qtyG, 'Gam']);
+      }
+      if (base.reuDo > 0) {
+        const qtyG = Math.round(base.reuDo * kMoss);
+        totalCOGS += qtyG * MATERIAL_COST['NLSX-REU-A11'];
+        newBomRows.push([`BOM_${prodSku}_REU_DO`, prodSku, 'NLSX-REU-A11', qtyG, 'Gam']);
+      }
+
+      // D. Tính Fomex
+      totalCOGS += fomexAreaM2 * fomexPrice;
+      newBomRows.push([`BOM_${prodSku}_FOMEX`, prodSku, fomexSku, fomexAreaM2, 'm²']);
+
+      // E. Tính Keo 502 (Quy đổi ra chai 160g)
+      const totalKeoGrams = (base.keoDK + base.keoGC) * kKeo;
+      const totalBottles = Number((totalKeoGrams / 160).toFixed(2));
+      totalCOGS += totalBottles * MATERIAL_COST['NLSX-502-1CHAI'];
+      newBomRows.push([`BOM_${prodSku}_KEO502`, prodSku, 'NLSX-502-1CHAI', totalBottles, 'Chai']);
+
+      // Cập nhật giá vốn trực tiếp vào dòng của bảng Products
+      const finalCOGS = Math.round(totalCOGS);
+      prodData[p][costIdx] = finalCOGS;
+      updatedProductsCount++;
+    }
+
+    // 4. BATCH WRITE TRỞ LẠI SHEETS (Tối ưu chống tràn Quota)
+    prodSheet.getRange(1, 1, prodData.length, prodHeaders.length).setValues(prodData);
+    bomSheet.clearContents();
+    bomSheet.getRange(1, 1, newBomRows.length, newBomRows[0].length).setValues(newBomRows);
+
+    SpreadsheetApp.flush();
+    return {
+      success: true,
+      message: `✅ HOÀN TẤT THÀNH CÔNG!\n- Đã tự động nhân bản & gán giá vốn (costPrice) cho ${updatedProductsCount} SKU Layout.\n- Đã đồng bộ ${newBomRows.length - 1} bản ghi BOM chuẩn vào BOM_Config.`
+    };
+
+  } catch (err) {
+    return { success: false, message: '❌ Lỗi xử lý: ' + err.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ============================================================================
+// RF_WORKSPACE_PRO - WEB PUSH NOTIFICATION BACKEND ENGINE
+// ============================================================================
+
+/**
+ * 0. Khởi tạo bảng Push_Subscriptions trên Google Spreadsheet nếu chưa tồn tại
+ */
+function initPushSubscriptionsSheet() {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheetName = 'Push_Subscriptions';
+    var sheet = ss.getSheetByName(sheetName);
+
+    if (!sheet) {
+      sheet = ss.insertSheet(sheetName);
+      sheet.appendRow(['id', 'user', 'subscription', 'userAgent', 'updatedAt']);
+      sheet.getRange(1, 1, 1, 5).setFontWeight('bold').setBackground('#E2E8F0');
+      Logger.log('✅ Đã khởi tạo thành công bảng Push_Subscriptions');
+    } else {
+      Logger.log('ℹ️ Bảng Push_Subscriptions đã tồn tại');
+    }
+    return sheet;
+  } catch (e) {
+    Logger.log('❌ Lỗi initPushSubscriptionsSheet: ' + e.toString());
+    return null;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * 1. Lưu hoặc Cập nhật Push Subscription của nhân sự (Bảo vệ LockService)
+ */
+function saveUserPushSubscription(data) {
+  if (!data || !data.user || !data.subscription) {
+    return { success: false, message: 'Dữ liệu không hợp lệ' };
+  }
+
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheetName = 'Push_Subscriptions';
+    var sheet = ss.getSheetByName(sheetName);
+
+    if (!sheet) {
+      sheet = ss.insertSheet(sheetName);
+      sheet.appendRow(['id', 'user', 'subscription', 'userAgent', 'updatedAt']);
+      sheet.getRange(1, 1, 1, 5).setFontWeight('bold').setBackground('#E2E8F0');
+    }
+
+    var values = sheet.getDataRange().getValues();
+    var user = String(data.user).trim();
+    var subscriptionStr = String(data.subscription).trim();
+    var foundRow = -1;
+
+    for (var i = 1; i < values.length; i++) {
+      if (String(values[i][1]).trim() === user && String(values[i][2]).trim() === subscriptionStr) {
+        foundRow = i + 1;
+        break;
+      }
+    }
+
+    var nowStr = Utilities.formatDate(new Date(), 'Asia/Ho_Chi_Minh', 'yyyy-MM-dd HH:mm:ss');
+
+    if (foundRow > 0) {
+      sheet.getRange(foundRow, 4).setValue(data.userAgent || '');
+      sheet.getRange(foundRow, 5).setValue(nowStr);
+    } else {
+      var newId = 'SUB_' + Utilities.getUuid().substring(0, 8);
+      sheet.appendRow([newId, user, subscriptionStr, data.userAgent || '', nowStr]);
+    }
+
+    return { success: true };
+  } catch (e) {
+    Logger.log('❌ Lỗi saveUserPushSubscription: ' + e.toString());
+    return { success: false, error: e.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * 2. Gửi thông báo đẩy Web Push tới nhân sự cụ thể hoặc ALL
+ * @param {string} targetUserName Tên nhân sự hoặc "ALL"
+ * @param {string} title Tiêu đề thông báo
+ * @param {string} message Nội dung tóm tắt
+ * @param {string} targetUrl Đường dẫn khi nhấp vào banner
+ */
+function sendPushNotificationToStaff(targetUserName, title, message, targetUrl) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var subSheet = ss.getSheetByName('Push_Subscriptions');
+    if (!subSheet) {
+      Logger.log('⚠️ Bảng Push_Subscriptions chưa có, đang tự động khởi tạo...');
+      subSheet = initPushSubscriptionsSheet();
+    }
+    if (!subSheet) {
+      return { success: false, message: 'Không thể khởi tạo bảng Push_Subscriptions' };
+    }
+
+    var data = subSheet.getDataRange().getValues();
+    if (data.length <= 1) return { success: false, message: 'Chưa có đăng ký subscription nào' };
+
+    var targetUser = String(targetUserName).trim();
+    var subsToSend = [];
+
+    for (var i = 1; i < data.length; i++) {
+      var staffName = String(data[i][1]).trim();
+      var rawSub = String(data[i][2]).trim();
+
+      if ((targetUser === 'ALL' || staffName === targetUser) && rawSub) {
+        try {
+          subsToSend.push({
+            staff: staffName,
+            sub: JSON.parse(rawSub)
+          });
+        } catch (err) {
+          Logger.log('Lỗi parse subscription dòng ' + (i + 1));
+        }
+      }
+    }
+
+    if (subsToSend.length === 0) {
+      Logger.log('ℹ️ Không có token subscription nào khớp cho: ' + targetUser);
+      return { success: false, count: 0 };
+    }
+
+    var RELAY_ENDPOINT = PropertiesService.getScriptProperties().getProperty('PUSH_RELAY_URL') || 'https://floral-poetry-4aadrf-push-relay.nicezin-98.workers.dev/';
+    var AUTH_TOKEN = PropertiesService.getScriptProperties().getProperty('PUSH_AUTH_TOKEN') || 'RF_WORK_PRO_SECURE_TOKEN_2026';
+
+    var sentCount = 0;
+    subsToSend.forEach(function(item) {
+      var payload = {
+        title: title || 'Rich Fish Aquarium',
+        body: message || '',
+        url: targetUrl || '',
+        tag: 'rf-alert-' + new Date().getTime()
+      };
+
+      var options = {
+        method: 'post',
+        contentType: 'application/json',
+        headers: {
+          'Authorization': 'Bearer ' + AUTH_TOKEN
+        },
+        payload: JSON.stringify({
+          subscription: item.sub,
+          payload: payload
+        }),
+        muteHttpExceptions: true
+      };
+
+      try {
+        var response = UrlFetchApp.fetch(RELAY_ENDPOINT, options);
+        if (response.getResponseCode() >= 200 && response.getResponseCode() < 300) {
+          sentCount++;
+        }
+      } catch (errReq) {
+        Logger.log('❌ Lỗi UrlFetchApp Push tới [' + item.staff + ']: ' + errReq.toString());
+      }
+    });
+
+    return { success: true, count: sentCount, total: subsToSend.length };
+  } catch (e) {
+    Logger.log('❌ Lỗi tổng quát sendPushNotificationToStaff: ' + e.toString());
+    return { success: false, error: e.toString() };
+  }
+}
+
+/**
+ * 3. Kích hoạt thông báo đẩy cảnh báo đơn trễ / tiến độ 19:30
+ */
+function triggerDailyPackSlaAlert() {
+  var title = '🚨 CẢNH BÁO TIẾN ĐỘ 19:30';
+  var message = 'Còn đơn hàng Shopee/TikTok cần đóng gói trước giờ xe lấy. Kiểm tra ngay!';
+  var targetUrl = 'https://script.google.com/macros/s/exec?tab=packings';
+  
+  sendPushNotificationToStaff('Diệu Hương', title, message, targetUrl);
+  sendPushNotificationToStaff('Nguyễn Hoàng Dương', title, message, targetUrl);
+}
+
+/**
+ * 4. Hàm Test thử nghiệm bắn thông báo tức thì tới tất cả thiết bị đã đăng ký
+ */
+function testSendPushNotification() {
+  var title = '🔔 TEST THÔNG BÁO RF WORKSPACE PRO';
+  var message = 'Hệ thống thông báo đẩy 24/7 khi tắt app đã hoạt động thành công!';
+  var result = sendPushNotificationToStaff('ALL', title, message, 'https://script.google.com/macros/s/exec');
+  Logger.log('Kết quả test Web Push: ' + JSON.stringify(result));
+  return result;
 }

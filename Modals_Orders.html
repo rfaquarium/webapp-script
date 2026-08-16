@@ -211,7 +211,7 @@
 
         // RULE: Phân loại chính xác mặt hàng Sản Xuất (Chỉ BỂ KÍNH và LAYOUT là hàng sản xuất, DANH MỤC SẢN XUẤT là nguyên liệu)
         const checkProductionItemType = (item, catalogProducts) => {
-            let matchedItem = item.matchedProd || (catalogProducts || []).find(p => String(p.name || '').trim() === String(item.name || '').trim());
+            let matchedItem = item.matchedProd || (catalogProducts || []).find(p => String(p.name || '').trim().toLowerCase() === String(item.name || '').trim().toLowerCase());
             let isGlass = false;
             let isLayout = false;
             let isProd = false;
@@ -219,25 +219,39 @@
             if (matchedItem) {
                 const cat = String(matchedItem.category || '').toUpperCase().trim();
                 const subCat = String(matchedItem.sub_category || '').toUpperCase().trim();
-                if (cat === 'BỂ KÍNH' || cat === 'BE KINH' || subCat === 'BỂ KÍNH' || subCat === 'BE KINH') {
+                if (cat === 'BỂ KÍNH' || cat === 'BE KINH' || subCat === 'BỂ KÍNH' || subCat === 'BE KINH' || ['BỂ MINI', 'TERRARIUM', 'BÁN CẠN', 'BỂ BETTA', 'BỂ NÂNG ĐÁY'].some(sc => cat.includes(sc) || subCat.includes(sc))) {
                     isGlass = true;
                     isProd = true;
-                } else if (cat === 'LAYOUT' || subCat === 'LAYOUT') {
+                } else if (cat === 'LAYOUT' || subCat === 'LAYOUT' || ['LINH THÚ', 'VÁCH SUỐI', 'HẺM NÚI', 'NATURE', 'NHẤT TRỤ', 'TRĂNG', 'BONSAI', 'CẦU VỒNG', 'BIOTOP CUỘI', 'HANG ĐỘNG', 'RỪNG', 'ĐẢO BAY', 'CỔNG VÒM', 'COVER'].some(sc => cat.includes(sc) || subCat.includes(sc))) {
                     isLayout = true;
                     isProd = true;
                 }
-                // Lưu ý: "DANH MỤC SẢN XUẤT" chứa nguyên liệu vật tư, không phải thành phẩm sản xuất cho thợ.
+                if (isProd) {
+                    return {
+                        isProd: isProd,
+                        isGlass: isGlass,
+                        isLayout: isLayout,
+                        type: isGlass ? 'Bể Kính' : (isLayout ? 'Layout' : 'Phụ Kiện'),
+                        matchedProd: matchedItem
+                    };
+                }
             }
 
-            if (!isProd) {
-                const lname = String(item.name || '').toLowerCase();
-                if (lname.includes('bể') || lname.includes('kính') || lname.includes('terarium') || lname.includes('bán cạn') || lname.includes('betta')) {
-                    isGlass = true;
-                    isProd = true;
-                } else if (lname.includes('layout') || lname.includes('nhất trụ') || lname.includes('rễ rừng') || lname.includes('vách suối') || lname.includes('hẻm núi') || lname.includes('bonsai') || lname.includes('đảo bay') || lname.includes('hang động')) {
-                    isLayout = true;
-                    isProd = true;
-                }
+            // Chỉ fallback quét từ khóa khi KHÔNG tìm thấy sản phẩm trong danh mục kho hàng hoặc chưa set category
+            const lname = String(item.name || '').toLowerCase();
+            const glassKeywords = ['bể', 'kính', 'terarium', 'terrarium', 'bán cạn', 'betta', 'bể mini', 'nâng đáy'];
+            const layoutKeywords = [
+                'layout', 'linh thú', 'vách suối', 'hẻm núi', 'nature', 'nhất trụ', 'trăng', 'bonsai', 
+                'cầu vồng', 'biotop', 'cuội', 'hang động', 'rừng', 'đảo bay', 'cổng vòm', 'cover', 
+                'tiểu cảnh', 'lũa', 'thác cát', 'hồ bán cạn'
+            ];
+
+            if (glassKeywords.some(kw => lname.includes(kw))) {
+                isGlass = true;
+                isProd = true;
+            } else if (layoutKeywords.some(kw => lname.includes(kw))) {
+                isLayout = true;
+                isProd = true;
             }
 
             return {
@@ -314,16 +328,23 @@
                         customerName = String(cols[iRecipient]).trim();
                     }
 
-                    let rowRevenue = 0;
-                    if (iRevenue >= 0 && cols[iRevenue]) {
-                        let cleanVal = String(cols[iRevenue]).replace(/[^0-9.-]/g, '');
-                        rowRevenue = parseFloat(cleanVal) || 0;
-                    }
-                    let rowFeeFixed = (iFeeFixed >= 0 && cols[iFeeFixed]) ? Math.abs(parseFloat(String(cols[iFeeFixed]).replace(/[^0-9.-]/g, '')) || 0) : 0;
-                    let rowFeeService = (iFeeService >= 0 && cols[iFeeService]) ? Math.abs(parseFloat(String(cols[iFeeService]).replace(/[^0-9.-]/g, '')) || 0) : 0;
-                    let rowFeePayment = (iFeePayment >= 0 && cols[iFeePayment]) ? Math.abs(parseFloat(String(cols[iFeePayment]).replace(/[^0-9.-]/g, '')) || 0) : 0;
-                    let rowFeeAffiliate = (iFeeAffiliate >= 0 && cols[iFeeAffiliate]) ? Math.abs(parseFloat(String(cols[iFeeAffiliate]).replace(/[^0-9.-]/g, '')) || 0) : 0;
-                    let rowShopVoucher = (iShopVoucher >= 0 && cols[iShopVoucher]) ? Math.abs(parseFloat(String(cols[iShopVoucher]).replace(/[^0-9.-]/g, '')) || 0) : 0;
+                    const parseMoneyVal = (raw) => {
+                        if (raw === null || raw === undefined || raw === '') return 0;
+                        if (typeof raw === 'number') return Math.round(raw);
+                        let s = String(raw).trim().replace(/[đĐ\s]/g, '');
+                        if (!s) return 0;
+                        if (/^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
+                        else if (/^\d{1,3}(,\d{3})+$/.test(s)) s = s.replace(/,/g, '');
+                        else s = s.replace(/,/g, '.');
+                        return Math.round(parseFloat(s)) || 0;
+                    };
+
+                    let rowRevenue = (iRevenue >= 0 && cols[iRevenue]) ? parseMoneyVal(cols[iRevenue]) : 0;
+                    let rowFeeFixed = (iFeeFixed >= 0 && cols[iFeeFixed]) ? Math.abs(parseMoneyVal(cols[iFeeFixed])) : 0;
+                    let rowFeeService = (iFeeService >= 0 && cols[iFeeService]) ? Math.abs(parseMoneyVal(cols[iFeeService])) : 0;
+                    let rowFeePayment = (iFeePayment >= 0 && cols[iFeePayment]) ? Math.abs(parseMoneyVal(cols[iFeePayment])) : 0;
+                    let rowFeeAffiliate = (iFeeAffiliate >= 0 && cols[iFeeAffiliate]) ? Math.abs(parseMoneyVal(cols[iFeeAffiliate])) : 0;
+                    let rowShopVoucher = (iShopVoucher >= 0 && cols[iShopVoucher]) ? Math.abs(parseMoneyVal(cols[iShopVoucher])) : 0;
 
                     let rawStatus = (iStatus >= 0 && cols[iStatus]) ? String(cols[iStatus]).trim() : '';
 
@@ -557,7 +578,7 @@
 
                     let targetOrderId = o.isUpdate ? o.existingId : ('ORD_' + Date.now() + '_' + oIdx);
                     let accessories = [];
-                    let orderStatus = calculatedStatus || (o.isUpdate ? (o.existingRecord.status || 'Chờ Sản Xuất') : 'Sẵn sàng đóng gói');
+                    let orderStatus = calculatedStatus || (o.isUpdate ? (o.existingRecord.status || 'Chờ Sản Xuất') : 'Chờ Sản Xuất');
                     let orderHasProductionNeeded = o.isUpdate ? (o.existingRecord.hasProduction !== undefined ? o.existingRecord.hasProduction : true) : false;
 
                     const hasExistingProds = o.isUpdate && existingProdItems && existingProdItems.some(p => {
@@ -2794,7 +2815,8 @@
                 const pInfo = getProductInfo(itemName);
                 const cat = String(pInfo?.category || '').toUpperCase();
                 const lname = itemName.toLowerCase();
-                const isTargetCat = cat === 'BỂ KÍNH' || cat === 'LAYOUT' || lname.includes('bể') || lname.includes('kính') || lname.includes('terarium') || lname.includes('bán cạn') || lname.includes('layout') || lname.includes('rừng') || lname.includes('bonsai') || lname.includes('vách suối') || lname.includes('hẻm núi') || lname.includes('nhất trụ') || lname.includes('đảo bay') || lname.includes('hang động');
+                const isTargetCat = cat === 'BỂ KÍNH' || cat === 'LAYOUT' || ['BỂ MINI', 'TERRARIUM', 'BÁN CẠN', 'BỂ BETTA', 'BỂ NÂNG ĐÁY', 'LINH THÚ', 'VÁCH SUỐI', 'HẺM NÚI', 'NATURE', 'NHẤT TRỤ', 'TRĂNG', 'BONSAI', 'CẦU VỒNG', 'BIOTOP CUỘI', 'HANG ĐỘNG', 'RỪNG', 'ĐẢO BAY', 'CỔNG VÒM', 'COVER'].some(sc => cat.includes(sc)) ||
+                    lname.includes('bể') || lname.includes('kính') || lname.includes('terarium') || lname.includes('terrarium') || lname.includes('bán cạn') || lname.includes('layout') || lname.includes('rừng') || lname.includes('bonsai') || lname.includes('vách suối') || lname.includes('hẻm núi') || lname.includes('nhất trụ') || lname.includes('đảo bay') || lname.includes('hang động') || lname.includes('cổng vòm') || lname.includes('linh thú') || lname.includes('cầu vồng') || lname.includes('biotop') || lname.includes('cuội') || lname.includes('tiểu cảnh') || lname.includes('lũa') || lname.includes('thác cát');
 
                 if (isTargetCat) {
                     const existsInProds = effProds.some(p => String(p.name || '').trim().toLowerCase() === String(itemName).trim().toLowerCase());
@@ -3350,7 +3372,7 @@
         }, [isReturn, isReadyPack, isPacking, isPackOwner, isPendingHandover, isDone, _order.isCarriedToWH, processing]);
 
         return (
-            <div className={`bg-[#16171d] rounded-2xl relative overflow-hidden border p-3 transition-colors hover:border-[#383b48] ${isReturn ? 'border-amber-600/60' : 'border-[#242630]'} ${isSelected ? 'ring-2 ring-blue-500' : ''}`}>
+            <div className={`bg-[#121214] rounded-2xl relative overflow-hidden border p-3 transition-colors hover:border-white/[0.12] hover:bg-white/[0.02] ${isReturn ? 'border-amber-600/60' : 'border-white/[0.06]'} ${isSelected ? 'ring-2 ring-blue-500' : ''}`}>
                 {sosTarget && ReactDOM.createPortal(
                     <ReturnSosModal sosTarget={sosTarget} erpProducts={erpProducts} order={_order} packRecord={packRecord} onClose={() => setSosTarget(null)} pushDeltas={pushDeltas} triggerToast={triggerToast} setOptimisticOrder={setOptimisticOrder} prods={prods} accessories={accessories} />,
                     document.body
@@ -3840,7 +3862,7 @@
                                 const filteredAccs = accessories.filter(a => !prods.some(p => String(p.name || '').trim() === String(a.name || '').trim()));
                                 if (filteredAccs.length === 0) return null;
                                 return (
-                                    <div className="bg-[#0a0a0a] border border-[#222] rounded-xl p-2.5">
+                                    <div className="bg-[#09090b] border border-white/[0.04] rounded-xl p-2.5">
                                         <div className="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-2 border-b border-[#333] pb-1">Phụ Kiện Đi Kèm</div>
                                         {filteredAccs.map((a, i) => {
                                             const aInfo = getProductInfo(a.name);
@@ -3874,7 +3896,7 @@
                                 );
                             })()}
                             {prods.length > 0 && (
-                                <div className="bg-[#0a0a0a] border border-[#222] rounded-xl p-2.5">
+                                <div className="bg-[#09090b] border border-white/[0.04] rounded-xl p-2.5">
                                     <div className="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-2 border-b border-[#333] pb-1">Hàng Sản Xuất</div>
                                     {prods.map((p, i) => {
                                         const isProcessed = p.status === 'Hoàn Kho Đạt' || p.status === 'Hủy/Vỡ' || p.status === 'Đã tạo lệnh sửa';
@@ -3918,7 +3940,7 @@
                         </div>
                     ) : (
                         (effectiveAccessories.length > 0 || effectiveProds.length > 0) && (
-                            <div className="bg-[#0a0a0a] border border-[#222] rounded-xl p-2 space-y-1.5 mb-3">
+                            <div className="bg-[#09090b] border border-white/[0.04] rounded-xl p-2 space-y-1.5 mb-3">
                                 {effectiveAccessories.map((a, i) => {
                                     const accId = `acc_${_order.id}_${i}`;
                                     const isChecked = checkedItems.includes(accId);
@@ -3926,7 +3948,7 @@
                                     const requiredQty = Number(a.quantity || 1);
                                     const currentStock = Number(aInfo?.quantity || 0);
                                     return (
-                                        <div key={accId} className="flex items-center justify-between bg-[#111217] border-l-2 border-slate-600 border border-[#242630] rounded-r-xl p-2 group hover:border-[#383b48] transition-colors">
+                                        <div key={accId} className="flex items-center justify-between bg-[#121214] border-l-2 border-slate-600 border border-white/[0.06] rounded-r-xl p-2 group hover:border-white/[0.12] hover:bg-white/[0.02] transition-colors">
                                             <div className="flex items-center gap-2.5 min-w-0 flex-1">
                                                 {(aInfo?.image || aInfo?.realImage) ? (
                                                     <img src={aInfo.image || aInfo.realImage} className="w-8 h-8 rounded shrink-0 object-cover border border-[#444] cursor-pointer" alt="img" onClick={() => window.open(aInfo.image || aInfo.realImage, '_blank')} title="Xem ảnh gốc" />
@@ -3999,7 +4021,7 @@
                                                 ? 'bg-[#10b981]/15 border-[#10b981]/40 shadow-[0_0_10px_rgba(16,185,129,0.1)]'
                                                 : showStockWarning
                                                     ? 'bg-rose-950/20 border-rose-500/40 shadow-[0_0_10px_rgba(225,29,72,0.15)]'
-                                                    : 'bg-[#111217] border-[#242630] hover:border-[#383b48]'
+                                                    : 'bg-[#121214] border-white/[0.06] hover:border-white/[0.12]'
                                                 }`}
                                         >
                                             <div className="flex items-center gap-2.5 min-w-0 flex-1">
@@ -4056,7 +4078,7 @@
                         const hasStaff = prods.some(p => p.phases?.phase1?.user || p.phases?.phase2?.user) || Boolean(packUser) || Boolean(whUser);
                         if (!hasStaff || (!isDone && !isPendingHandover && !isReadyPack)) return null;
                         return (
-                            <div className="bg-[#0a0a0a] border border-[#222] rounded-xl p-2.5 mb-3 flex flex-col gap-1.5 text-[10px]">
+                            <div className="bg-[#09090b] border border-white/[0.04] rounded-xl p-2.5 mb-3 flex flex-col gap-1.5 text-[10px]">
                                 {prods.map((p, pIdx) => {
                                     const phase1Name = p.phases?.phase1?.name || (p.type === 'Bể Kính' ? 'Cắt Dán' : 'Dựng Khung');
                                     const phase2Name = p.phases?.phase2?.name || (p.type === 'Bể Kính' ? 'Gọt Keo' : 'Gia Cố');
@@ -4224,7 +4246,7 @@
             triggerToast(`Đã khớp thủ công với: ${selectedProd.name}`, 'fa-link', 'success');
         };
 
-        const formatMoney = (val) => Number(val || 0).toLocaleString('vi-VN');
+        const formatMoney = (val) => Math.round(Number(val || 0)).toLocaleString('vi-VN');
 
         const handleCapture = (e) => {
             const file = e.target.files[0];
@@ -5322,6 +5344,7 @@
 
                         // Chỉ cảnh báo khi tiền Shopee trả bị lệch thực tế so với công thức > 5.000đ (loại bỏ cảnh báo giả khi chênh lệch phí chuẩn)
                         let isWarning = Math.abs(delta) > 5000;
+                        const effectiveTxDate = (iDate > -1 && mainCols[iDate]) ? txDate : (matchOrder.createdAt || matchOrder.date || txDate || safeDateFull);
 
                         let updatedOrderObj = {
                             ...matchOrder,
@@ -5333,7 +5356,7 @@
                             shopVoucher: shopVoucher,
                             tax: tax,
                             isReconciled: true,
-                            reconciledAt: safeDateFull
+                            reconciledAt: effectiveTxDate
                         };
 
                         // Bổ sung danh sách sản phẩm nếu đơn hàng trên hệ thống chưa có thông tin sản phẩm
@@ -5354,8 +5377,6 @@
                         );
 
                         const walletTargetId = walletAcc ? walletAcc.id : (newAccounts[0] ? newAccounts[0].id : 'ACC_SHOPEE');
-
-                        const effectiveTxDate = (iDate > -1 && mainCols[iDate]) ? txDate : (matchOrder.createdAt || matchOrder.date || txDate);
 
                         if (!hasTx) {
                             let baseTxId = 'TXN_INC_' + Date.now() + '_' + idx;

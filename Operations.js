@@ -238,6 +238,13 @@ function api_getUserXuBalance(userName) {
 }
 
 /**
+ * Wrapper for google.script.run
+ */
+function getOperationsHealth() {
+  return api_getOperationsHealth();
+}
+
+/**
  * Quét toàn bộ hệ thống trả về Cảnh Báo Vận Hành
  */
 function api_getOperationsHealth() {
@@ -262,22 +269,24 @@ function api_getOperationsHealth() {
       var oChannelCol = oHeaders.indexOf('channel');
       var oProdCol = oHeaders.indexOf('hasProduction');
       
-      var excludeStatuses = ['Completed', 'Hoàn thành', 'Cancelled', 'Đã hủy'];
+      var excludeStatuses = ['Completed', 'Hoàn thành', 'Cancelled', 'Đã hủy', 'Đơn Huỷ', 'Đã Bàn Giao', 'Đối Soát Thành Công', 'Hàng Hoàn', 'Đã giao', 'Delivered', 'Returned', 'Hoàn tất', 'Đã Giao', 'Đã Gửi Hàng'];
 
       // Bỏ qua dòng tiêu đề, lọc từ dưới lên tối đa 1000 đơn gần nhất để tối ưu tốc độ
       var scanLimit = Math.max(1, orderData.length - 1000);
       for (var i = orderData.length - 1; i >= scanLimit; i--) {
-        var status = orderData[i][oStatusCol];
-        if (excludeStatuses.indexOf(status) === -1) { // Chưa hoàn thành
+        var status = String(orderData[i][oStatusCol] || '').trim();
+        if (!status || excludeStatuses.indexOf(status) === -1) { // Chưa hoàn thành
           var deadlineRaw = orderData[i][oDeadlineCol];
           if (deadlineRaw) {
             var deadline = new Date(deadlineRaw);
-            if (deadline < now) {
-              var channel = orderData[i][oChannelCol];
-              var code = orderData[i][oCodeCol];
+            if (!isNaN(deadline.getTime()) && deadline < now) {
+              var channel = orderData[i][oChannelCol] || 'Trực tiếp';
+              var code = orderData[i][oCodeCol] || ('D-' + i);
               var hasProd = orderData[i][oProdCol] ? 'Có sản xuất' : 'Giao thẳng';
               var hoursLate = Math.floor((now - deadline) / (1000 * 60 * 60));
-              alerts.sla.push(`[${channel}] Đơn ${code} trễ SLA ${hoursLate} tiếng. (Loại: ${hasProd})`);
+              if (alerts.sla.length < 15) {
+                alerts.sla.push(`[${channel}] Đơn ${code} trễ SLA ${hoursLate} tiếng. (${hasProd})`);
+              }
             }
           }
         }

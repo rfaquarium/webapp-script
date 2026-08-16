@@ -403,15 +403,27 @@
                 let isShortOfAccessories = false;
                 let warningDetails = [];
 
-                // Duyệt qua từng phụ kiện để đối soát số lượng tồn kho thực tế
+                // Duyệt qua từng phụ kiện để đối soát số lượng tồn kho thực tế (bỏ qua hàng sản xuất Layout/Bể kính)
                 accList.forEach(acc => {
-                    const matchProduct = (currentErpProducts || []).find(p => String(p.name).trim() === String(acc.name).trim());
+                    if (!acc) return;
+                    if (acc.hasProduction === true || acc.hasProduction === 'true') return;
+
+                    const aName = String(acc.name || acc.Name || '').trim();
+                    if (!aName) return;
+
+                    const matchProduct = (currentErpProducts || []).find(p => String(p.name).trim().toLowerCase() === aName.toLowerCase());
+                    if (matchProduct) {
+                        const cat = String(matchProduct.category || '').toUpperCase().trim();
+                        const subCat = String(matchProduct.sub_category || '').toUpperCase().trim();
+                        if (cat === 'LAYOUT' || cat === 'BỂ KÍNH' || subCat === 'LAYOUT' || subCat === 'BỂ KÍNH') return;
+                    }
+
                     const availableQty = matchProduct ? (Number(matchProduct.quantity) || 0) : 0;
                     const requiredQty = Number(acc.quantity) || 1;
 
                     if (availableQty < requiredQty) {
                         isShortOfAccessories = true;
-                        warningDetails.push(`${acc.name} (Thiếu ${requiredQty - availableQty})`);
+                        warningDetails.push(`${aName} (Thiếu ${requiredQty - availableQty})`);
                     }
                 });
 
@@ -421,10 +433,12 @@
                 if (isShortOfAccessories) {
                     finalStatus = 'Chờ Phụ Kiện';
                     updatedOrder.status = finalStatus;
-                    updatedOrder.note = String(updatedOrder.note || '') + ` [Cảnh báo: Thiếu phụ kiện đóng gói: ${warningDetails.join(', ')}]`;
+                    const cleanNote = String(updatedOrder.note || '').replace(/\s*\[Cảnh báo: Thiếu phụ kiện đóng gói:[^\]]*\]/g, '').trim();
+                    updatedOrder.note = cleanNote ? `${cleanNote} [Cảnh báo: Thiếu phụ kiện đóng gói: ${warningDetails.join(', ')}]` : `[Cảnh báo: Thiếu phụ kiện đóng gói: ${warningDetails.join(', ')}]`;
                 } else {
                     finalStatus = 'Sẵn Sàng Đóng Gói';
                     updatedOrder.status = finalStatus;
+                    updatedOrder.note = String(updatedOrder.note || '').replace(/\s*\[Cảnh báo: Thiếu phụ kiện đóng gói:[^\]]*\]/g, '').trim();
                 }
 
                 await pushDeltas(
@@ -647,7 +661,7 @@
             <div className="w-[32px] h-[32px] rounded-full bg-[#222] border border-[#333] flex items-center justify-center text-gray-500"><i className="fas fa-user text-[14px]"></i></div>;
 
         return (
-            <div className="w-full py-2 bg-[#0a0a0a] rounded-xl px-2.5 border border-[#222] flex flex-col gap-1">
+            <div className="w-full py-2 bg-[#09090b] rounded-xl px-2.5 border border-white/[0.04] flex flex-col gap-1">
                 <div className="flex items-center justify-between w-full">
                     <div className="flex items-center gap-3 min-w-0 pr-2">
                         {phaseAvatar}
@@ -989,7 +1003,7 @@
                                 ? 'neon-running-dot neon-running-yellow shadow-[0_0_15px_rgba(234,179,8,0.3)]'
                                 : isRejected
                                     ? 'neon-running-dot neon-running-red shadow-[0_0_15px_rgba(239,68,68,0.3)]'
-                                    : 'bg-[#16171d] border border-[#242630]'
+                                    : 'bg-[#121214] border border-white/[0.06] hover:bg-white/[0.02]'
                     }`}>
 
                     <div className="flex flex-col w-full cursor-pointer relative" onClick={() => setIsExpanded(!isExpanded)}>
@@ -1045,7 +1059,7 @@
                         {/* === HÌNH ẢNH & THÔNG TIN SẢN PHẨM === */}
                         <div className="flex gap-3 w-full relative">
                             <div className="w-[60px] h-[60px] shrink-0 relative z-10">
-                                <div className="w-full h-full bg-[#0a0a0a] rounded-lg border border-[#333] overflow-hidden flex items-center justify-center relative shadow-sm">
+                                <div className="w-full h-full bg-[#09090b] rounded-lg border border-white/[0.04] overflow-hidden flex items-center justify-center relative shadow-sm">
                                     <div className="absolute top-0.5 left-0.5 w-3.5 h-3.5 bg-black/80 text-[#d4af37] font-black text-[8px] rounded-full flex items-center justify-center border border-[#333] z-10">{idx_num}</div>
                                     {productImage ? <img src={productImage} loading="lazy" className="w-full h-full object-cover opacity-90" alt="img" /> : <i className="fas fa-image text-[#444] text-xl"></i>}
                                 </div>
@@ -1415,7 +1429,7 @@
             <div className="mb-2.5">
                 <div onClick={() => setExpanded(!expanded)} className="rf-card rounded-2xl relative hover:border-[#444] transition-all p-3 cursor-pointer flex items-center justify-between shadow-sm">
                     <div className="flex gap-3 items-center min-w-0">
-                        <div className="w-[50px] h-[50px] shrink-0 bg-[#0a0a0a] rounded-xl border border-[#333] overflow-hidden flex items-center justify-center relative shadow-sm">
+                        <div className="w-[50px] h-[50px] shrink-0 bg-[#09090b] rounded-xl border border-white/[0.04] overflow-hidden flex items-center justify-center relative shadow-sm">
                             <div className="absolute top-0.5 left-0.5 w-3.5 h-3.5 bg-[#d4af37] text-black font-black text-[8px] rounded-full flex items-center justify-center border border-[#333] z-10">
                                 LÔ
                             </div>
@@ -1491,6 +1505,7 @@
         const [editingProdItem, setEditingProdItem] = React.useState(null);
         const [annotationData, setAnnotationData] = React.useState(null);
         const [collapsedGroups, setCollapsedGroups] = React.useState({});
+        const [showReportTable, setShowReportTable] = React.useState(false);
 
         React.useEffect(() => {
             const handleGlobalPreview = (e) => { if (e.detail) setGlobalPreview(e.detail); };
@@ -1951,91 +1966,115 @@
         `}
                 </style>
 
-                {/* BẢNG BÁO CÁO SẢN LƯỢNG NẰM TRÊN CÙNG */}
+                {/* BẢNG BÁO CÁO SẢN LƯỢNG NẰM TRÊN CÙNG (GỌN GÀNG - CLICK ĐỂ MỞ) */}
                 {!isCTV && (
-                    <div className="bg-[#0d0d0d] border border-[#2a2a2a] rounded-2xl p-3.5 mb-4 shadow-lg relative overflow-hidden">
-                        <div className="flex justify-between items-center mb-3 flex-wrap gap-2">
-                            <div className="flex items-center gap-2">
+                    <div className="bg-[#0d0d0d] border border-[#2a2a2a] rounded-2xl mb-4 shadow-lg overflow-hidden transition-all duration-300">
+                        {/* Header có thể click để toggle mở/đóng */}
+                        <div 
+                            onClick={() => setShowReportTable(prev => !prev)}
+                            className="p-3.5 flex justify-between items-center cursor-pointer hover:bg-white/[0.02] transition-colors select-none flex-wrap gap-2"
+                        >
+                            <div className="flex items-center gap-2.5">
                                 <div className="w-2.5 h-2.5 rounded-full bg-[#d4af37] animate-pulse"></div>
-                                <span className="text-[13px] font-black text-white uppercase tracking-wider">
+                                <span className="text-[13px] font-black text-white uppercase tracking-wider flex items-center gap-2">
                                     BẢNG BÁO CÁO SẢN LƯỢNG
                                 </span>
                                 <span className="text-[10px] text-gray-400 font-bold bg-[#1a1a1a] px-2.5 py-0.5 rounded-md border border-[#333]">
                                     {filterTime === 'Chọn Tháng' ? (customMonth || 'Tháng Đã Chọn') : filterTime}
                                 </span>
+                                {allWorkersReport.length > 0 && (
+                                    <span className="hidden sm:inline-flex text-[10px] text-[#d4af37] font-black bg-[#d4af37]/10 border border-[#d4af37]/20 px-2 py-0.5 rounded-md">
+                                        Tổng: {allWorkersReport.reduce((sum, x) => sum + x.dungKhung + x.giaCo + x.catDan + x.gotKeo, 0)} khâu
+                                    </span>
+                                )}
                             </div>
-                            <div className="text-[10px] text-gray-400 font-bold">
-                                Tài khoản: <span className="text-[#d4af37] font-black">{currentUser}</span>
+
+                            <div className="flex items-center gap-3">
+                                <div className="text-[10px] text-gray-400 font-bold hidden xs:block">
+                                    Tài khoản: <span className="text-[#d4af37] font-black">{currentUser}</span>
+                                </div>
+                                <button
+                                    type="button"
+                                    className="px-2.5 py-1 rounded-lg bg-[#1a1a1a] hover:bg-[#252525] border border-white/10 text-gray-300 text-[11px] font-bold flex items-center gap-1.5 transition-all"
+                                >
+                                    <i className={`fas fa-chart-bar text-[#d4af37]`}></i>
+                                    <span>{showReportTable ? 'Thu gọn' : 'Xem chi tiết'}</span>
+                                    <i className={`fas fa-chevron-${showReportTable ? 'up' : 'down'} text-[10px] text-gray-400 transition-transform`}></i>
+                                </button>
                             </div>
                         </div>
 
-                        {/* BẢNG DỮ LIỆU SẢN LƯỢNG THỢ */}
-                        <div className="overflow-x-auto hide-scrollbar rounded-xl border border-[#222]">
-                            <table className="w-full text-left border-collapse min-w-[650px]">
-                                <thead>
-                                    <tr className="bg-[#18181b] text-gray-300 text-[10px] uppercase font-black tracking-wider border-b border-[#2e2e2e]">
-                                        <th className="py-2.5 px-3">NHÂN SỰ</th>
-                                        <th className="py-2.5 px-2 text-center text-[#f59e0b]">Dựng Khung</th>
-                                        <th className="py-2.5 px-2 text-center text-[#10b981]">Gia Cố</th>
-                                        <th className="py-2.5 px-2 text-center text-[#3b82f6]">Cắt Dán</th>
-                                        <th className="py-2.5 px-2 text-center text-[#a855f7]">Gọt Keo</th>
-                                        <th className="py-2.5 px-2 text-center text-rose-400">LÀM LẠI</th>
-                                        <th className="py-2.5 px-2 text-center text-amber-400">QUÁ HẠN</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-[#1f1f1f] text-[11px] font-bold">
-                                    {allWorkersReport.length === 0 ? (
-                                        <tr>
-                                            <td colSpan="7" className="py-4 text-center text-gray-500 italic">Chưa có dữ liệu sản lượng trong kỳ này</td>
-                                        </tr>
-                                    ) : (
-                                        allWorkersReport.map(w => {
-                                            const isMe = String(w.name).trim() === String(currentUser).trim();
-                                            return (
-                                                <tr key={w.name} className={`hover:bg-[#1a1a1a] transition-colors ${isMe ? 'bg-[#d4af37]/10' : ''}`}>
-                                                    <td className="py-2 px-3 font-black text-white flex items-center gap-1.5">
-                                                        {isMe && <span className="w-1.5 h-1.5 rounded-full bg-[#d4af37]"></span>}
-                                                        <span className={isMe ? 'text-[#d4af37]' : 'text-gray-200'}>{w.name}</span>
-                                                        {isMe && <span className="text-[8px] bg-[#d4af37]/20 text-[#d4af37] px-1 py-0.5 rounded font-black">Tôi</span>}
-                                                    </td>
-                                                    <td className="py-2 px-2 text-center font-mono text-[#f59e0b] font-black">{w.dungKhung || 0}</td>
-                                                    <td className="py-2 px-2 text-center font-mono text-[#10b981] font-black">{w.giaCo || 0}</td>
-                                                    <td className="py-2 px-2 text-center font-mono text-[#3b82f6] font-black">{w.catDan || 0}</td>
-                                                    <td className="py-2 px-2 text-center font-mono text-[#a855f7] font-black">{w.gotKeo || 0}</td>
-                                                    <td className="py-2 px-2 text-center font-mono">
-                                                        {w.reworkCount > 0 ? (
-                                                            <span className="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-400 font-black text-[10px]">{w.reworkCount}</span>
-                                                        ) : (
-                                                            <span className="text-gray-600">0</span>
-                                                        )}
-                                                    </td>
-                                                    <td className="py-2 px-2 text-center font-mono">
-                                                        {w.overdueCount > 0 ? (
-                                                            <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-black text-[10px]">{w.overdueCount}</span>
-                                                        ) : (
-                                                            <span className="text-gray-600">0</span>
-                                                        )}
-                                                    </td>
+                        {/* BẢNG DỮ LIỆU SẢN LƯỢNG THỢ (CHỈ MỞ KHI CẦN) */}
+                        {showReportTable && (
+                            <div className="p-3.5 pt-0 border-t border-[#222] animate-fade-in">
+                                <div className="overflow-x-auto hide-scrollbar rounded-xl border border-[#222] mt-3">
+                                    <table className="w-full text-left border-collapse min-w-[650px]">
+                                        <thead>
+                                            <tr className="bg-[#18181b] text-gray-300 text-[10px] uppercase font-black tracking-wider border-b border-[#2e2e2e]">
+                                                <th className="py-2.5 px-3">NHÂN SỰ</th>
+                                                <th className="py-2.5 px-2 text-center text-[#f59e0b]">Dựng Khung</th>
+                                                <th className="py-2.5 px-2 text-center text-[#10b981]">Gia Cố</th>
+                                                <th className="py-2.5 px-2 text-center text-[#3b82f6]">Cắt Dán</th>
+                                                <th className="py-2.5 px-2 text-center text-[#a855f7]">Gọt Keo</th>
+                                                <th className="py-2.5 px-2 text-center text-rose-400">LÀM LẠI</th>
+                                                <th className="py-2.5 px-2 text-center text-amber-400">QUÁ HẠN</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-[#1f1f1f] text-[11px] font-bold">
+                                            {allWorkersReport.length === 0 ? (
+                                                <tr>
+                                                    <td colSpan="7" className="py-4 text-center text-gray-500 italic">Chưa có dữ liệu sản lượng trong kỳ này</td>
                                                 </tr>
-                                            );
-                                        })
-                                    )}
-                                </tbody>
-                                {allWorkersReport.length > 0 && (
-                                    <tfoot>
-                                        <tr className="bg-[#141414] text-white font-black text-[11px] border-t-2 border-[#333]">
-                                            <td className="py-2.5 px-3 uppercase text-[#d4af37]">TỔNG CỘNG</td>
-                                            <td className="py-2.5 px-2 text-center text-[#f59e0b] font-mono">{allWorkersReport.reduce((sum, x) => sum + x.dungKhung, 0)}</td>
-                                            <td className="py-2.5 px-2 text-center text-[#10b981] font-mono">{allWorkersReport.reduce((sum, x) => sum + x.giaCo, 0)}</td>
-                                            <td className="py-2.5 px-2 text-center text-[#3b82f6] font-mono">{allWorkersReport.reduce((sum, x) => sum + x.catDan, 0)}</td>
-                                            <td className="py-2.5 px-2 text-center text-[#a855f7] font-mono">{allWorkersReport.reduce((sum, x) => sum + x.gotKeo, 0)}</td>
-                                            <td className="py-2.5 px-2 text-center text-rose-400 font-mono">{allWorkersReport.reduce((sum, x) => sum + x.reworkCount, 0)}</td>
-                                            <td className="py-2.5 px-2 text-center text-amber-400 font-mono">{allWorkersReport.reduce((sum, x) => sum + x.overdueCount, 0)}</td>
-                                        </tr>
-                                    </tfoot>
-                                )}
-                            </table>
-                        </div>
+                                            ) : (
+                                                allWorkersReport.map(w => {
+                                                    const isMe = String(w.name).trim() === String(currentUser).trim();
+                                                    return (
+                                                        <tr key={w.name} className={`hover:bg-[#1a1a1a] transition-colors ${isMe ? 'bg-[#d4af37]/10' : ''}`}>
+                                                            <td className="py-2 px-3 font-black text-white flex items-center gap-1.5">
+                                                                {isMe && <span className="w-1.5 h-1.5 rounded-full bg-[#d4af37]"></span>}
+                                                                <span className={isMe ? 'text-[#d4af37]' : 'text-gray-200'}>{w.name}</span>
+                                                                {isMe && <span className="text-[8px] bg-[#d4af37]/20 text-[#d4af37] px-1 py-0.5 rounded font-black">Tôi</span>}
+                                                            </td>
+                                                            <td className="py-2 px-2 text-center font-mono text-[#f59e0b] font-black">{w.dungKhung || 0}</td>
+                                                            <td className="py-2 px-2 text-center font-mono text-[#10b981] font-black">{w.giaCo || 0}</td>
+                                                            <td className="py-2 px-2 text-center font-mono text-[#3b82f6] font-black">{w.catDan || 0}</td>
+                                                            <td className="py-2 px-2 text-center font-mono text-[#a855f7] font-black">{w.gotKeo || 0}</td>
+                                                            <td className="py-2 px-2 text-center font-mono">
+                                                                {w.reworkCount > 0 ? (
+                                                                    <span className="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-400 font-black text-[10px]">{w.reworkCount}</span>
+                                                                ) : (
+                                                                    <span className="text-gray-600">0</span>
+                                                                )}
+                                                            </td>
+                                                            <td className="py-2 px-2 text-center font-mono">
+                                                                {w.overdueCount > 0 ? (
+                                                                    <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-black text-[10px]">{w.overdueCount}</span>
+                                                                ) : (
+                                                                    <span className="text-gray-600">0</span>
+                                                                )}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })
+                                            )}
+                                        </tbody>
+                                        {allWorkersReport.length > 0 && (
+                                            <tfoot>
+                                                <tr className="bg-[#141414] text-white font-black text-[11px] border-t-2 border-[#333]">
+                                                    <td className="py-2.5 px-3 uppercase text-[#d4af37]">TỔNG CỘNG</td>
+                                                    <td className="py-2.5 px-2 text-center text-[#f59e0b] font-mono">{allWorkersReport.reduce((sum, x) => sum + x.dungKhung, 0)}</td>
+                                                    <td className="py-2.5 px-2 text-center text-[#10b981] font-mono">{allWorkersReport.reduce((sum, x) => sum + x.giaCo, 0)}</td>
+                                                    <td className="py-2.5 px-2 text-center text-[#3b82f6] font-mono">{allWorkersReport.reduce((sum, x) => sum + x.catDan, 0)}</td>
+                                                    <td className="py-2.5 px-2 text-center text-[#a855f7] font-mono">{allWorkersReport.reduce((sum, x) => sum + x.gotKeo, 0)}</td>
+                                                    <td className="py-2.5 px-2 text-center text-rose-400 font-mono">{allWorkersReport.reduce((sum, x) => sum + x.reworkCount, 0)}</td>
+                                                    <td className="py-2.5 px-2 text-center text-amber-400 font-mono">{allWorkersReport.reduce((sum, x) => sum + x.overdueCount, 0)}</td>
+                                                </tr>
+                                            </tfoot>
+                                        )}
+                                    </table>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
 
