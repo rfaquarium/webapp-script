@@ -25,7 +25,7 @@
       darkMode: 'class',
       theme: {
         extend: {
-          fontFamily: { 
+          fontFamily: {
             sans: ['Inter', 'Plus Jakarta Sans', 'sans-serif'],
             display: ['Plus Jakarta Sans', 'Inter', 'sans-serif']
           },
@@ -61,17 +61,45 @@
     }
   </script>
   <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap"
+    rel="stylesheet">
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 
-  <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.0.0/model-viewer.min.js"></script>
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.24.7/babel.min.js" id="babel-script"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+  <!-- ON-DEMAND LAZY LOADERS (Tiết kiệm >150MB RAM/VRAM) -->
+  <script>
+    window.ensureModelViewerLoaded = function () {
+      if (customElements.get('model-viewer')) return Promise.resolve();
+      if (window._modelViewerPromise) return window._modelViewerPromise;
+      window._modelViewerPromise = new Promise(function (resolve, reject) {
+        var script = document.createElement('script');
+        script.type = 'module';
+        script.src = 'https://ajax.googleapis.com/ajax/libs/model-viewer/4.0.0/model-viewer.min.js';
+        script.onload = function () { resolve(); };
+        script.onerror = function (e) { reject(e); };
+        document.head.appendChild(script);
+      });
+      return window._modelViewerPromise;
+    };
+
+    window.ensureXLSXLoaded = function () {
+      if (window.XLSX) return Promise.resolve(window.XLSX);
+      if (window._xlsxPromise) return window._xlsxPromise;
+      window._xlsxPromise = new Promise(function (resolve, reject) {
+        var script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+        script.onload = function () { resolve(window.XLSX); };
+        script.onerror = function (e) { reject(e); };
+        document.head.appendChild(script);
+      });
+      return window._xlsxPromise;
+    };
+  </script>
 
   <!-- FIREBASE REALTIME SDK -->
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
@@ -124,7 +152,8 @@
     }
 
     /* Light Mode Overrides */
-    .is-light, [data-theme="light"] {
+    .is-light,
+    [data-theme="light"] {
       --color-paper-1: #fafafa;
       --color-paper-2: #ffffff;
       --color-paper-3: #f4f4f5;
@@ -135,7 +164,7 @@
 
       --color-surface-1: #f4f4f5;
       --color-surface-2: #e4e4e7;
-      
+
       --color-accent-text: #ffffff;
     }
 
@@ -144,8 +173,42 @@
       background-color: var(--color-paper-2);
       border: 1px solid rgba(255, 255, 255, 0.08);
       border-radius: 8px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
       color: var(--color-ink-1);
+    }
+
+    .rf-input-glass {
+      background-color: #0e1015 !important;
+      background: #0e1015 !important;
+      border: 1px solid #2d3748 !important;
+      color: #ffffff !important;
+      border-radius: 12px !important;
+      padding: 10px 14px !important;
+      font-size: 13px !important;
+      font-weight: 600 !important;
+      outline: none !important;
+      transition: all 0.2s ease !important;
+    }
+
+    .rf-input-glass:focus {
+      border-color: #f59e0b !important;
+      box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.25) !important;
+      background-color: #141720 !important;
+    }
+
+    .rf-input-glass option {
+      background-color: #0e1015 !important;
+      color: #ffffff !important;
+    }
+
+    .rf-input-glass::placeholder {
+      color: #71717a !important;
+    }
+
+    .rf-input-glass::-webkit-calendar-picker-indicator {
+      filter: invert(1);
+      opacity: 0.75;
+      cursor: pointer;
     }
 
     .hm-input {
@@ -156,6 +219,7 @@
       outline: none;
       transition: all 0.2s ease;
     }
+
     .hm-input:focus {
       border-color: var(--color-accent);
       box-shadow: 0 0 0 1px var(--color-accent);
@@ -169,17 +233,37 @@
       border-radius: 6px;
       transition: opacity 0.2s ease;
     }
+
     .hm-btn-primary:hover {
       opacity: 0.9;
     }
 
+    html,
     body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      height: 100dvh;
+      height: -webkit-fill-available;
+      overflow: hidden;
       background-color: #09090b;
       color: #fafafa;
     }
 
+    #root {
+      width: 100%;
+      height: 100%;
+      height: 100dvh;
+      height: -webkit-fill-available;
+      overflow: hidden;
+      margin: 0;
+      padding: 0;
+    }
+
     /* Modal */
-    .modal-content, .rf-modal-content {
+    .modal-content,
+    .rf-modal-content {
       background-color: #121214 !important;
       border: 1px solid rgba(255, 255, 255, 0.1) !important;
       border-radius: 12px !important;
@@ -187,10 +271,29 @@
     }
 
     /* Badges */
-    .badge-success { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); }
-    .badge-warning { background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); }
-    .badge-danger { background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); }
-    .badge-info { background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.3); }
+    .badge-success {
+      background: rgba(16, 185, 129, 0.15);
+      color: #10b981;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .badge-warning {
+      background: rgba(245, 158, 11, 0.15);
+      color: #f59e0b;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    .badge-danger {
+      background: rgba(239, 68, 68, 0.15);
+      color: #ef4444;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .badge-info {
+      background: rgba(59, 130, 246, 0.15);
+      color: #3b82f6;
+      border: 1px solid rgba(59, 130, 246, 0.3);
+    }
 
     /* =========================================================================
        ✨ ENHANCED PREMIUM DESIGN SYSTEM v3.0
@@ -316,6 +419,10 @@
     }
 
     /* --- SCROLLBARS --- */
+    .custom-scrollbar {
+      -webkit-overflow-scrolling: touch;
+      touch-action: pan-y;
+    }
     .custom-scrollbar::-webkit-scrollbar {
       width: 4px;
       height: 4px;
@@ -357,7 +464,8 @@
       -moz-osx-font-smoothing: grayscale;
     }
 
-    html, body {
+    html,
+    body {
       background-color: #09090b;
       margin: 0;
       padding: 0;
@@ -568,13 +676,20 @@
       outline: none !important;
     }
 
-    /* --- OPTIONS --- */
-    .premium-ui:not(.is-dark) option {
+    /* --- OPTIONS GLOBAL --- */
+    option {
+      background-color: #18181b !important;
+      color: #f4f4f5 !important;
+    }
+
+    .premium-ui:not(.is-dark) option,
+    :not(.is-dark) select option {
       background-color: #ffffff !important;
       color: #0f172a !important;
     }
 
-    .premium-ui.is-dark option {
+    .premium-ui.is-dark option,
+    .is-dark select option {
       background-color: #18181b !important;
       color: #f4f4f5 !important;
     }
@@ -894,7 +1009,7 @@
   </style>
 </head>
 
-<body class="pb-6">
+<body class="m-0 p-0 overflow-hidden bg-[#09090b]">
   <div id="root"></div>
 
   <script id="app-jsx" type="text/plain">
@@ -988,16 +1103,36 @@
         console.warn("localStorage bị chặn:", e);
       }
 
+      function cleanupBootDOM() {
+        try {
+          var container = document.getElementById('jsx-container');
+          if (container) container.remove();
+          var appJsx = document.getElementById('app-jsx');
+          if (appJsx) appJsx.remove();
+          var babelScript = document.getElementById('babel-script');
+          if (babelScript) babelScript.remove();
+          // Thu hồi bộ nhớ AST parser của Babel sau khi App đã mount
+          setTimeout(function () {
+            if (window.Babel) {
+              try { delete window.Babel; } catch (e) { window.Babel = undefined; }
+            }
+          }, 1500);
+        } catch (e) {
+          console.warn("Lỗi dọn dẹp bộ nhớ boot:", e);
+        }
+      }
+
       if (cachedCode) {
         console.log('⚡ Đã nạp ứng dụng từ bộ nhớ đệm siêu tốc!');
         try {
           var script = document.createElement('script');
           script.textContent = cachedCode;
           document.body.appendChild(script);
+          cleanupBootDOM();
           return;
         } catch (err) {
           console.warn("Mã nạp từ cache bị lỗi, tiến hành biên dịch lại...", err);
-          try { localStorage.removeItem(cacheKey); } catch (e) {}
+          try { localStorage.removeItem(cacheKey); } catch (e) { }
         }
       }
 
@@ -1022,6 +1157,7 @@
       if (!hasError) {
         try {
           var compiled = Babel.transform(fullJsx, { presets: ['react'] }).code;
+          fullJsx = null; // Giải phóng chuỗi mã nguồn khổng lồ trong heap
 
           var keysToRemove = [];
           for (var j = 0; j < localStorage.length; j++) {
@@ -1041,6 +1177,7 @@
           var script = document.createElement('script');
           script.textContent = compiled;
           document.body.appendChild(script);
+          cleanupBootDOM();
           console.log('✅ Ứng dụng đã biên dịch và khởi chạy thành công!');
         } catch (err) {
           console.error('❌ Lỗi biên dịch tổng thể:', err.message);
@@ -1114,19 +1251,56 @@
       color: #aaa;
     }
 
-    .rf-form-control {
+    .rf-form-control,
+    .rf-input-glass,
+    .rf-modal-content input,
+    .rf-modal-content select,
+    .rf-modal-content textarea {
       width: 100%;
-      padding: 10px;
-      background: #2a2a2a;
-      border: 1px solid #444;
-      border-radius: 6px;
-      color: #fff;
-      box-sizing: border-box;
+      padding: 11px 14px !important;
+      background: #0e1015 !important;
+      background-color: #0e1015 !important;
+      border: 1px solid #2d3748 !important;
+      border-radius: 12px !important;
+      color: #ffffff !important;
+      font-size: 13px !important;
+      font-weight: 600 !important;
+      box-sizing: border-box !important;
+      outline: none !important;
+      transition: all 0.2s ease !important;
     }
 
-    .rf-form-control:focus {
-      outline: none;
-      border-color: #f39c12;
+    .rf-form-control:focus,
+    .rf-input-glass:focus,
+    .rf-modal-content input:focus,
+    .rf-modal-content select:focus,
+    .rf-modal-content textarea:focus {
+      outline: none !important;
+      border-color: #f59e0b !important;
+      background-color: #141720 !important;
+      box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.25) !important;
+    }
+
+    .rf-form-control option,
+    .rf-input-glass option,
+    .rf-modal-content option {
+      background-color: #0e1015 !important;
+      color: #ffffff !important;
+    }
+
+    .rf-form-control::placeholder,
+    .rf-input-glass::placeholder,
+    .rf-modal-content input::placeholder,
+    .rf-modal-content textarea::placeholder {
+      color: #71717a !important;
+    }
+
+    .rf-form-control::-webkit-calendar-picker-indicator,
+    .rf-input-glass::-webkit-calendar-picker-indicator,
+    .rf-modal-content input[type="date"]::-webkit-calendar-picker-indicator {
+      filter: invert(1);
+      opacity: 0.75;
+      cursor: pointer;
     }
 
     .rf-modal-actions {
@@ -1165,96 +1339,119 @@
   </style>
 
   <!-- ========================================== -->
-  <!-- 1. MODAL KPI STANDALONE                    -->
+  <!-- 1. MODAL KPI STANDALONE (ĐỒNG BỘ 100% FORM) -->
   <!-- ========================================== -->
   <div id="modal-kpi-standalone" class="rf-modal-overlay">
     <div class="kpi-modal-content"
-      style="background: #1a1d24; color: #fff; padding: 24px; border-radius: 12px; max-width: 500px; margin: auto; position: relative; top: 10%;">
-      <h3
-        style="font-size: 18px; font-weight: 700; margin-bottom: 20px; color: #e2e8f0; border-bottom: 1px solid #2d3748; padding-bottom: 10px;">
-        TẠO KPI THÁNG</h3>
+      style="background: #181a20; color: #fff; padding: 24px; border-radius: 20px; max-width: 520px; width: 95%; margin: auto; position: relative; border: 1px solid #2d3748; box-shadow: 0 20px 40px rgba(0,0,0,0.8); max-height: 90vh; overflow-y: auto;">
+
+      <div
+        style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #2d3748; padding-bottom: 12px; margin-bottom: 18px;">
+        <h3
+          style="font-size: 16px; font-weight: 800; color: #fff; margin: 0; text-transform: uppercase; letter-spacing: 0.5px;">
+          TẠO KPI THÁNG MỚI
+        </h3>
+        <button onclick="closeKpiModalStandalone()"
+          style="background: none; border: none; color: #a0aec0; font-size: 18px; cursor: pointer;">✕</button>
+      </div>
 
       <!-- 1. Select User -->
-      <div class="form-group" style="margin-bottom: 16px;">
-        <label style="display: block; font-size: 13px; color: #a0aec0; margin-bottom: 6px;">Nhân sự nhận KPI</label>
+      <div class="form-group" style="margin-bottom: 14px;">
+        <label for="kpiUserSelect"
+          style="display: block; font-size: 11px; font-weight: 700; color: #a0aec0; text-transform: uppercase; margin-bottom: 6px;">Nhân
+          sự nhận KPI *</label>
         <select id="kpiUserSelect"
-          class="rf-input-glass rounded-xl px-4 py-3 text-[13px] text-white outline-none font-medium placeholder-zinc-600 w-full">
+          style="width: 100%; padding: 12px 14px; background: #0e1015; border: 1px solid #2d3748; border-radius: 12px; color: #fff; font-weight: 700; font-size: 13px; outline: none;">
           <option value="">-- Chọn nhân sự --</option>
         </select>
       </div>
 
-      <!-- 1b. KPI Type Preset -->
-      <div class="form-group" style="margin-bottom: 16px;">
-        <label style="display: block; font-size: 13px; color: #a0aec0; margin-bottom: 6px;">⚡ Loại KPI (Mẫu tự động)</label>
+      <!-- 2. KPI Type Preset -->
+      <div class="form-group" style="margin-bottom: 14px;">
+        <label for="kpiPresetSelect"
+          style="display: block; font-size: 11px; font-weight: 700; color: #fbbf24; text-transform: uppercase; margin-bottom: 6px;">⚡
+          Loại KPI (Mẫu tự động điền)</label>
         <select id="kpiPresetSelect" onchange="applyKpiPreset(this.value)"
-          class="rf-input-glass rounded-xl px-4 py-3 text-[13px] text-amber-400 outline-none font-medium placeholder-zinc-600 w-full"
-          style="background: #1e222d; border: 1px solid #d97706;">
+          style="width: 100%; padding: 10px 14px; background: #1e222d; border: 1px solid #f59e0b; border-radius: 12px; color: #fbbf24; font-weight: 700; font-size: 12px; outline: none;">
           <option value="">-- Chọn loại KPI mẫu (Hoặc tự nhập bên dưới) --</option>
-          <option value="san_xuat">🏭 Sản xuất: Tổng số khâu hoàn thành (Tự động đếm)</option>
-          <option value="khau_1">🔨 Khâu 1: Cắt & Dán / Dựng Khung (Tự động đếm)</option>
-          <option value="khau_2">✨ Khâu 2: Gọt keo & Gia cố (Tự động đếm)</option>
-          <option value="dong_goi">📦 Đóng gói: Số đơn đóng gói hoàn thành (Tự động đếm)</option>
-          <option value="ban_hang">💰 Bán hàng: Doanh thu đơn chốt (Tự động cộng VNĐ)</option>
-          <option value="khieu_nai">🛡️ Vận hành: Tỷ lệ thắng khiếu nại sàn (%)</option>
-          <option value="hang_hoan">🔄 Vận hành: Tỷ lệ xử lý hàng hoàn (%)</option>
+          <option value="khieu_nai">🛡️ Vận hành: Tỷ lệ thắng khiếu nại sàn (&gt; 60%)</option>
+          <option value="hang_hoan">🔄 Vận hành: Xử lý hàng huỷ hoàn &amp; gắn trách nhiệm (&gt; 90%)</option>
+          <option value="ban_hang">💰 Bán hàng: Doanh thu chốt đơn thực nhận (&gt; 20 triệu)</option>
+          <option value="dong_goi">📦 Đóng gói: Năng suất đóng gói chuẩn SLA 19:30</option>
+          <option value="khau_1">🔨 Sản xuất: Năng suất Khâu 1 (Cắt Dán / Dựng Khung)</option>
+          <option value="khau_2">✨ Sản xuất: Năng suất Khâu 2 (Gọt Keo / Gia Cố)</option>
+          <option value="san_xuat">🏭 Sản xuất: Tổng khâu hoàn thành</option>
         </select>
       </div>
 
-      <!-- 2. KPI Name -->
-      <div class="form-group" style="margin-bottom: 16px;">
-        <label style="display: block; font-size: 13px; color: #a0aec0; margin-bottom: 6px;">Tên mục tiêu (KPI)</label>
+      <!-- 3. KPI Name -->
+      <div class="form-group" style="margin-bottom: 14px;">
+        <label for="kpiNameInput"
+          style="display: block; font-size: 11px; font-weight: 700; color: #a0aec0; text-transform: uppercase; margin-bottom: 6px;">Tên
+          mục tiêu (KPI) *</label>
         <input type="text" id="kpiNameInput"
-          class="rf-input-glass rounded-xl px-4 py-3 text-[13px] text-white outline-none font-medium placeholder-zinc-600 w-full"
-          placeholder="VD: Tổng khâu sản xuất hoàn thành hoặc Doanh thu bán hàng">
+          style="width: 100%; padding: 12px 14px; background: #0e1015; border: 1px solid #2d3748; border-radius: 12px; color: #fff; font-weight: 700; font-size: 13px; outline: none;"
+          placeholder="VD: Tỉ lệ thắng khiếu nại > 60% hoặc Doanh thu bán hàng">
       </div>
 
-      <!-- 3. SOP Guide (NEW FIELD) -->
-      <div class="form-group" style="margin-bottom: 16px;">
-        <label style="display: block; font-size: 13px; color: #f6ad55; font-weight: 600; margin-bottom: 6px;">💡 Hướng
-          dẫn thực thi & Tiêu chuẩn nghiệm thu (SOP)</label>
-        <textarea id="kpiGuideInput"
-          class="rf-input-glass rounded-xl px-4 py-3 text-[13px] text-white outline-none font-medium placeholder-zinc-600 w-full"
-          rows="3"
-          placeholder="Mô tả rõ nhân sự phải làm gì, chụp ảnh ở đâu hoặc hệ thống quét dữ liệu nào để duyệt KPI này..."></textarea>
+      <!-- 4. SOP Guide -->
+      <div class="form-group" style="margin-bottom: 14px;">
+        <label for="kpiGuideInput"
+          style="display: block; font-size: 11px; font-weight: 700; color: #fbbf24; text-transform: uppercase; margin-bottom: 6px;">💡
+          Hướng dẫn thực thi & Tiêu chuẩn nghiệm thu (SOP)</label>
+        <textarea id="kpiGuideInput" rows="3"
+          style="width: 100%; padding: 12px 14px; background: #0e1015; border: 1px solid #2d3748; border-radius: 12px; color: #e2e8f0; font-size: 12px; outline: none; line-height: 1.5;"
+          placeholder="Mô tả rõ nhân sự phải làm gì, chụp ảnh ở đâu hoặc quy chuẩn hệ thống duyệt KPI này..."></textarea>
       </div>
 
-      <!-- 4. Target & Unit -->
-      <div class="form-group" style="margin-bottom: 16px; display: flex; gap: 12px;">
+      <!-- 5. Target & Manual Unit Input -->
+      <div class="form-group" style="margin-bottom: 14px; display: flex; gap: 10px;">
         <div style="flex: 2;">
-          <label style="display: block; font-size: 13px; color: #a0aec0; margin-bottom: 6px;">Chỉ tiêu (Target)</label>
+          <label for="kpiTargetInput"
+            style="display: block; font-size: 11px; font-weight: 700; color: #a0aec0; text-transform: uppercase; margin-bottom: 6px;">Chỉ
+            tiêu (Target) *</label>
           <input type="number" id="kpiTargetInput"
-            class="rf-input-glass rounded-xl px-4 py-3 text-[13px] text-white outline-none font-medium placeholder-zinc-600 w-full"
-            placeholder="VD: 80">
+            style="width: 100%; padding: 12px 14px; background: #0e1015; border: 1px solid #2d3748; border-radius: 12px; color: #fbbf24; font-weight: 800; font-size: 14px; outline: none;"
+            placeholder="VD: 60, 100, 20000000...">
         </div>
         <div style="flex: 1;">
-          <label style="display: block; font-size: 13px; color: #a0aec0; margin-bottom: 6px;">Đơn vị</label>
-          <select id="kpiUnitSelect"
-            class="rf-input-glass rounded-xl px-4 py-3 text-[13px] text-white outline-none font-medium placeholder-zinc-600 w-full">
-            <option value="%">%</option>
-            <option value="Đơn">Đơn</option>
-            <option value="VNĐ">VNĐ</option>
-            <option value="SP">SP</option>
-          </select>
+          <label for="kpiUnitSelect"
+            style="display: block; font-size: 11px; font-weight: 700; color: #a0aec0; text-transform: uppercase; margin-bottom: 6px;">Đơn
+            vị *</label>
+          <input type="text" id="kpiUnitSelect"
+            style="width: 100%; padding: 12px 14px; background: #0e1015; border: 1px solid #2d3748; border-radius: 12px; color: #38bdf8; font-weight: 800; font-size: 13px; outline: none; text-align: center;"
+            placeholder="%, Kiện, Bộ...">
         </div>
       </div>
 
-      <!-- 5. Reward -->
-      <div class="form-group" style="margin-bottom: 24px;">
-        <label style="display: block; font-size: 13px; font-weight: bold; color: #10b981; margin-bottom: 6px;"><i
-            class="fas fa-money-bill-wave" style="margin-right: 4px;"></i>Mức thưởng (VNĐ) vào bảng lương</label>
-        <input type="number" id="kpiRewardInput"
-          class="rf-input-glass rounded-xl px-4 py-3 text-[13px] text-white outline-none font-medium placeholder-zinc-600 w-full"
-          placeholder="VD: 520000" style="color: #34d399;">
+      <!-- 6. Reward & Penalty -->
+      <div class="form-group" style="margin-bottom: 18px; display: flex; gap: 10px;">
+        <div style="flex: 1;">
+          <label for="kpiRewardInput"
+            style="display: block; font-size: 11px; font-weight: 800; color: #34d399; text-transform: uppercase; margin-bottom: 6px;">Mức
+            thưởng (VNĐ)</label>
+          <input type="number" id="kpiRewardInput"
+            style="width: 100%; padding: 12px 14px; background: #091a13; border: 1px solid rgba(52,211,153,0.4); border-radius: 12px; color: #34d399; font-weight: 800; font-size: 14px; outline: none;"
+            placeholder="VD: 875000">
+        </div>
+        <div style="flex: 1;">
+          <label for="kpiPenaltyInput"
+            style="display: block; font-size: 11px; font-weight: 800; color: #fb7185; text-transform: uppercase; margin-bottom: 6px;">Mức
+            phạt vi phạm (VNĐ)</label>
+          <input type="number" id="kpiPenaltyInput"
+            style="width: 100%; padding: 12px 14px; background: #200d11; border: 1px solid rgba(251,113,133,0.4); border-radius: 12px; color: #fb7185; font-weight: 800; font-size: 14px; outline: none;"
+            placeholder="VD: 100000">
+        </div>
       </div>
 
       <!-- Actions -->
-      <div style="display: flex; justify-content: flex-end; gap: 12px;">
+      <div style="display: flex; justify-content: flex-end; gap: 10px;">
         <button onclick="closeKpiModalStandalone()"
-          style="background: #4a5568; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: 600;">Hủy
+          style="flex: 1; background: #2d3748; color: #e2e8f0; border: none; padding: 12px 20px; border-radius: 12px; cursor: pointer; font-weight: 700; text-transform: uppercase;">Hủy
           bỏ</button>
         <button class="rf-btn-submit" onclick="submitKPIStandalone()"
-          style="background: #f59e0b; color: #000; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: 700;">Lưu
-          Thiết Lập</button>
+          style="flex: 2; background: #f59e0b; color: #000; border: none; padding: 12px 20px; border-radius: 12px; cursor: pointer; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">Lưu
+          Thiết Lập KPI</button>
       </div>
     </div>
   </div>
@@ -1391,25 +1588,44 @@
       }
     }
 
+    function populateUserSelect(selectElem, targetVal) {
+      if (!selectElem) return;
+      if (selectElem.options.length <= 1) {
+        let users = [];
+        try {
+          const cfg = window._userConfigs || window.userConfigs || JSON.parse(localStorage.getItem('USER_CONFIG') || '{}');
+          if (cfg.users && Array.isArray(cfg.users) && cfg.users.length > 0) {
+            users = cfg.users.map(u => ({ name: u, title: cfg.titles?.[u] || cfg.roles?.[u] || '' }));
+          } else if (cfg.pins) {
+            const seen = new Set();
+            Object.values(cfg.pins).forEach(u => {
+              if (u && u.name && !seen.has(u.name)) {
+                seen.add(u.name);
+                users.push(u);
+              }
+            });
+          }
+        } catch (e) { }
+        if (users.length === 0) {
+          const defaults = ['Nguyễn Ngọc Tiến', 'Nguyễn Thị Diệu Hương', 'Nguyễn Hoàng Dương', 'Đoàn Quang Trí', 'Võ Thành Tâm'];
+          users = defaults.map(n => ({ name: n, title: 'Nhân sự' }));
+        }
+        users.forEach(u => {
+          const opt = document.createElement('option');
+          opt.value = u.name;
+          opt.textContent = `${u.name}${u.title ? ' (' + u.title + ')' : ''}`;
+          selectElem.appendChild(opt);
+        });
+      }
+      if (targetVal) selectElem.value = targetVal;
+    }
+
     function openKpiModalStandalone(targetUserName) {
       const modal = document.getElementById('modal-kpi-standalone');
       if (modal) {
         modal.style.display = 'flex';
         const userSelect = document.getElementById('kpiUserSelect');
-        if (userSelect && userSelect.options.length <= 1) {
-          const pins = window._userConfigs?.pins || window.userConfigs?.pins || {};
-          Object.values(pins).forEach(u => {
-            if (u.name) {
-              const opt = document.createElement('option');
-              opt.value = u.name;
-              opt.textContent = `${u.name} (${u.title || u.role || 'Nhân sự'})`;
-              userSelect.appendChild(opt);
-            }
-          });
-        }
-        if (targetUserName && userSelect) {
-          userSelect.value = targetUserName;
-        }
+        populateUserSelect(userSelect, targetUserName);
       }
     }
     function closeKpiModalStandalone() {
@@ -1420,17 +1636,83 @@
     // Mở / Đóng Modal Nhiệm vụ
     function openTaskModalStandalone() {
       const modal = document.getElementById('modal-task-standalone');
-      if (modal) modal.style.display = 'flex';
+      if (modal) {
+        modal.style.display = 'flex';
+        const taskSelect = document.getElementById('task-user');
+        populateUserSelect(taskSelect);
+      }
     }
     function closeTaskModalStandalone() {
       const modal = document.getElementById('modal-task-standalone');
       if (modal) modal.style.display = 'none';
     }
 
+    function applyKpiPreset(type) {
+      const nameInput = document.getElementById('kpiNameInput');
+      const unitInput = document.getElementById('kpiUnitSelect');
+      const targetInput = document.getElementById('kpiTargetInput');
+      const rewardInput = document.getElementById('kpiRewardInput');
+      const penaltyInput = document.getElementById('kpiPenaltyInput');
+      const guideInput = document.getElementById('kpiGuideInput');
+
+      if (!type) return;
+
+      if (type === 'san_xuat') {
+        if (nameInput) nameInput.value = 'Tổng khâu sản xuất hoàn thành';
+        if (unitInput) unitInput.value = 'SP';
+        if (targetInput) targetInput.value = '150';
+        if (rewardInput) rewardInput.value = '500000';
+        if (penaltyInput) penaltyInput.value = '0';
+        if (guideInput) guideInput.value = 'Hệ thống tự động quét tổng số khâu (Khâu 1, Khâu 2, Đóng gói) đạt trạng thái Done trong tháng của nhân sự.';
+      } else if (type === 'khau_1') {
+        if (nameInput) nameInput.value = 'Năng suất Khâu 1 (Cắt & Dán / Dựng Khung)';
+        if (unitInput) unitInput.value = 'SP';
+        if (targetInput) targetInput.value = '80';
+        if (rewardInput) rewardInput.value = '300000';
+        if (penaltyInput) penaltyInput.value = '50000';
+        if (guideInput) guideInput.value = 'Hệ thống tự động đếm số lượng lệnh sản xuất Khâu 1 mà nhân sự hoàn thành đạt chuẩn KCS.';
+      } else if (type === 'khau_2') {
+        if (nameInput) nameInput.value = 'Năng suất Khâu 2 (Gọt Keo & Gia Cố)';
+        if (unitInput) unitInput.value = 'SP';
+        if (targetInput) targetInput.value = '80';
+        if (rewardInput) rewardInput.value = '300000';
+        if (penaltyInput) penaltyInput.value = '50000';
+        if (guideInput) guideInput.value = 'Hệ thống tự động đếm số lượng lệnh sản xuất Khâu 2 mà nhân sự hoàn thành đạt chuẩn KCS.';
+      } else if (type === 'dong_goi') {
+        if (nameInput) nameInput.value = 'Năng suất Đóng gói hoàn thành trước 19:30';
+        if (unitInput) unitInput.value = 'Kiện';
+        if (targetInput) targetInput.value = '290';
+        if (rewardInput) rewardInput.value = '300000';
+        if (penaltyInput) penaltyInput.value = '50000';
+        if (guideInput) guideInput.value = 'Hệ thống tự động đếm số đơn hàng đóng gói thành công có đủ 2 ảnh nghiệm thu trước 19:30 hằng ngày.';
+      } else if (type === 'ban_hang') {
+        if (nameInput) nameInput.value = 'Doanh thu bán hàng tháng chốt đơn';
+        if (unitInput) unitInput.value = 'VNĐ';
+        if (targetInput) targetInput.value = '20000000';
+        if (rewardInput) rewardInput.value = '500000';
+        if (penaltyInput) penaltyInput.value = '0';
+        if (guideInput) guideInput.value = 'Hệ thống tự động cộng dồn tổng doanh thu từ tất cả các đơn hàng chốt thành công của nhân sự phụ trách trong kỳ.';
+      } else if (type === 'khieu_nai') {
+        if (nameInput) nameInput.value = 'Tỷ lệ thắng khiếu nại sàn > 60%';
+        if (unitInput) unitInput.value = '%';
+        if (targetInput) targetInput.value = '60';
+        if (rewardInput) rewardInput.value = '875000';
+        if (penaltyInput) penaltyInput.value = '100000';
+        if (guideInput) guideInput.value = 'Bắt buộc quay video đồng kiểm 6 mặt khi bóc kiện hàng hoàn. Hệ thống tự động quét đơn khiếu nại thắng có tag [KN-THANG].';
+      } else if (type === 'hang_hoan') {
+        if (nameInput) nameInput.value = 'Xử lý hàng huỷ hoàn & gắn trách nhiệm > 90%';
+        if (unitInput) unitInput.value = '%';
+        if (targetInput) targetInput.value = '90';
+        if (rewardInput) rewardInput.value = '750000';
+        if (penaltyInput) penaltyInput.value = '50000';
+        if (guideInput) guideInput.value = 'Hàng hoàn về kho phải được phân loại và xử lý trong 48h. Tỷ lệ tính trên tổng đơn hoàn phát sinh trong tháng.';
+      }
+    }
+
     // Submit KPI -> Bảng KPI_Progress
     function submitKPIStandalone() {
       const btn = event ? event.target : document.querySelector('#modal-kpi-standalone .rf-btn-submit');
-      const originalText = btn ? btn.innerHTML : 'Lưu Thiết Lập';
+      const originalText = btn ? btn.innerHTML : 'Lưu Thiết Lập KPI';
       if (btn) { btn.innerHTML = 'Đang lưu...'; btn.disabled = true; }
 
       const payload = {
@@ -1439,11 +1721,12 @@
         target: document.getElementById('kpiTargetInput').value,
         unit: document.getElementById('kpiUnitSelect').value,
         reward: document.getElementById('kpiRewardInput').value,
+        penalty: document.getElementById('kpiPenaltyInput') ? document.getElementById('kpiPenaltyInput').value : '0',
         guide: document.getElementById('kpiGuideInput').value
       };
 
-      if (!payload.user || !payload.kpiName) {
-        alert("Vui lòng chọn nhân sự và nhập tên KPI!");
+      if (!payload.user || !payload.kpiName || !payload.target || !payload.unit) {
+        alert("Vui lòng điền đầy đủ: Nhân sự, Tên KPI, Chỉ tiêu và Đơn vị tính!");
         if (btn) { btn.innerHTML = originalText; btn.disabled = false; }
         return;
       }
@@ -1458,8 +1741,10 @@
             document.getElementById('kpiNameInput').value = '';
             document.getElementById('kpiTargetInput').value = '';
             document.getElementById('kpiRewardInput').value = '';
-            document.getElementById('kpiUnitSelect').value = '%';
+            if (document.getElementById('kpiPenaltyInput')) document.getElementById('kpiPenaltyInput').value = '';
+            document.getElementById('kpiUnitSelect').value = '';
             document.getElementById('kpiGuideInput').value = '';
+            if (document.getElementById('kpiPresetSelect')) document.getElementById('kpiPresetSelect').value = '';
             // Kích hoạt reload data ở frontend
             window.dispatchEvent(new CustomEvent('triggerReloadData'));
           } else {
