@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>RF Workspace Pro</title>
+
+  <!-- PWA & Mobile Web App Meta -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="RF Workspace">
+  <meta name="theme-color" content="#09090b">
+  <meta name="format-detection" content="telephone=no">
+
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" href="/icon.png" type="image/png">
+  <link rel="apple-touch-icon" href="/icon.png">
+
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html,
+    body {
+      width: 100%;
+      width: 100vw;
+      height: 100%;
+      height: 100dvh;
+      height: -webkit-fill-available;
+      overflow: hidden;
+      background-color: #09090b;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      overscroll-behavior: none;
+      touch-action: none;
+    }
+
+    #app-frame {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: 100%;
+      width: 100vw;
+      height: 100%;
+      height: 100dvh;
+      height: var(--app-height, 100%);
+      border: 0;
+      outline: 0;
+      margin: 0;
+      padding: 0;
+      display: block;
+      background: #09090b;
+      z-index: 10;
+    }
+
+    #loading-screen {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      background: #09090b;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 99999;
+      color: #d4af37;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      transition: opacity 0.35s ease, visibility 0.35s ease;
+    }
+
+    .rf-spinner {
+      width: 44px;
+      height: 44px;
+      border: 3px solid rgba(212, 175, 55, 0.15);
+      border-top-color: #d4af37;
+      border-radius: 50%;
+      animation: rf-spin 0.75s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+      margin-bottom: 18px;
+    }
+
+    @keyframes rf-spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <!-- MÀN HÌNH CHỜ SANG TRỌNG -->
+  <div id="loading-screen">
+    <div class="rf-spinner"></div>
+    <div style="font-size: 13px; font-weight: 700; letter-spacing: 1.5px; color: #d4af37; text-transform: uppercase;">
+      RF Workspace Pro
+    </div>
+    <div style="font-size: 10px; color: #71717a; margin-top: 6px; letter-spacing: 0.5px;">
+      Đang tải hệ thống xưởng...
+    </div>
+  </div>
+
+  <!-- IFRAME LOAD GOOGLE APPS SCRIPT WEB APP -->
+  <iframe id="app-frame"
+    src="https://script.google.com/macros/s/AKfycbytd9c_FzcqJ_65nqNI-xplYVRD3gstZcIL6PBk34P81XdSqXTNcRWsYt5bbeqjg66N/exec"
+    allow="geolocation; microphone; camera; midi; vr; accelerometer; gyroscope; payment; ambient-light-sensor; encrypted-media; usb; fullscreen; notifications"
+    sandbox="allow-forms allow-modals allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts allow-top-navigation-by-user-activation">
+  </iframe>
+
+  <script>
+    // =========================================================================
+    // FIX TRIỆT ĐỂ FULL MÀN HÌNH & KHOẢNG ĐEN TRÊN MOBILE (iOS SAFARI & ANDROID)
+    // =========================================================================
+    function setAppHeight() {
+      var h = window.innerHeight;
+      if (window.visualViewport && window.visualViewport.height) {
+        h = window.visualViewport.height;
+      }
+      document.documentElement.style.setProperty('--app-height', h + 'px');
+      var frame = document.getElementById('app-frame');
+      if (frame) {
+        frame.style.height = h + 'px';
+      }
+    }
+
+    setAppHeight();
+    window.addEventListener('resize', setAppHeight);
+    window.addEventListener('orientationchange', function () {
+      setTimeout(setAppHeight, 150);
+    });
+
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', setAppHeight);
+      window.visualViewport.addEventListener('scroll', setAppHeight);
+    }
+
+    // Ẩn màn hình chờ khi iframe đã nạp xong
+    var frameEl = document.getElementById('app-frame');
+    var loaderEl = document.getElementById('loading-screen');
+    
+    frameEl.addEventListener('load', function () {
+      if (loaderEl) {
+        loaderEl.style.opacity = '0';
+        setTimeout(function () {
+          loaderEl.style.visibility = 'hidden';
+          loaderEl.style.display = 'none';
+        }, 350);
+      }
+    });
+
+    // Fallback: Ẩn loader sau 6 giây nếu sự kiện load bị chặn
+    setTimeout(function () {
+      if (loaderEl && loaderEl.style.display !== 'none') {
+        loaderEl.style.opacity = '0';
+        setTimeout(function () { loaderEl.style.display = 'none'; }, 350);
+      }
+    }, 6000);
+
+    // Đăng ký Service Worker cho Push Notification & PWA
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('/sw.js')
+          .then(function (reg) {
+            console.log('RF ServiceWorker Registered:', reg.scope);
+          })
+          .catch(function (err) {
+            console.warn('RF ServiceWorker failed:', err);
+          });
+      });
+    }
+  </script>
+</body>
+
+</html>
