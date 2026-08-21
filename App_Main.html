@@ -232,6 +232,12 @@
 
         const [mode, setMode] = React.useState('WORKSPACE');
         const [activeTab, setActiveTab] = React.useState(() => { const r = safeGet('rf_role', ''); return (r === 'CỘNG TÁC VIÊN' || r === 'CTV') ? 'orders' : 'dashboard'; });
+        const [mountedTabs, setMountedTabs] = React.useState([activeTab]);
+        
+        React.useEffect(() => {
+            setMountedTabs(prev => prev.includes(activeTab) ? prev : [...prev, activeTab]);
+        }, [activeTab]);
+
         const [isMenuOpen, setIsMenuOpen] = React.useState(false);
 
         const [isDarkMode, setIsDarkMode] = React.useState(() => safeGet('rf_theme', 'dark') !== 'light');
@@ -874,9 +880,9 @@
         }} />;
 
         return (
-            <div className={`absolute inset-0 flex flex-row w-full text-[12px] max-w-[100vw] mx-auto overflow-hidden transition-colors duration-500 premium-ui ${isDarkMode ? 'is-dark bg-[#000000] text-zinc-100 selection:bg-[#d4af37]/30' : 'bg-[#f8fafc] text-gray-900 selection:bg-blue-500/30'}`} style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+            <div className={`fixed inset-0 flex flex-row w-full text-[12px] max-w-[100vw] mx-auto overflow-hidden transition-colors duration-500 premium-ui ${isDarkMode ? 'is-dark bg-[#09090b] text-zinc-100 selection:bg-[#d4af37]/30' : 'bg-[#f8fafc] text-gray-900 selection:bg-blue-500/30'}`} style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", height: 'var(--app-height, 100dvh)' }}>
                 {isDarkMode && (
-                    <div className="fixed inset-0 pointer-events-none z-[-1] bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-zinc-900/40 via-[#000000] to-[#000000]"></div>
+                    <div className="fixed inset-0 pointer-events-none z-[-1] bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-zinc-900/40 via-[#09090b] to-[#09090b]"></div>
                 )}
                 {typeof ToastManager !== 'undefined' && <ToastManager toasts={toasts} />}
 
@@ -964,7 +970,7 @@
                 {isMenuOpen && <div className="lg:hidden fixed inset-0 bg-black/40 z-[200] backdrop-blur-sm transition-opacity" onClick={() => setIsMenuOpen(false)}></div>}
 
                 <aside className={`fixed lg:static inset-y-0 left-0 w-[240px] shrink-0 z-[210] transform transition-transform duration-400 ease-[cubic-bezier(0.2,0.8,0.2,1)] flex flex-col ${isMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'} bg-[#121214] border-r border-white/[0.08] shadow-sm`}>
-                    <div className="p-4 pt-6 border-b border-white/[0.06] flex justify-between items-center">
+                    <div className="p-4 pt-[max(1.5rem,env(safe-area-inset-top))] border-b border-white/[0.06] flex justify-between items-center">
                         <div className="flex items-center gap-3">
                             {typeof RFLogo !== 'undefined' ? (
                                 <RFLogo className="w-8 h-8" size={32} />
@@ -993,7 +999,18 @@
                                             const activeClass = 'bg-[#d4af37]/10 text-[#d4af37] font-medium border border-[#d4af37]/20';
                                             const inactiveClass = 'text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.04] transition-all';
                                             return (
-                                                <button key={item.id} onClick={() => { setActiveTab(item.id); setMode(item.mode); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-[13px] transition-all duration-200 ${isActive ? activeClass : inactiveClass}`}>
+                                                <button key={item.id} onClick={() => {
+                                                    setIsMenuOpen(false);
+                                                    if (typeof React.startTransition === 'function') {
+                                                        React.startTransition(() => {
+                                                            setActiveTab(item.id); 
+                                                            setMode(item.mode);
+                                                        });
+                                                    } else {
+                                                        setActiveTab(item.id); 
+                                                        setMode(item.mode);
+                                                    }
+                                                }} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-[13px] transition-all duration-200 ${isActive ? activeClass : inactiveClass}`}>
                                                     <div className={`w-5 flex justify-center text-[14px] ${isActive ? 'text-[#d4af37]' : 'opacity-70'}`}><i className={`fas ${item.icon}`}></i></div>
                                                     <span>{item.label}</span>
                                                     {item.id === 'training' && unreadTrainingsCount > 0 && (
@@ -1022,7 +1039,7 @@
                         </div>
                     </div>
 
-                    <div className="p-4 border-t border-white/[0.06] bg-[#121214] flex items-center gap-3">
+                    <div className="p-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-white/[0.06] bg-[#121214] flex items-center gap-3">
                         {typeof Avatar !== 'undefined' ? <Avatar name={currentUser} userConfigs={userConfigs} className="w-9 h-9 border border-white/10 shadow-sm" /> : <div className="w-9 h-9 rounded-full bg-zinc-800"></div>}
                         <div className="flex-1 min-w-0">
                             <div className="font-semibold text-[13px] truncate text-zinc-100">{currentUser.split(' ').pop()}</div>
@@ -1159,7 +1176,7 @@
                         </div>
                     </header>
 
-                    <main className={`flex-1 min-h-0 w-full p-3 sm:p-4 lg:p-6 pb-6 md:pb-8 overflow-y-auto custom-scrollbar relative z-10 ${userRole === 'KHÁCH' ? 'rf-guest-mode' : ''}`}>
+                    <main className={`flex-1 min-h-0 w-full p-3 sm:p-4 lg:p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] md:pb-8 overflow-y-auto custom-scrollbar relative z-10 ${userRole === 'KHÁCH' ? 'rf-guest-mode' : ''}`}>
                         <ErrorBoundary>
                             {(() => {
                                 const isCTV = userRole === 'CTV';
@@ -1171,31 +1188,39 @@
                                     </div>
                                 );
 
-                                if (mode === 'WORKSPACE') {
-                                    return (
-                                        <div key={`workspace_${activeTab}`} className="w-full h-full rf-tab-view rf-gpu-accelerated">
-                                            {activeTab === 'dashboard' && typeof DashboardTab !== 'undefined' && <DashboardTab reimbursements={reimbursements || []} attendance={attendance || []} records={attendance || []} prodItems={prodItems || []} currentUser={currentUser} packings={packings || []} users={userConfigs?.users || []} orders={orders || []} kpiConfig={typeof kpiConfig !== 'undefined' ? kpiConfig : []} erpData={erpData || {}} kpis={erpData?.BonusPenalty || []} importExport={erpData?.ImportExport || []} userConfigs={userConfigs} erpProducts={erpData?.Products || []} pushDeltas={pushDeltas} triggerToast={triggerToast} isAdmin={isAdmin} isBoss={isBoss} />}
-                                            {activeTab === 'orders' && typeof OrdersTab !== 'undefined' && <OrdersTab loadArchiveData={loadArchiveData} isArchiveLoaded={isArchiveLoaded} isLoadingArchive={isLoadingArchive} attendance={attendance || []} orders={orders || []} prodItems={prodItems || []} packings={packings || []} erpProducts={erpData?.Products || []} erpData={erpData || {}} isAdmin={isAdmin} currentUser={currentUser} pushDeltas={pushDeltas} userConfigs={userConfigs} triggerToast={triggerToast} kpiConfig={typeof kpiConfig !== 'undefined' ? kpiConfig : []} configGiaLayout={configGiaLayout || []} />}
-                                            {activeTab === 'production' && typeof ProductionTab !== 'undefined' && <ProductionTab attendance={attendance || []} orders={orders || []} prodItems={prodItems || []} erpProducts={erpData?.Products || []} erpData={erpData || {}} currentUser={currentUser} pushDeltas={pushDeltas} userConfigs={userConfigs} triggerToast={triggerToast} kpiConfig={typeof kpiConfig !== 'undefined' ? kpiConfig : []} models3D={models3D || []} />}
-                                            {activeTab === 'ERRORS' && typeof TabErrors !== 'undefined' && <TabErrors activeTab={activeTab} runGAS={runGAS} triggerToast={triggerToast} currentUser={currentUser} prodItems={prodItems || []} erpProducts={erpData?.Products || []} erpData={erpData || {}} orders={orders || []} pushDeltas={pushDeltas} isAdmin={isAdmin} />}
-                                            {activeTab === 'hr' && typeof HRTab !== 'undefined' && (isCTV ? renderCTVLocked() : <HRTab orders={orders || []} documents={documents} hasPerm={hasPerm} attendance={attendance || []} erpData={erpData || {}} userConfigs={userConfigs} prodItems={prodItems || []} packings={packings || []} pushDeltas={pushDeltas} triggerToast={triggerToast} />)}
-                                            {activeTab === 'documents' && typeof DocumentsTab !== 'undefined' && (isCTV ? renderCTVLocked() : <DocumentsTab documents={documents} isAdmin={isAdmin} pushDeltas={pushDeltas} triggerToast={triggerToast} />)}
-                                            {activeTab === 'viewer3d' && typeof Viewer3DTab !== 'undefined' && <Viewer3DTab models3D={models3D} pushDeltas={pushDeltas} erpProducts={erpData?.Products || []} />}
-                                            {activeTab === 'affiliate' && typeof TabAffiliate !== 'undefined' && <TabAffiliate orders={orders || []} ctvFinance={ctvFinance || []} configGiaLayout={configGiaLayout || []} pushDeltas={pushDeltas} currentUser={currentUser} triggerToast={triggerToast} userRole={userRole} userConfigs={userConfigs} erpData={erpData || {}} prodItems={prodItems || []} />}
-                                        </div>
-                                    );
-                                } else {
-                                    return (
-                                        <div key={`erp_${activeTab}`} className="w-full h-full rf-tab-view rf-gpu-accelerated">
-                                            {activeTab === 'warehouse' && typeof InventoryTab !== 'undefined' && <InventoryTab data={{ ...(erpData || {}), Orders: orders || [] }} userConfigs={userConfigs} pushData={pushErpData} isAdmin={isAdmin} triggerToast={triggerToast} />}
-                                            {activeTab === 'import_export' && typeof ImportExportTab !== 'undefined' && (isCTV ? renderCTVLocked() : <ImportExportTab data={erpData} userConfigs={userConfigs} pushData={pushErpData} isAdmin={isAdmin} triggerToast={triggerToast} />)}
-                                            {activeTab === 'cashflow' && typeof FinanceTab !== 'undefined' && (isCTV ? renderCTVLocked() : <FinanceTab orders={orders || []} erpData={erpData || {}} pushDeltas={pushDeltas} triggerToast={triggerToast} isAdmin={isAdmin} categories={{ THU: typeof FINANCE_CATEGORIES !== 'undefined' ? FINANCE_CATEGORIES.filter(c => c.type === 'Thu' && c.module === 'FINANCE').map(c => ({ label: c.name, value: c.name })) : (typeof CAT_THU !== 'undefined' ? CAT_THU.map(c => ({ label: c, value: c })) : []), CHI: typeof FINANCE_CATEGORIES !== 'undefined' ? FINANCE_CATEGORIES.filter(c => c.type === 'Chi' && c.module === 'FINANCE').map(c => ({ label: c.name, value: c.name })) : (typeof CAT_CHI !== 'undefined' ? CAT_CHI.map(c => ({ label: c, value: c })) : []) }} />)}
-                                            {activeTab === 'analytics' && typeof AnalyticsTab !== 'undefined' && (isCTV ? renderCTVLocked() : <AnalyticsTab data={{ ...(erpData || {}), Orders: orders || [] }} pushData={pushErpData} isAdmin={isAdmin} mode={mode} userConfigs={userConfigs} />)}
-                                            {activeTab === 'business_report' && typeof BusinessReportTab !== 'undefined' && (isCTV ? renderCTVLocked() : <BusinessReportTab erpData={erpData || {}} pushDeltas={pushDeltas} triggerToast={triggerToast} />)}
-                                            {activeTab === 'suppliers' && typeof SuppliersTab !== 'undefined' && (isCTV ? renderCTVLocked() : <SuppliersTab data={erpData || {}} pushData={pushErpData} isAdmin={isAdmin} triggerToast={triggerToast} />)}
-                                        </div>
-                                    );
-                                }
+                                return (
+                                    <div className="w-full h-full relative">
+                                        {/* WORKSPACE TABS */}
+                                        {(activeTab === 'dashboard' || mountedTabs.includes('dashboard')) && typeof DashboardTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'dashboard' ? 'block' : 'hidden'}`}><DashboardTab reimbursements={reimbursements || []} attendance={attendance || []} records={attendance || []} prodItems={prodItems || []} currentUser={currentUser} packings={packings || []} users={userConfigs?.users || []} orders={orders || []} kpiConfig={typeof kpiConfig !== 'undefined' ? kpiConfig : []} erpData={erpData || {}} kpis={erpData?.BonusPenalty || []} importExport={erpData?.ImportExport || []} userConfigs={userConfigs} erpProducts={erpData?.Products || []} pushDeltas={pushDeltas} triggerToast={triggerToast} isAdmin={isAdmin} isBoss={isBoss} /></div>}
+                                        
+                                        {(activeTab === 'orders' || mountedTabs.includes('orders')) && typeof OrdersTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'orders' ? 'block' : 'hidden'}`}><OrdersTab loadArchiveData={loadArchiveData} isArchiveLoaded={isArchiveLoaded} isLoadingArchive={isLoadingArchive} attendance={attendance || []} orders={orders || []} prodItems={prodItems || []} packings={packings || []} erpProducts={erpData?.Products || []} erpData={erpData || {}} isAdmin={isAdmin} currentUser={currentUser} pushDeltas={pushDeltas} userConfigs={userConfigs} triggerToast={triggerToast} kpiConfig={typeof kpiConfig !== 'undefined' ? kpiConfig : []} configGiaLayout={configGiaLayout || []} /></div>}
+                                        
+                                        {(activeTab === 'production' || mountedTabs.includes('production')) && typeof ProductionTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'production' ? 'block' : 'hidden'}`}><ProductionTab attendance={attendance || []} orders={orders || []} prodItems={prodItems || []} erpProducts={erpData?.Products || []} erpData={erpData || {}} currentUser={currentUser} pushDeltas={pushDeltas} userConfigs={userConfigs} triggerToast={triggerToast} kpiConfig={typeof kpiConfig !== 'undefined' ? kpiConfig : []} models3D={models3D || []} /></div>}
+                                        
+                                        {(activeTab === 'ERRORS' || mountedTabs.includes('ERRORS')) && typeof TabErrors !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'ERRORS' ? 'block' : 'hidden'}`}><TabErrors activeTab={activeTab} runGAS={runGAS} triggerToast={triggerToast} currentUser={currentUser} prodItems={prodItems || []} erpProducts={erpData?.Products || []} erpData={erpData || {}} orders={orders || []} pushDeltas={pushDeltas} isAdmin={isAdmin} /></div>}
+                                        
+                                        {(activeTab === 'hr' || mountedTabs.includes('hr')) && typeof HRTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'hr' ? 'block' : 'hidden'}`}>{isCTV ? renderCTVLocked() : <HRTab orders={orders || []} documents={documents} hasPerm={hasPerm} attendance={attendance || []} erpData={erpData || {}} userConfigs={userConfigs} prodItems={prodItems || []} packings={packings || []} pushDeltas={pushDeltas} triggerToast={triggerToast} />}</div>}
+                                        
+                                        {(activeTab === 'documents' || mountedTabs.includes('documents')) && typeof DocumentsTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'documents' ? 'block' : 'hidden'}`}>{isCTV ? renderCTVLocked() : <DocumentsTab documents={documents} isAdmin={isAdmin} pushDeltas={pushDeltas} triggerToast={triggerToast} />}</div>}
+                                        
+                                        {(activeTab === 'viewer3d' || mountedTabs.includes('viewer3d')) && typeof Viewer3DTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'viewer3d' ? 'block' : 'hidden'}`}><Viewer3DTab models3D={models3D} pushDeltas={pushDeltas} erpProducts={erpData?.Products || []} /></div>}
+                                        
+                                        {(activeTab === 'affiliate' || mountedTabs.includes('affiliate')) && typeof TabAffiliate !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'affiliate' ? 'block' : 'hidden'}`}><TabAffiliate orders={orders || []} ctvFinance={ctvFinance || []} configGiaLayout={configGiaLayout || []} pushDeltas={pushDeltas} currentUser={currentUser} triggerToast={triggerToast} userRole={userRole} userConfigs={userConfigs} erpData={erpData || {}} prodItems={prodItems || []} /></div>}
+
+                                        {/* ERP TABS */}
+                                        {(activeTab === 'warehouse' || mountedTabs.includes('warehouse')) && typeof InventoryTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'warehouse' ? 'block' : 'hidden'}`}><InventoryTab data={{ ...(erpData || {}), Orders: orders || [] }} userConfigs={userConfigs} pushData={pushErpData} isAdmin={isAdmin} triggerToast={triggerToast} /></div>}
+                                        
+                                        {(activeTab === 'import_export' || mountedTabs.includes('import_export')) && typeof ImportExportTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'import_export' ? 'block' : 'hidden'}`}>{isCTV ? renderCTVLocked() : <ImportExportTab data={erpData} userConfigs={userConfigs} pushData={pushErpData} isAdmin={isAdmin} triggerToast={triggerToast} />}</div>}
+                                        
+                                        {(activeTab === 'cashflow' || mountedTabs.includes('cashflow')) && typeof FinanceTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'cashflow' ? 'block' : 'hidden'}`}>{isCTV ? renderCTVLocked() : <FinanceTab orders={orders || []} erpData={erpData || {}} pushDeltas={pushDeltas} triggerToast={triggerToast} isAdmin={isAdmin} categories={{ THU: typeof FINANCE_CATEGORIES !== 'undefined' ? FINANCE_CATEGORIES.filter(c => c.type === 'Thu' && c.module === 'FINANCE').map(c => ({ label: c.name, value: c.name })) : (typeof CAT_THU !== 'undefined' ? CAT_THU.map(c => ({ label: c, value: c })) : []), CHI: typeof FINANCE_CATEGORIES !== 'undefined' ? FINANCE_CATEGORIES.filter(c => c.type === 'Chi' && c.module === 'FINANCE').map(c => ({ label: c.name, value: c.name })) : (typeof CAT_CHI !== 'undefined' ? CAT_CHI.map(c => ({ label: c, value: c })) : []) }} />}</div>}
+                                        
+                                        {(activeTab === 'analytics' || mountedTabs.includes('analytics')) && typeof AnalyticsTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'analytics' ? 'block' : 'hidden'}`}>{isCTV ? renderCTVLocked() : <AnalyticsTab data={{ ...(erpData || {}), Orders: orders || [] }} pushData={pushErpData} isAdmin={isAdmin} mode={mode} userConfigs={userConfigs} />}</div>}
+                                        
+                                        {(activeTab === 'business_report' || mountedTabs.includes('business_report')) && typeof BusinessReportTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'business_report' ? 'block' : 'hidden'}`}>{isCTV ? renderCTVLocked() : <BusinessReportTab erpData={erpData || {}} pushDeltas={pushDeltas} triggerToast={triggerToast} />}</div>}
+                                        
+                                        {(activeTab === 'suppliers' || mountedTabs.includes('suppliers')) && typeof SuppliersTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'suppliers' ? 'block' : 'hidden'}`}>{isCTV ? renderCTVLocked() : <SuppliersTab data={erpData || {}} pushData={pushErpData} isAdmin={isAdmin} triggerToast={triggerToast} />}</div>}
+                                    </div>
+                                );
                             })()}
                         </ErrorBoundary>
                     </main>
