@@ -239,28 +239,18 @@
     }
 
     html,
-    body {
+    body,
+    #root {
+      width: 100%;
+      height: 100vh;
+      height: 100dvh;
+      overflow: hidden;
+      overscroll-behavior-y: none;
       margin: 0;
       padding: 0;
-      width: 100%;
-      height: 100%;
-      height: 100dvh;
-      height: -webkit-fill-available;
-      overflow: hidden;
       background-color: #09090b;
       color: #fafafa;
     }
-
-    #root {
-      width: 100%;
-      height: 100%;
-      height: 100dvh;
-      height: -webkit-fill-available;
-      overflow: hidden;
-      margin: 0;
-      padding: 0;
-    }
-
     /* Modal */
     .modal-content,
     .rf-modal-content {
@@ -421,7 +411,8 @@
     /* --- SCROLLBARS --- */
     .custom-scrollbar {
       -webkit-overflow-scrolling: touch;
-      touch-action: pan-y;
+      touch-action: auto;
+      will-change: scroll-position;
     }
     .custom-scrollbar::-webkit-scrollbar {
       width: 4px;
@@ -464,14 +455,7 @@
       -moz-osx-font-smoothing: grayscale;
     }
 
-    html,
-    body {
-      background-color: #09090b;
-      margin: 0;
-      padding: 0;
-      height: 100%;
-      overflow: hidden;
-    }
+
 
     /* --- LIGHT MODE BACKGROUND --- */
     .premium-ui:not(.is-dark) {
@@ -1139,25 +1123,30 @@
       console.log('🔄 Đang biên dịch ứng dụng...');
       var hasError = false;
       var errorMessages = [];
+      var compiled = null;
 
-      fileIds.forEach(function (id) {
-        var el = document.getElementById('jsx-' + id);
-        if (!el) return;
-        var code = cleanCode(el.textContent || '');
-        try {
-          Babel.transform(code, { presets: ['react'] });
-        } catch (err) {
-          hasError = true;
-          var msg = '❌ LỖI CÚ PHÁP TẠI FILE [' + id + ']: ' + err.message;
-          console.error(msg);
-          errorMessages.push(msg);
-        }
-      });
+      try {
+        compiled = Babel.transform(fullJsx, { presets: ['react'] }).code;
+        fullJsx = null; // Giải phóng chuỗi mã nguồn khổng lồ trong heap
+      } catch (mainErr) {
+        console.warn("Lỗi biên dịch tổng thể! Đang dò tìm file bị lỗi cú pháp...");
+        hasError = true;
+        fileIds.forEach(function (id) {
+          var el = document.getElementById('jsx-' + id);
+          if (!el) return;
+          var code = cleanCode(el.textContent || '');
+          try {
+            Babel.transform(code, { presets: ['react'] });
+          } catch (err) {
+            var msg = '❌ LỖI CÚ PHÁP TẠI FILE [' + id + ']: ' + err.message;
+            console.error(msg);
+            errorMessages.push(msg);
+          }
+        });
+      }
 
-      if (!hasError) {
+      if (!hasError && compiled) {
         try {
-          var compiled = Babel.transform(fullJsx, { presets: ['react'] }).code;
-          fullJsx = null; // Giải phóng chuỗi mã nguồn khổng lồ trong heap
 
           var keysToRemove = [];
           for (var j = 0; j < localStorage.length; j++) {

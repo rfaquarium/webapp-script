@@ -14,7 +14,9 @@
  * @returns {Object} Kết quả KPI và Lương
  */
 function api_generateMonthlyKPI_All(allStatsMap) {
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(15000);
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     
     // 1. Quét danh sách nhân sự từ Config_NhanSu
@@ -59,10 +61,10 @@ function api_generateMonthlyKPI_All(allStatsMap) {
     };
     
     var dataToAppend = [];
-    var monthStr = new Date().toISOString().slice(0, 7);
-    var timestamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    var monthStr = Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM");
+    var timestamp = Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd HH:mm:ss");
     var eMonth = new Date(); eMonth.setMonth(eMonth.getMonth() + 1); eMonth.setDate(0);
-    var endTimeStr = eMonth.toISOString().slice(0, 10) + ' 23:59:59';
+    var endTimeStr = Utilities.formatDate(eMonth, "GMT+7", "yyyy-MM-dd") + ' 23:59:59';
     var logs = [];
 
     // 3. Duyệt toàn bộ nhân sự (O(N) data build)
@@ -123,6 +125,8 @@ function api_generateMonthlyKPI_All(allStatsMap) {
     };
   } catch (error) {
     return { success: false, message: 'Lỗi khi tạo KPI hàng loạt: ' + error.toString() };
+  } finally {
+    lock.releaseLock();
   }
 }
 
@@ -143,7 +147,9 @@ function api_generateMonthlyKPI_All(allStatsMap) {
  * @returns {Object} Trạng thái thực thi
  */
 function api_recordXuTransaction(user, amountXu, type, note, orderCode) {
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(15000);
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var sheetName = 'ThongKe_TichLuyXu';
     var sheet = ss.getSheetByName(sheetName);
@@ -171,8 +177,8 @@ function api_recordXuTransaction(user, amountXu, type, note, orderCode) {
     }
     
     // BƯỚC 2: Chuẩn bị dữ liệu dòng ghi nhận mới
-    var timestamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
-    var dateStr = new Date().toISOString().slice(0, 10);
+    var timestamp = Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd HH:mm:ss");
+    var dateStr = Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd");
     var uniqueId = 'XU_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
     
     var newRow = [
@@ -198,6 +204,8 @@ function api_recordXuTransaction(user, amountXu, type, note, orderCode) {
       success: false, 
       message: 'Lỗi phát sinh khi ghi nhận quỹ Xu tích lũy: ' + error.toString() 
     };
+  } finally {
+    lock.releaseLock();
   }
 }
 
@@ -350,5 +358,67 @@ function api_getOperationsHealth() {
     return { success: true, data: alerts };
   } catch (error) {
     return { success: false, message: 'Lỗi khi quét vận hành: ' + error.toString() };
+  }
+}
+
+// =========================================================================
+// 🛠️ TOOL DỌN DẸP: BUNG CÁC LỆNH BỊ GỘP TRỞ LẠI THÀNH CÁC LỆNH ĐỘC LẬP
+// =========================================================================
+function TOOL_SplitGroupedProductionTasks() {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName('Production');
+    if (!sheet) return { success: false, message: 'Không tìm thấy bảng Production' };
+    
+    var data = sheet.getDataRange().getValues();
+    var headers = data[0];
+    
+    var idCol = headers.indexOf('id');
+    var orderIdCol = headers.indexOf('orderId');
+    var noteCol = headers.indexOf('note');
+    
+    var newRows = [];
+    var modifiedCount = 0;
+    
+    // Duyệt ngược từ dưới lên
+    for (var i = data.length - 1; i >= 1; i--) {
+      var orderIdRaw = String(data[i][orderIdCol] || '');
+      var noteRaw = String(data[i][noteCol] || '');
+      
+      if (orderIdRaw.indexOf('|') !== -1) {
+        var ids = orderIdRaw.split('|').map(function(s) { return s.trim(); }).filter(Boolean);
+        if (ids.length > 1) {
+          var firstOrderId = ids[0];
+          var cleanNote = noteRaw.replace(/\[Gộp đơn:.*?\]/g, '').trim();
+          
+          sheet.getRange(i + 1, orderIdCol + 1).setValue(firstOrderId);
+          sheet.getRange(i + 1, noteCol + 1).setValue(cleanNote);
+          modifiedCount++;
+          
+          for (var j = 1; j < ids.length; j++) {
+            var clonedRow = data[i].slice();
+            clonedRow[idCol] = 'PROD_SPLIT_' + Date.now() + '_' + i + '_' + j;
+            clonedRow[orderIdCol] = ids[j];
+            clonedRow[noteCol] = 'Tách từ lệnh gộp gốc';
+            newRows.push(clonedRow);
+          }
+        }
+      }
+    }
+    
+    if (newRows.length > 0) {
+      sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, headers.length).setValues(newRows);
+    }
+    
+    return { 
+      success: true, 
+      message: 'Đã bung thành công ' + modifiedCount + ' nhóm lệnh thành ' + (modifiedCount + newRows.length) + ' lệnh độc lập.' 
+    };
+  } catch (err) {
+    return { success: false, message: 'Lỗi: ' + err.message };
+  } finally {
+    lock.releaseLock();
   }
 }

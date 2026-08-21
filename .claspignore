@@ -1,19 +1,20 @@
-# Bỏ qua toàn bộ file CSDL CSV & Excel cục bộ
-*.csv
-*.xlsx
+# 1. Bỏ qua toàn bộ mọi file/thư mục mặc định
+**/**
 
-# Bỏ qua các file cấu hình IDE & Git
-.git/
-.vscode/
-.antigravityrules
-.cursorrules
-node_modules/
-package.json
-package-lock.json
-README.md
+# 2. Chỉ cho phép đẩy các file Apps Script và HTML cần thiết
+!appsscript.json
+!*.html
+!Code.js
+!Operations.js
 
-# Bỏ qua các file Web Worker & Push Relay không thuộc Google Apps Script
+# 3. Tuyệt đối loại trừ thư mục kỹ năng AI, môi trường và service worker
+.agents/**
+node_modules/**
+.git/**
+vercel-wrapper/**
 push_relay_worker.js
 sw.js
+*.xlsx
+*.csv
+*.log
 install.cmd
-clasp_output.log

@@ -43,6 +43,7 @@ function calculateBomItemCost(mat, rawQty, rawBomUnit) {
     let bomUnit = String(rawBomUnit || mat?.unit || '').toLowerCase().trim();
     let matUnit = String(mat?.unit || '').toLowerCase().trim();
     let matName = String(mat?.name || '').toLowerCase();
+    let matSku = String(mat?.sku || '').toLowerCase();
 
     // Nhận diện khối lượng: Kg / Gam
     const isMatKg = matUnit === 'kg' || matUnit === 'cân' || matUnit === 'kí' || matUnit === 'kilogram' || 
@@ -60,11 +61,19 @@ function calculateBomItemCost(mat, rawQty, rawBomUnit) {
     const isBomCm = bomUnit === 'cm' || bomUnit === 'centimet';
     const isBomMm = bomUnit === 'mm' || bomUnit === 'milimet';
 
+    // Nhận diện Keo 502 tính theo chai 162g
+    const isKeo502 = matSku.includes('502') || matName.includes('502') || matName.includes('keo');
+    const isMatChai162 = matUnit.includes('162') || matUnit === 'chai' || matName.includes('162') || matName.includes('chai');
+
     let convertedPrice = unitPrice;
     let convertedQty = qty;
     let conversionNote = '';
 
-    if (isMatKg && isBomGram) {
+    if (isKeo502 && isMatChai162 && isBomGram) {
+        convertedPrice = unitPrice / 162;
+        convertedQty = qty / 162;
+        conversionNote = '1 chai = 162g';
+    } else if (isMatKg && isBomGram) {
         convertedPrice = unitPrice / 1000;
         convertedQty = qty / 1000;
         conversionNote = '1kg = 1.000g';
@@ -333,12 +342,13 @@ const checkTimeFilter = (dateStr, mode) => {
     return true; 
 };
 
-function isExportChannel(channelStr) {
-  if (!channelStr) return false;
-  const raw = String(channelStr).trim().toUpperCase();
-  if (/\b(XUẤT KHẨU|EXPORT|QUỐC TẾ|INTERNATIONAL|GLOBAL|MALAYSIA|THAILAND|PHILIPPINES|SINGAPORE|TAIWAN)\b/i.test(raw)) return true;
-  if (/\bSHOPEE\s*[-_]?\s*(TH|MA|MY|SG|TW|PH|THAILAND|MALAYSIA|PHILIPPINES|SINGAPORE|TAIWAN)\b/i.test(raw)) return true;
-  if (/\b(SHOPEE_TH|SHOPEE_MA|SHOPEE_MY|SHOPEE_SG|SHOPEE_TW|SHOPEE_PH|SHOPEE_MALAYSIA|SHOPEE_THAILAND)\b/i.test(raw)) return true;
+function isExportChannel(raw) {
+  if (!raw) return false;
+  raw = String(raw).toUpperCase().trim();
+  if (raw.includes('XUẤT KHẨU') || raw.includes('EXPORT') || raw.includes('QUỐC TẾ') || raw.includes('INTERNATIONAL') || raw.includes('GLOBAL')) return true;
+  if (/\b(MALAYSIA|THAILAND|PHILIPPINES|SINGAPORE|TAIWAN)\b/i.test(raw)) return true;
+  if (/\bSHOPEE\s*[-_]?\s*(TH|MA|MY|SG|TW|PH)\b/i.test(raw)) return true;
+  if (/\b(SHOPEE_TH|SHOPEE_MA|SHOPEE_MY|SHOPEE_SG|SHOPEE_TW|SHOPEE_PH)\b/i.test(raw)) return true;
   if (/\b(MY|TH|PH|SG|TW|MA)\b/i.test(raw) && raw.includes('SHOPEE')) return true;
   return false;
 }
@@ -565,32 +575,58 @@ const getChannelBadge = (channel) => {
 };
 
 const getChannelInlineStyle = (groupKey) => {
-    const k = String(groupKey || '').toUpperCase().trim();
-    if (k.includes('SHOPEE')) {
-        return { background: '#f97316', color: '#000000', border: '2px solid #ea580c' };
+    const key = String(groupKey || '').toUpperCase().trim();
+    let accent = '#14b8a6';
+    let glow = 'rgba(20, 184, 166, 0.15)';
+
+    if (key.includes('SHOPEE VN')) {
+        accent = '#f97316';
+        glow = 'rgba(249, 115, 22, 0.15)';
+    } else if (key.includes('SHOPEE TH')) {
+        accent = '#fb923c';
+        glow = 'rgba(251, 146, 60, 0.15)';
+    } else if (key.includes('SHOPEE SG')) {
+        accent = '#ea580c';
+        glow = 'rgba(234, 88, 12, 0.15)';
+    } else if (key.includes('SHOPEE MA') || key.includes('SHOPEE MY')) {
+        accent = '#f59e0b';
+        glow = 'rgba(245, 158, 11, 0.15)';
+    } else if (key.includes('SHOPEE PH')) {
+        accent = '#facc15';
+        glow = 'rgba(250, 204, 21, 0.15)';
+    } else if (key.includes('SHOPEE TW')) {
+        accent = '#ca8a04';
+        glow = 'rgba(202, 138, 4, 0.15)';
+    } else if (key.includes('SHOPEE') || key.includes('XUẤT KHẨU') || key.includes('EXPORT') || key.includes('QUỐC TẾ')) {
+        accent = '#eab308';
+        glow = 'rgba(234, 179, 8, 0.15)';
+    } else if (key.includes('TIKTOK')) {
+        accent = '#ec4899';
+        glow = 'rgba(236, 72, 153, 0.15)';
+    } else if (key.includes('CỘNG TÁC VIÊN') || key.includes('CTV')) {
+        accent = '#10b981';
+        glow = 'rgba(16, 185, 129, 0.15)';
+    } else if (key.includes('BÁN LẺ') || key.includes('OFFLINE') || key.includes('ZALO') || key.includes('FACEBOOK') || key.includes('MESSENGER')) {
+        accent = '#0ea5e9';
+        glow = 'rgba(14, 165, 233, 0.15)';
+    } else if (key.includes('BÁN SỈ') || key.includes('WHOLESALE')) {
+        accent = '#8b5cf6';
+        glow = 'rgba(139, 92, 246, 0.15)';
+    } else if (key.includes('SẢN XUẤT TỒN') || key.includes('SẢN XUẤT BÙ KHO') || key.includes('TỒN XƯỞNG')) {
+        accent = '#a855f7';
+        glow = 'rgba(168, 85, 247, 0.15)';
+    } else if (key.includes('BẢO HÀNH') || key.includes('SỬA CHỮA')) {
+        accent = '#f43f5e';
+        glow = 'rgba(244, 63, 94, 0.15)';
     }
-    if (k.includes('TIKTOK')) {
-        return { background: '#06b6d4', color: '#000000', border: '2px solid #0891b2' };
-    }
-    if (k.includes('XUẤT KHẨU')) {
-        return { background: '#eab308', color: '#000000', border: '2px solid #ca8a04' };
-    }
-    if (k.includes('CỘNG TÁC VIÊN') || k.includes('CTV')) {
-        return { background: '#10b981', color: '#000000', border: '2px solid #059669' };
-    }
-    if (k.includes('BÁN LẺ')) {
-        return { background: '#0284c7', color: '#ffffff', border: '2px solid #0369a1' };
-    }
-    if (k.includes('SẢN XUẤT TỒN')) {
-        return { background: '#a855f7', color: '#ffffff', border: '2px solid #9333ea' };
-    }
-    if (k.includes('BẢO HÀNH')) {
-        return { background: '#f43f5e', color: '#ffffff', border: '2px solid #e11d48' };
-    }
-    if (k.includes('BÁN SỈ')) {
-        return { background: '#14b8a6', color: '#000000', border: '2px solid #0d9488' };
-    }
-    return { background: '#eab308', color: '#000000', border: '2px solid #ca8a04' };
+
+    return {
+        background: 'linear-gradient(90deg, rgba(22, 22, 26, 0.95) 0%, rgba(14, 14, 16, 0.9) 100%)',
+        color: '#ffffff',
+        border: '1px solid rgba(255, 255, 255, 0.08)',
+        borderLeft: `4px solid ${accent}`,
+        boxShadow: `0 4px 20px ${glow}`
+    };
 };
 
 
@@ -668,7 +704,7 @@ const deleteOrderHandler = async (order, prods, pack, erpData, erpProducts, push
       try {
           const TOKEN = "5c588da0-1d0a-11ef-b3d7-824e1db0c320";
           let shopId = "";
-          const shopRes = await fetch("https:\/\/online-gateway.ghn.vn/shiip/public-api/v2/shop/all", { headers: { "Content-Type": "application/json", "Token": TOKEN } }).then(r=>r.json()).catch(()=>({}));
+          const shopRes = await window.safeFetchJSON("https:\/\/online-gateway.ghn.vn/shiip/public-api/v2/shop/all", { headers: { "Content-Type": "application/json", "Token": TOKEN } }).catch(()=>({}));
           if (shopRes.code === 200 && shopRes.data?.shops?.length > 0) shopId = shopRes.data.shops[0]._id;
           const h = { "Content-Type": "application/json", "Token": TOKEN };
           if (shopId) h["ShopId"] = shopId;
@@ -685,9 +721,12 @@ const deleteOrderHandler = async (order, prods, pack, erpData, erpProducts, push
   }
 };
 
-const exportToExcel = (items, columns, filename = 'export.xlsx') => {
+const exportToExcel = async (items, columns, filename = 'export.xlsx') => {
+  if (typeof XLSX === 'undefined' && typeof window.ensureXLSXLoaded === 'function') {
+    await window.ensureXLSXLoaded();
+  }
   if (typeof XLSX === 'undefined') {
-    alert('Thư viện Excel (SheetJS) chưa được tải xong, vui lòng thử lại sau!');
+    alert('Thư viện Excel (SheetJS) chưa được tải xong, vui lòng kiểm tra kết nối mạng!');
     return;
   }
   const data = items.map(item => {

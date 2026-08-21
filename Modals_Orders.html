@@ -381,14 +381,15 @@
                         if (lowerStatus.includes('สำเร็จแล้ว')) rawStatus = 'Hoàn thành';
                         else if (lowerStatus.includes('จัดส่งแล้ว') || lowerStatus.includes('ได้รับสินค้าแล้ว')) rawStatus = 'Đã giao';
                         else if (lowerStatus.includes('คืนเงิน') || lowerStatus.includes('คืนสินค้า')) rawStatus = 'Trả hàng/Hoàn tiền';
-                        else if (lowerStatus.includes('ยกเลิกแล้ว')) rawStatus = 'Đã hủy';
+                        else if (lowerStatus.includes('ยกเลิก rồi') || lowerStatus.includes('ยกเลิกแล้ว')) rawStatus = 'Đã hủy';
                     } else if (rowChannel === 'Shopee TW') {
                         exchangeRate = 810; // 1 TWD ≈ 810 VNĐ
                     } else if (rowChannel === 'Shopee PH') {
                         exchangeRate = 440; // 1 PHP ≈ 440 VNĐ
                     }
 
-                    if (exchangeRate !== 1) {
+                    // CHỈ nhân tỷ giá khi giá trị gốc là ngoại tệ nhỏ (< 50.000). Nếu rowRevenue >= 50.000 (đã là VNĐ quy đổi sẵn) thì KHÔNG nhân thêm
+                    if (exchangeRate !== 1 && rowRevenue > 0 && rowRevenue < 50000) {
                         rowRevenue *= exchangeRate;
                         rowFeeFixed *= exchangeRate;
                         rowFeeService *= exchangeRate;
@@ -534,27 +535,58 @@
             setTimeout(processBatch, 50);
         };
 
-        // ĐÃ SỬA THÀNH ArrayBuffer CHỐNG CRASH
-        const handleFileUpload = (file) => {
+        // TỰ ĐỘNG NẠP THƯ VIỆN XLSX VÀ ĐỌC FILE LINH HOẠT (ARRAY BUFFER + BINARY FALLBACK)
+        const handleFileUpload = async (file) => {
             if (!file) return;
             setFileName(file.name); setIsProcessing(true); setProgress(0); setPreview([]);
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                try {
-                    const data = new Uint8Array(e.target.result);
-                    const wb = XLSX.read(data, { type: 'array' });
-
-                    let sheetName = wb.SheetNames.find(s => s.toLowerCase().trim() === 'orders');
-                    if (!sheetName) sheetName = wb.SheetNames[0];
-
-                    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
-                    processExcelData(rows);
-                } catch (error) {
-                    alert("Lỗi đọc file Excel! Vui lòng đảm bảo file chuẩn.");
-                    setFileName(''); setIsProcessing(false);
+            try {
+                if (typeof window.ensureXLSXLoaded === 'function') {
+                    await window.ensureXLSXLoaded();
                 }
-            };
-            reader.readAsArrayBuffer(file);
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        let wb;
+                        const data = new Uint8Array(e.target.result);
+                        try {
+                            wb = window.XLSX.read(data, { type: 'array' });
+                        } catch (errArr) {
+                            // Fallback binary reader cho định dạng đặc thù (HTML ẩn danh .xls)
+                            const binReader = new FileReader();
+                            binReader.onload = (be) => {
+                                try {
+                                    const wbBin = window.XLSX.read(be.target.result, { type: 'binary' });
+                                    let sheetName = wbBin.SheetNames.find(s => s.toLowerCase().trim() === 'orders');
+                                    if (!sheetName) sheetName = wbBin.SheetNames[0];
+                                    const rows = window.XLSX.utils.sheet_to_json(wbBin.Sheets[sheetName], { header: 1, defval: '' });
+                                    processExcelData(rows);
+                                } catch (errBin) {
+                                    console.error("Lỗi đọc file binary:", errBin);
+                                    alert("Lỗi đọc file Excel! Vui lòng đảm bảo file chuẩn.");
+                                    setFileName(''); setIsProcessing(false);
+                                }
+                            };
+                            binReader.readAsBinaryString(file);
+                            return;
+                        }
+
+                        let sheetName = wb.SheetNames.find(s => s.toLowerCase().trim() === 'orders');
+                        if (!sheetName) sheetName = wb.SheetNames[0];
+
+                        const rows = window.XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
+                        processExcelData(rows);
+                    } catch (error) {
+                        console.error("Lỗi đọc file Excel:", error);
+                        alert("Lỗi đọc file Excel! Vui lòng đảm bảo file chuẩn.");
+                        setFileName(''); setIsProcessing(false);
+                    }
+                };
+                reader.readAsArrayBuffer(file);
+            } catch (loadErr) {
+                console.error("Lỗi nạp thư viện XLSX:", loadErr);
+                alert("Không thể nạp thư viện xử lý Excel. Vui lòng tải lại trang hoặc kiểm tra kết nối mạng!");
+                setFileName(''); setIsProcessing(false);
+            }
         };
 
         // LƯU Ý: Phải luôn có từ khóa "async" ở đây
@@ -2593,7 +2625,7 @@
     // 3. COMPONENT THẺ ĐƠN HÀNG (ĐÃ CẬP NHẬT TÔ MÀU XANH KHI ĐẠT KCS)
     // ==========================================
     function OrderCardV2({
-        attendance, order, prods, pack, erpProducts, erpData, isAdmin, currentUser, pushDeltas,
+        attendance, order, prods, pack, packings, erpProducts, erpData, isAdmin, currentUser, pushDeltas,
         prodItems, userConfigs, triggerToast, isSelected, onToggleSelect, kpiConfig, idx_num,
         handleCancelOrder, handleConfirmStockIn, openReturnModal, onEditOrder, filterStatus
     }) {
@@ -2846,6 +2878,9 @@
         if (!_order.shippingCode) {
             if (fullOrderCode.includes(' | MVĐ: ')) { const parts = fullOrderCode.split(' | MVĐ: '); mainOrderCode = parts[0] || fullOrderCode; shippingCode = parts[1] || ''; }
             else if (fullOrderCode.includes('|MVĐ:')) { const parts = fullOrderCode.split('|MVĐ:'); mainOrderCode = parts[0] || fullOrderCode; shippingCode = parts[1] || ''; }
+        } else {
+            if (mainOrderCode.includes(' | MVĐ: ')) mainOrderCode = mainOrderCode.split(' | MVĐ: ')[0];
+            else if (mainOrderCode.includes('|MVĐ:')) mainOrderCode = mainOrderCode.split('|MVĐ:')[0];
         }
 
         // BÓC TÁCH LINK ẢNH VÀ GHI CHÚ
@@ -2926,14 +2961,25 @@
 
         let effectiveStatus = _order._effectiveStatus || _order.status;
         const upperStatus = String(effectiveStatus || '').toUpperCase().trim();
-        const orderPacks = (erpData?.Packings || []).filter(p => p.orderId === _order.id);
+        const allPackingsList = (typeof packings !== 'undefined' && packings) ? packings : (erpData?.Packings || []);
+        const oIdStr = String(_order.id || '').trim();
+        const oCodeStr = String(_order.orderCode || '').trim();
+        const baseCodeStr = oCodeStr.split(' | ')[0].trim();
+        const orderPacks = allPackingsList.filter(p => {
+            const pOrd = String(p.orderId || '').trim();
+            return pOrd && (pOrd === oIdStr || pOrd === oCodeStr || pOrd === baseCodeStr);
+        });
         const optimisticPacks = [...orderPacks];
         if (_pack && !optimisticPacks.find(p => p.id === _pack.id)) optimisticPacks.push(_pack);
 
-        if (upperStatus === 'CHỜ SẢN XUẤT' || upperStatus === 'QUÉT TỰ ĐỘNG' || upperStatus === 'ĐANG SẢN XUẤT' || upperStatus === 'SẴN SÀNG ĐÓNG GÓI') {
-            const hasDonePack = optimisticPacks.some(p => p.status === 'Done' && (!p.note || !p.note.includes('kho')));
-            if (hasDonePack) {
-                effectiveStatus = 'Chờ Bàn Giao';
+        const hasDonePack = optimisticPacks.some(p => {
+            const ps = String(p.status || '').toUpperCase().trim();
+            return (ps === 'DONE' || ps === 'ĐÃ ĐÓNG GÓI' || ps === 'HOÀN THÀNH' || ps === 'ĐÃ XONG') && (!p.note || !p.note.includes('kho'));
+        });
+
+        if (upperStatus === 'CHỜ SẢN XUẤT' || upperStatus === 'QUÉT TỰ ĐỘNG' || upperStatus === 'ĐANG SẢN XUẤT' || upperStatus === 'SẴN SÀNG ĐÓNG GÓI' || upperStatus === 'CHỜ BÀN GIAO' || upperStatus === 'CHỜ MÃ VẬN ĐƠN') {
+            if (hasDonePack || upperStatus === 'CHỜ BÀN GIAO' || upperStatus === 'CHỜ MÃ VẬN ĐƠN') {
+                effectiveStatus = shippingGatePassed ? 'Chờ Bàn Giao' : 'Chờ Mã Vận Đơn';
             } else {
                 const hasProdItems = Array.isArray(prods) && prods.length > 0;
                 const prodsReady = !hasProdItems || allProdsDone;
@@ -2944,7 +2990,7 @@
         }
 
         if (upperStatus === 'HÀNG HOÀN' || upperStatus === 'NHÓM HÀNG HOÀN CHỜ XỬ' || upperStatus === 'KIỂM HÀNG HOÀN') effectiveStatus = 'Kiểm hàng hoàn';
-        const isReadyPack = filterStatus === 'Sẵn Sàng Đóng Gói' || upperStatus === 'SẴN SÀNG ĐÓNG GÓI' || effectiveStatus === 'Sẵn sàng đóng gói' || String(effectiveStatus).toUpperCase() === 'SẴN SÀNG ĐÓNG GÓI';
+        const isReadyPack = !hasDonePack && (effectiveStatus === 'Sẵn sàng đóng gói' || String(effectiveStatus).toUpperCase() === 'SẴN SÀNG ĐÓNG GÓI');
         const isPendingHandover = effectiveStatus === 'Chờ Bàn Giao' || String(effectiveStatus).toUpperCase() === 'CHỜ BÀN GIAO';
         const isDone = effectiveStatus === 'Đã Bàn Giao' || String(effectiveStatus).toUpperCase() === 'ĐÃ BÀN GIAO';
         const isCanceled = effectiveStatus === 'Đơn Huỷ' || String(effectiveStatus).toUpperCase() === 'ĐƠN HUỶ' || String(effectiveStatus).toUpperCase() === 'ĐƠN HỦY';
@@ -3388,7 +3434,7 @@
                                     <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-orange-500/20 text-orange-400 border border-orange-500/40">
                                         {_order.channel || 'OFFLINE'}
                                     </span>
-                                    <h3 className="text-base font-black text-white font-mono tracking-tight">{mainOrderCode}</h3>
+                                    <h3 className="text-base font-black text-white font-mono tracking-tight">{_order.shippingCode ? mainOrderCode.replace(_order.shippingCode, '').trim() : mainOrderCode}</h3>
                                 </div>
                                 <button onClick={() => setShowDetailModal(false)} className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-sm flex items-center justify-center transition cursor-pointer">
                                     ✕
@@ -3439,7 +3485,7 @@
                                     </div>
                                     <div className="flex justify-between items-center text-slate-300">
                                         <span className="text-slate-400 font-medium">Hạn xử lý:</span>
-                                        <span className="font-bold text-slate-200">{_order.deadline ? `Hạn bàn giao: ${new Date(_order.deadline).toLocaleString('vi-VN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}` : (shippingCode ? `MVĐ: ${shippingCode}` : 'Hạn bàn giao: Trong ngày')}</span>
+                                        <span className="font-bold text-slate-200">{shippingCode ? `MVĐ: ${shippingCode}` : (_order.deadline ? `Hạn bàn giao: ${new Date(_order.deadline).toLocaleString('vi-VN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}` : 'Hạn bàn giao: Trong ngày')}</span>
                                     </div>
                                     {_order.address && (
                                         <div className="flex justify-between items-start text-slate-300 pt-1 border-t border-slate-800">
@@ -4777,23 +4823,27 @@
         );
     }
 
-    function GHNPushModal({ order, prods, onClose, pushDeltas, triggerToast }) {
-        const TOKEN = "5c588da0-1d0a-11ef-b3d7-824e1db0c320";
-        const HEADERS = { "Content-Type": "application/json", "Token": TOKEN, "ShopId": "5478054" };
+    function GHNPushModal({ order, prods, onClose, pushDeltas, triggerToast, showCopyModal }) {
+        const [apiToken, setApiToken] = React.useState("5c588da0-1d0a-11ef-b3d7-824e1db0c320");
+        const [shopId, setShopId] = React.useState("5478054");
 
         const [loading, setLoading] = React.useState(true);
         const [submitting, setSubmitting] = React.useState(false);
 
         const [shops, setShops] = React.useState([]);
-        const [shopId, setShopId] = React.useState("");
+
+        const [shifts, setShifts] = React.useState([]);
+        const [selectedShift, setSelectedShift] = React.useState("");
 
         const [provinces, setProvinces] = React.useState([]);
         const [districts, setDistricts] = React.useState([]);
         const [wards, setWards] = React.useState([]);
+        const [availableServices, setAvailableServices] = React.useState([]);
 
         const [selectedProv, setSelectedProv] = React.useState("");
         const [selectedDist, setSelectedDist] = React.useState("");
         const [selectedWard, setSelectedWard] = React.useState("");
+        const [selectedService, setSelectedService] = React.useState("");
 
         const [finalAddress, setFinalAddress] = React.useState(order.address || "");
 
@@ -4820,24 +4870,43 @@
         };
         const customerPhone = formatPhone(order.phone);
 
-        const fetchDistricts = async (provId) => {
-            if (!provId) { setDistricts([]); setWards([]); setSelectedDist(""); setSelectedWard(""); return; }
+        const fetchDistricts = async (provId, headers) => {
+            if (!provId) { setDistricts([]); setWards([]); setSelectedDist(""); setSelectedWard(""); setAvailableServices([]); setSelectedService(""); return; }
             try {
-                const res = await fetch(`https:\/\/online-gateway.ghn.vn/shiip/public-api/master-data/district?province_id=${provId}`, { headers: HEADERS });
-                const data = await res.json();
+                const data = await window.safeFetchJSON(`https://online-gateway.ghn.vn/shiip/public-api/master-data/district?province_id=${provId}`, { headers: headers });
                 setDistricts(data.data || []);
                 setWards([]); setSelectedDist(""); setSelectedWard("");
+                setAvailableServices([]); setSelectedService("");
             } catch (e) { }
         };
 
-        const fetchWards = async (distId) => {
-            if (!distId) { setWards([]); setSelectedWard(""); return; }
+        const fetchWards = async (distId, headers) => {
+            if (!distId) { setWards([]); setSelectedWard(""); setAvailableServices([]); setSelectedService(""); return; }
             try {
-                const res = await fetch(`https:\/\/online-gateway.ghn.vn/shiip/public-api/master-data/ward?district_id=${distId}`, { headers: HEADERS });
-                const data = await res.json();
+                const data = await window.safeFetchJSON(`https://online-gateway.ghn.vn/shiip/public-api/master-data/ward?district_id=${distId}`, { headers: headers });
                 setWards(data.data || []);
                 setSelectedWard("");
             } catch (e) { }
+            
+            fetchServices(distId, shopId, apiToken);
+        };
+
+        const fetchServices = async (toDistId, currentShopId, currentToken) => {
+            if (!toDistId) return;
+            try {
+                const res = await fetch("https://online-gateway.ghn.vn/shiip/public-api/v2/shipping-order/available-services", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "Token": currentToken },
+                    body: JSON.stringify({ shop_id: Number(currentShopId), from_district: 1704, to_district: Number(toDistId) })
+                });
+                const data = await res.json();
+                if (data.code === 200 && Array.isArray(data.data) && data.data.length > 0) {
+                    setAvailableServices(data.data);
+                    setSelectedService(String(data.data[0].service_type_id));
+                } else {
+                    setAvailableServices([]); setSelectedService("");
+                }
+            } catch (e) { console.error(e); }
         };
 
         React.useEffect(() => {
@@ -4863,10 +4932,25 @@
         React.useEffect(() => {
             const init = async () => {
                 try {
-                    let sId = "5478054";
+                    let configToken = apiToken;
+                    let configShopId = shopId;
                     try {
-                        const shopRes = await fetch("https:\/\/online-gateway.ghn.vn/shiip/public-api/v2/shop/all", { headers: HEADERS });
-                        const shopData = await shopRes.json();
+                        const conf = await new Promise((resolve) => {
+                            google.script.run.withSuccessHandler(resolve).withFailureHandler(() => resolve(null)).getGHNConfig();
+                        });
+                        if (conf && conf.token) {
+                            configToken = conf.token;
+                            configShopId = conf.shopId;
+                            setApiToken(configToken);
+                            setShopId(configShopId);
+                        }
+                    } catch (e) { console.error("Lỗi lấy cấu hình GHN:", e); }
+
+                    const headers = { "Content-Type": "application/json", "Token": configToken, "ShopId": configShopId };
+
+                    let sId = configShopId;
+                    try {
+                        const shopData = await window.safeFetchJSON("https://online-gateway.ghn.vn/shiip/public-api/v2/shop/all", { headers: headers });
                         if (shopData.code === 200 && shopData.data && shopData.data.shops) {
                             const targetShop = shopData.data.shops.find(s => String(s._id) === sId);
                             setShops(targetShop ? [targetShop] : shopData.data.shops.filter(s => String(s._id) === sId));
@@ -4875,10 +4959,21 @@
                             setShops([{ _id: sId, name: sId + " - Richfish Aquarium" }]);
                         }
                     } catch (e) { setShops([{ _id: sId, name: sId + " - Richfish Aquarium" }]); }
-                    setShopId(sId);
 
-                    const provRes = await fetch("https:\/\/online-gateway.ghn.vn/shiip/public-api/master-data/province", { headers: HEADERS });
-                    const provData = await provRes.json();
+                    try {
+                        const shiftData = await window.safeFetchJSON("https://online-gateway.ghn.vn/shiip/public-api/v2/shift/date", { headers: headers });
+                        if (shiftData && shiftData.code === 200 && Array.isArray(shiftData.data) && shiftData.data.length > 0) {
+                            setShifts(shiftData.data);
+                            const now = new Date();
+                            // Nếu đã qua 12h trưa thì mặc định lấy ca chiều, nhưng nếu đã muộn quá thì lấy ca cuối cùng trong ngày
+                            let defaultIdx = (now.getHours() >= 12 && shiftData.data.length > 1) ? 1 : 0;
+                            if (now.getHours() >= 18 && shiftData.data.length > 2) defaultIdx = 2; // hoặc ca tối nếu có
+                            else if (now.getHours() >= 18) defaultIdx = shiftData.data.length - 1; // luôn chọn ca cuối tránh lỗi
+                            setSelectedShift(String(shiftData.data[defaultIdx].id));
+                        }
+                    } catch (e) { console.error("Lỗi lấy ca GHN:", e); }
+
+                    const provData = await window.safeFetchJSON("https://online-gateway.ghn.vn/shiip/public-api/master-data/province", { headers: headers });
                     let provs = provData.data || [];
                     setProvinces(provs);
 
@@ -4894,8 +4989,7 @@
 
                     if (matchedProv) {
                         setSelectedProv(matchedProv.ProvinceID);
-                        const distRes = await fetch(`https:\/\/online-gateway.ghn.vn/shiip/public-api/master-data/district?province_id=${matchedProv.ProvinceID}`, { headers: HEADERS });
-                        const distData = await distRes.json();
+                        const distData = await window.safeFetchJSON(`https://online-gateway.ghn.vn/shiip/public-api/master-data/district?province_id=${matchedProv.ProvinceID}`, { headers: headers });
                         let dists = distData.data || [];
                         setDistricts(dists);
 
@@ -4910,8 +5004,11 @@
 
                         if (matchedDist) {
                             setSelectedDist(matchedDist.DistrictID);
-                            const wardRes = await fetch(`https:\/\/online-gateway.ghn.vn/shiip/public-api/master-data/ward?district_id=${matchedDist.DistrictID}`, { headers: HEADERS });
-                            const wardData = await wardRes.json();
+                            
+                            // Load services immediately since we mapped district
+                            fetchServices(matchedDist.DistrictID, configShopId, configToken);
+
+                            const wardData = await window.safeFetchJSON(`https://online-gateway.ghn.vn/shiip/public-api/master-data/ward?district_id=${matchedDist.DistrictID}`, { headers: headers });
                             let wrds = wardData.data || [];
                             setWards(wrds);
 
@@ -4942,9 +5039,26 @@
                 triggerToast("Vui lòng chọn đầy đủ Tỉnh/Quận/Phường!", "fa-exclamation", "warning");
                 return;
             }
+            if (!selectedService) {
+                triggerToast("Không có dịch vụ vận chuyển nào hỗ trợ tuyến đường này!", "fa-times", "danger");
+                return;
+            }
+
             setSubmitting(true);
             try {
+                let weightTotal = Number(formData.weight) || 200;
+                let validItems = prods && prods.length > 0 ? prods.map(p => {
+                    let w = Math.floor(weightTotal / prods.length);
+                    if (w < 10) w = 10;
+                    return {
+                        name: String(p.name).substring(0, 50),
+                        quantity: Number(p.qty) || 1,
+                        weight: w
+                    };
+                }) : [{ name: "Sản phẩm", quantity: 1, weight: weightTotal < 10 ? 10 : weightTotal }];
+
                 const body = {
+                    client_order_code: String(order.id),
                     payment_type_id: Number(formData.paymentTypeId),
                     note: order.note || "Hàng dễ vỡ",
                     required_note: formData.noteCode,
@@ -4954,24 +5068,54 @@
                     to_ward_code: String(selectedWard),
                     to_district_id: Number(selectedDist),
                     cod_amount: Number(formData.cod),
-                    weight: Number(formData.weight),
-                    length: Number(formData.length),
-                    width: Number(formData.width),
-                    height: Number(formData.height),
-                    insurance_value: Number(formData.insurance),
-                    service_type_id: 2,
-                    items: prods && prods.length > 0 ? prods.map(p => ({
-                        name: String(p.name).substring(0, 50),
-                        quantity: Number(p.qty) || 1,
-                        weight: Math.floor(Number(formData.weight) / prods.length) || 100
-                    })) : [{ name: "Sản phẩm", quantity: 1, weight: Number(formData.weight) }]
+                    weight: weightTotal,
+                    length: Number(formData.length) || 10,
+                    width: Number(formData.width) || 10,
+                    height: Number(formData.height) || 10,
+                    insurance_value: Math.min(Number(formData.insurance) || 0, 5000000),
+                    service_type_id: Number(selectedService),
+                    items: validItems
                 };
+                
+                if (selectedShift) {
+                    body.pick_shift = [Number(selectedShift)];
+                    const chosen = shifts.find(s => String(s.id) === String(selectedShift));
+                    if (chosen) {
+                        // Nếu GHN có trả về from_time (timestamp)
+                        if (chosen.from_time) {
+                            body.pickup_time = Number(chosen.from_time);
+                        } else if (chosen.title) {
+                            // Extract ngày từ title "Ca lấy 19-08-2026 (12h00 - 18h00)"
+                            const match = chosen.title.match(/(\d{2})-(\d{2})-(\d{4})/);
+                            if (match) {
+                                const d = new Date(`${match[3]}-${match[2]}-${match[1]}T08:00:00`);
+                                body.pickup_time = Math.floor(d.getTime() / 1000);
+                            }
+                        }
+                    }
+                }
 
-                const h = { ...HEADERS, "ShopId": shopId };
-                const res = await fetch("https:\/\/online-gateway.ghn.vn/shiip/public-api/v2/shipping-order/create", {
+                console.log("=== GHN PAYLOAD ===", JSON.stringify(body));
+                const h = { "Content-Type": "application/json", "Token": apiToken, "ShopId": shopId };
+                
+                let res = await fetch("https://online-gateway.ghn.vn/shiip/public-api/v2/shipping-order/create", {
                     method: "POST", headers: h, body: JSON.stringify(body)
                 });
-                const data = await res.json();
+                let data = await res.json();
+                console.log("=== GHN RESPONSE ===", JSON.stringify(data));
+
+                if (data.code === 400 && data.message && data.message.toLowerCase().includes("client_order_code")) {
+                    // Trùng mã đơn -> lấy mã cũ
+                    try {
+                        const dd = await window.safeFetchJSON("https://online-gateway.ghn.vn/shiip/public-api/v2/shipping-order/detail", { method: "POST", headers: h, body: JSON.stringify({ client_order_code: body.client_order_code }) });
+                        if (dd.code === 200 && dd.data && dd.data.order_code) {
+                            data = dd;
+                        } else {
+                            body.client_order_code = String(order.id) + "_" + Date.now().toString().slice(-4);
+                            data = await window.safeFetchJSON("https://online-gateway.ghn.vn/shiip/public-api/v2/shipping-order/create", { method: "POST", headers: h, body: JSON.stringify(body) });
+                        }
+                    } catch (_) {}
+                }
 
                 if (data.code === 200 && data.data && data.data.order_code) {
                     let newOrderCode = order.orderCode || '';
@@ -4981,8 +5125,10 @@
 
                     const updatedOrder = { ...order, orderCode: newOrderCode, shippingCode: data.data.order_code, cod: Number(formData.cod) };
                     pushDeltas({ orders: [updatedOrder] }, `Tạo đơn GHN thành công! Vận đơn: ${data.data.order_code}`, "fa-check").then(() => {
-                        const msg = `Dạ Rich Fish Aquarium gửi anh/chị mã vận đơn GHN: ${data.data.order_code}. Anh/chị theo dõi hành trình đơn hàng trên app giúp shop nhé!`;
-                        showCopyModal(msg);
+                        if (typeof showCopyModal === 'function') {
+                            const msg = `Dạ Rich Fish Aquarium gửi anh/chị mã vận đơn GHN: ${data.data.order_code}. Anh/chị theo dõi hành trình đơn hàng trên app giúp shop nhé!`;
+                            showCopyModal(msg);
+                        }
                     }).catch(() => { });
                     onClose();
                 } else {
@@ -5052,11 +5198,11 @@
                                 {selectedWard && selectedDist && selectedProv && <span className="text-emerald-500"><i className="fas fa-check-circle"></i> Tự động khớp</span>}
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                                <select value={selectedProv} onChange={e => { setSelectedProv(e.target.value); fetchDistricts(e.target.value); }} className="w-full bg-[#111] border border-[#333] rounded-lg px-2 py-2 text-[11px] font-bold text-white outline-none focus:border-orange-500">
+                                <select value={selectedProv} onChange={e => { setSelectedProv(e.target.value); fetchDistricts(e.target.value, { "Content-Type": "application/json", "Token": apiToken, "ShopId": shopId }); }} className="w-full bg-[#111] border border-[#333] rounded-lg px-2 py-2 text-[11px] font-bold text-white outline-none focus:border-orange-500">
                                     <option value="">- Chọn Tỉnh/Thành -</option>
                                     {provinces.map(p => <option key={p.ProvinceID} value={p.ProvinceID}>{p.ProvinceName}</option>)}
                                 </select>
-                                <select value={selectedDist} onChange={e => { setSelectedDist(e.target.value); fetchWards(e.target.value); }} className="w-full bg-[#111] border border-[#333] rounded-lg px-2 py-2 text-[11px] font-bold text-white outline-none focus:border-orange-500" disabled={!selectedProv}>
+                                <select value={selectedDist} onChange={e => { setSelectedDist(e.target.value); fetchWards(e.target.value, { "Content-Type": "application/json", "Token": apiToken, "ShopId": shopId }); }} className="w-full bg-[#111] border border-[#333] rounded-lg px-2 py-2 text-[11px] font-bold text-white outline-none focus:border-orange-500" disabled={!selectedProv}>
                                     <option value="">- Chọn Quận/Huyện -</option>
                                     {districts.map(d => <option key={d.DistrictID} value={d.DistrictID}>{d.DistrictName}</option>)}
                                 </select>
@@ -5075,7 +5221,7 @@
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
                                     <label className="text-[10px] text-gray-400 font-bold block mb-1">Cửa hàng (ShopId)</label>
-                                    <select value={shopId} onChange={e => setShopId(e.target.value)} className="w-full bg-[#111] border border-[#333] rounded-lg px-2 py-2.5 text-[12px] font-bold text-white outline-none focus:border-orange-500">
+                                    <select value={shopId} onChange={e => { setShopId(e.target.value); if(selectedDist) fetchServices(selectedDist, e.target.value, apiToken); }} className="w-full bg-[#111] border border-[#333] rounded-lg px-2 py-2.5 text-[12px] font-bold text-white outline-none focus:border-orange-500">
                                         {shops.map(s => <option key={s._id} value={s._id}>{s.name}</option>)}
                                     </select>
                                 </div>
@@ -5084,6 +5230,18 @@
                                     <select value={formData.paymentTypeId} onChange={e => setFormData({ ...formData, paymentTypeId: e.target.value })} className="w-full bg-[#111] border border-[#333] rounded-lg px-2 py-2.5 text-[12px] font-bold text-white outline-none focus:border-orange-500">
                                         <option value={1}>Shop trả (Người gửi)</option>
                                         <option value={2}>Khách trả (Người nhận)</option>
+                                    </select>
+                                </div>
+                                <div className="col-span-2 bg-[#121214] border border-orange-500/30 rounded-xl p-3">
+                                    <label className="text-[10px] text-orange-400 font-black uppercase tracking-wider flex items-center gap-1.5 mb-1.5"><i className="fas fa-shipping-fast text-orange-500"></i> Gói cước GHN</label>
+                                    <select value={selectedService} onChange={e => setSelectedService(e.target.value)} className="w-full bg-[#18181b] border border-orange-500/40 rounded-lg px-3 py-2.5 text-[12px] font-bold text-white outline-none focus:border-orange-500">
+                                        {availableServices.length > 0 ? availableServices.map(s => <option key={s.service_type_id} value={s.service_type_id}>{s.short_name || 'Giao Hàng Nhanh'}</option>) : <option value="">Đang tìm dịch vụ khả dụng...</option>}
+                                    </select>
+                                </div>
+                                <div className="col-span-2 bg-[#121214] border border-orange-500/30 rounded-xl p-3">
+                                    <label className="text-[10px] text-orange-400 font-black uppercase tracking-wider flex items-center gap-1.5 mb-1.5"><i className="fas fa-calendar-check text-orange-500"></i> Ca lấy hàng (Bắt buộc)</label>
+                                    <select value={selectedShift} onChange={e => setSelectedShift(e.target.value)} className="w-full bg-[#18181b] border border-orange-500/40 rounded-lg px-3 py-2.5 text-[12px] font-bold text-white outline-none focus:border-orange-500">
+                                        {shifts.map((s, idx) => <option key={s.id + '_' + idx} value={String(s.id)}>{s.title || `Ca #${s.id}`}</option>)}
                                     </select>
                                 </div>
                                 <div>
@@ -5536,36 +5694,51 @@
             setIsProcessing(false);
         };
 
-        const handleUpload = (file) => {
+        const handleUpload = async (file) => {
             if (!file) return;
             setFileName(file.name); setIsProcessing(true); setProgress(0); setPreviewLogs([]);
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                try {
-                    const data = new Uint8Array(e.target.result);
-                    const wb = XLSX.read(data, { type: 'array' });
-                    let bestRows = [];
-                    for (let s of wb.SheetNames) {
-                        const rows = XLSX.utils.sheet_to_json(wb.Sheets[s], { header: 1, defval: '' });
-                        let foundHeader = false;
-                        for (let i = 0; i < Math.min(15, rows.length); i++) {
-                            const rowStr = (rows[i] || []).join(' ').toLowerCase();
-                            if (rowStr.includes('mã đơn hàng') || rowStr.includes('mã giao dịch') || rowStr.includes('loại giao dịch') || rowStr.includes('order id') || rowStr.includes('mã tham chiếu')) {
-                                foundHeader = true; break;
+            try {
+                if (typeof window.ensureXLSXLoaded === 'function') {
+                    await window.ensureXLSXLoaded();
+                }
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        let wb;
+                        const data = new Uint8Array(e.target.result);
+                        try {
+                            wb = window.XLSX.read(data, { type: 'array' });
+                        } catch (errArr) {
+                            wb = window.XLSX.read(e.target.result, { type: 'binary' });
+                        }
+                        let bestRows = [];
+                        for (let s of wb.SheetNames) {
+                            const rows = window.XLSX.utils.sheet_to_json(wb.Sheets[s], { header: 1, defval: '' });
+                            let foundHeader = false;
+                            for (let i = 0; i < Math.min(15, rows.length); i++) {
+                                const rowStr = (rows[i] || []).join(' ').toLowerCase();
+                                if (rowStr.includes('mã đơn hàng') || rowStr.includes('mã giao dịch') || rowStr.includes('loại giao dịch') || rowStr.includes('order id') || rowStr.includes('mã tham chiếu')) {
+                                    foundHeader = true; break;
+                                }
+                            }
+                            if (foundHeader && rows.length > bestRows.length) {
+                                bestRows = rows;
                             }
                         }
-                        if (foundHeader && rows.length > bestRows.length) {
-                            bestRows = rows;
-                        }
+                        if (bestRows.length === 0) bestRows = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+                        processExcel(bestRows);
+                    } catch (err) {
+                        console.error("Lỗi đọc file Excel:", err);
+                        alert("Lỗi đọc file Excel!");
+                        setIsProcessing(false);
                     }
-                    if (bestRows.length === 0) bestRows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
-                    processExcel(bestRows);
-                } catch (err) {
-                    alert("Lỗi đọc file Excel!");
-                    setIsProcessing(false);
-                }
-            };
-            reader.readAsArrayBuffer(file);
+                };
+                reader.readAsArrayBuffer(file);
+            } catch (loadErr) {
+                console.error("Lỗi nạp thư viện XLSX:", loadErr);
+                alert("Không thể nạp thư viện xử lý Excel. Vui lòng thử lại!");
+                setIsProcessing(false);
+            }
         };
 
         const submit = async () => {

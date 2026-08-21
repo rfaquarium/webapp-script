@@ -1,4 +1,9 @@
 <script type="text/babel">
+// =========================================================================
+// 🤝 FILE: Tab_Affiliate.html
+// CHỨC NĂNG: Quản trị Đối Soát Cộng Tác Viên (CTV) Chuẩn Royal V2 Hallmark
+// =========================================================================
+
 function TabAffiliate({ orders, ctvFinance, pushDeltas, currentUser, triggerToast, userRole, userConfigs, erpData, prodItems, configGiaLayout }) {
   const [selectedCTV, setSelectedCTV] = React.useState('');
   const [selectedMonth, setSelectedMonth] = React.useState(new Date().toISOString().substring(0, 7));
@@ -27,7 +32,7 @@ function TabAffiliate({ orders, ctvFinance, pushDeltas, currentUser, triggerToas
       else if (ctvList.length > 0 && !selectedCTV) setSelectedCTV(ctvList[0]);
   }, [isCTV, currentUser, ctvList]);
 
-  // Lọc dữ liệu
+  // Lọc dữ liệu đơn hàng CTV
   const ctvOrders = React.useMemo(() => {
       if (!selectedCTV) return [];
       return orders.filter(o => {
@@ -35,18 +40,18 @@ function TabAffiliate({ orders, ctvFinance, pushDeltas, currentUser, triggerToas
           const isCtvChannel = ch.includes('CỘNG TÁC VIÊN') || ch === 'CTV';
           const orderMonth = (o.date || o.createdAt || '').substring(0, 7);
           const matchMonth = !selectedMonth || orderMonth === selectedMonth;
-          // CTV tạo đơn thì createdBy, updatedBy hoặc responsibleUser là tên CTV đó
           return matchMonth && isCtvChannel && (o.updatedBy === selectedCTV || o.createdBy === selectedCTV || o.responsibleUser === selectedCTV || o.customer === selectedCTV);
-      }).sort((a, b) => new Date(b.date) - new Date(a.date));
+      }).sort((a, b) => new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0));
   }, [orders, selectedCTV, selectedMonth]);
 
+  // Lọc dữ liệu giao dịch phụ phí CTV
   const ctvTxs = React.useMemo(() => {
       if (!selectedCTV) return [];
-      return ctvFinance.filter(t => {
+      return (ctvFinance || []).filter(t => {
           const txMonth = (t.date || '').substring(0, 7);
           const matchMonth = !selectedMonth || txMonth === selectedMonth;
           return t.user === selectedCTV && matchMonth;
-      }).sort((a, b) => new Date(b.date) - new Date(a.date));
+      }).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
   }, [ctvFinance, selectedCTV, selectedMonth]);
 
   // Tính chi phí phụ gắn với từng đơn hàng cụ thể
@@ -83,8 +88,6 @@ function TabAffiliate({ orders, ctvFinance, pushDeltas, currentUser, triggerToas
       
       ctvOrders.forEach(o => {
           if (o.status === 'Hàng Hoàn' || o.status === 'Đơn Huỷ') return;
-          // Tính nợ từ đơn: Bán được 100k, thu COD 120k -> Nợ -20k (Shop nợ CTV)
-          // Bán được 100k, thu COD 0k -> Nợ +100k (CTV nợ Shop)
           const rev = Number(o.revenue) || 0;
           const cod = Number(o.cod) || 0;
           orderDebt += (rev - cod);
@@ -98,9 +101,9 @@ function TabAffiliate({ orders, ctvFinance, pushDeltas, currentUser, triggerToas
           const amt = Number(t.amount) || 0;
           if (t.type === 'THANH TOÁN' || t.type === 'DƯ NỢ KỲ TRƯỚC (SHOP NỢ)') {
               if (t.type === 'THANH TOÁN') totalPaid += amt;
-              extraDebt -= amt; // Giảm nợ
+              extraDebt -= amt;
           } else {
-              extraDebt += amt; // Phí ship, hoàn hàng... làm tăng nợ
+              extraDebt += amt;
           }
       });
 
@@ -155,114 +158,200 @@ function TabAffiliate({ orders, ctvFinance, pushDeltas, currentUser, triggerToas
   const formatMoney = (n) => Math.round(Number(n || 0)).toLocaleString('vi-VN');
 
   return (
-    <div className="p-2 sm:p-4 space-y-4 sm:space-y-6 animate-fade-in custom-scrollbar overflow-x-hidden">
+    <div className="p-3 sm:p-5 space-y-4 sm:space-y-5 animate-fade-in custom-scrollbar overflow-x-hidden" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
       
-      {/* HEADER & LỌC */}
-      <div className="bg-[#141414] border border-[#2a2a2a] rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-            <h2 className="text-[16px] sm:text-[18px] font-black text-[#d4af37] flex items-center tracking-wide uppercase"><i className="fas fa-handshake mr-2.5 opacity-80"></i> ĐỐI SOÁT CỘNG TÁC VIÊN</h2>
-            <p className="text-[11px] sm:text-[12px] text-gray-400 mt-1">Quản lý dòng tiền, công nợ và chiết khấu cho đối tác.</p>
+      {/* ==========================================
+          1. HEADER CARD & BỘ LỌC THÁNG / CTV
+          ========================================== */}
+      <div className="bg-[#121214] border border-white/[0.08] rounded-2xl p-4 sm:p-5 shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5">
+            <div className="w-11 h-11 rounded-xl bg-[#d4af37]/15 border border-[#d4af37]/30 flex items-center justify-center shrink-0 shadow-sm">
+                <i className="fas fa-handshake text-[#d4af37] text-lg"></i>
+            </div>
+            <div>
+                <h2 className="text-base sm:text-lg font-black text-white tracking-wider uppercase flex items-center gap-2">
+                    <span>ĐỐI SOÁT CỘNG TÁC VIÊN</span>
+                </h2>
+                <p className="text-xs text-zinc-400 font-medium mt-0.5">Quản lý dòng tiền, công nợ và chiết khấu cho đối tác.</p>
+            </div>
         </div>
         
-        <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2 w-full sm:w-auto">
-            <input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="w-full sm:w-auto bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-2.5 text-[13px] font-bold text-gray-300 outline-none focus:border-[#d4af37]" />
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full md:w-auto">
+            <div className="flex items-center bg-[#18181b] border border-white/[0.08] rounded-xl px-3 py-2">
+                <i className="far fa-calendar-alt text-[#d4af37] text-xs mr-2"></i>
+                <input
+                    type="month"
+                    value={selectedMonth}
+                    onChange={e => setSelectedMonth(e.target.value)}
+                    className="bg-transparent text-xs sm:text-sm font-bold text-white outline-none cursor-pointer w-full"
+                />
+            </div>
+
             {isAdminOrKetoan ? (
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                    <i className="fas fa-filter text-gray-500 text-sm hidden sm:block"></i>
-                    <select value={selectedCTV} onChange={(e) => setSelectedCTV(e.target.value)} className="w-full sm:w-64 bg-[#0a0a0a] border border-[#333] rounded-xl px-3 py-2.5 text-[13px] font-bold text-[#d4af37] outline-none">
-                        {ctvList.length === 0 && <option value="">Không có CTV nào</option>}
-                        {ctvList.map(c => <option key={c} value={c}>{c}</option>)}
+                <div className="flex items-center bg-[#18181b] border border-white/[0.08] rounded-xl px-3 py-2 sm:w-60">
+                    <i className="fas fa-user-tie text-[#d4af37] text-xs mr-2"></i>
+                    <select
+                        value={selectedCTV}
+                        onChange={(e) => setSelectedCTV(e.target.value)}
+                        className="bg-transparent text-xs sm:text-sm font-bold text-white outline-none cursor-pointer w-full"
+                    >
+                        {ctvList.length === 0 && <option value="" className="bg-[#18181b] text-white">Không có CTV nào</option>}
+                        {ctvList.map(c => <option key={c} value={c} className="bg-[#18181b] text-white">{c}</option>)}
                     </select>
                 </div>
             ) : (
-                <div className="px-4 py-2 bg-[#d4af37]/10 border border-[#d4af37]/20 rounded-xl text-[#d4af37] font-black text-sm">
-                    <i className="fas fa-user-tag mr-2"></i> CTV: {selectedCTV}
+                <div className="px-3.5 py-2 bg-[#d4af37]/10 border border-[#d4af37]/20 rounded-xl text-[#d4af37] font-black text-xs sm:text-sm flex items-center gap-2">
+                    <i className="fas fa-user-tag text-xs"></i>
+                    <span>CTV: {selectedCTV}</span>
                 </div>
             )}
         </div>
       </div>
 
-      {/* DASHBOARD DƯ NỢ */}
+      {/* ==========================================
+          2. DASHBOARD DƯ NỢ (3 KPI CARDS)
+          ========================================== */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-        <div className="bg-gradient-to-br from-[#0a0a0a] to-[#141414] border border-[#333] rounded-2xl p-4 shadow-sm relative overflow-hidden group">
-            <div className="absolute -right-4 -bottom-4 text-6xl text-emerald-500/5 group-hover:scale-110 transition-transform"><i className="fas fa-box-open"></i></div>
-            <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Dư nợ từ Đơn hàng</div>
-            <div className="text-[24px] font-black text-emerald-400 flex items-baseline gap-1">{formatMoney(debtStats.orderDebt)}<span className="text-[12px] text-emerald-400/50">đ</span></div>
-            <div className="mt-2 text-[10px] text-gray-500 flex justify-between border-t border-[#222] pt-2">
-                <span>Doanh thu: {formatMoney(debtStats.totalOrderRevenue)}</span>
-                <span>Thu COD: {formatMoney(debtStats.totalOrderCOD)}</span>
+        
+        {/* Card 1: Dư nợ từ Đơn hàng */}
+        <div className="bg-[#121214] border border-white/[0.08] hover:border-emerald-500/30 rounded-2xl p-4 sm:p-5 shadow-sm relative overflow-hidden transition-all group">
+            <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">Dư nợ từ Đơn hàng</span>
+                <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 text-xs">
+                    <i className="fas fa-box-open"></i>
+                </div>
+            </div>
+            <div className="text-2xl sm:text-3xl font-black text-emerald-400 font-mono tracking-tight">
+                {formatMoney(debtStats.orderDebt)}<span className="text-xs font-normal text-emerald-400/60 ml-0.5">đ</span>
+            </div>
+            <div className="mt-3 text-[11px] text-zinc-400 font-medium flex justify-between border-t border-white/[0.06] pt-2.5">
+                <span>Doanh thu: <b className="text-zinc-200 font-mono">{formatMoney(debtStats.totalOrderRevenue)}</b></span>
+                <span>Thu COD: <b className="text-zinc-200 font-mono">{formatMoney(debtStats.totalOrderCOD)}</b></span>
             </div>
         </div>
-        <div className="bg-gradient-to-br from-[#0a0a0a] to-[#141414] border border-[#333] rounded-2xl p-4 shadow-sm relative overflow-hidden group">
-            <div className="absolute -right-4 -bottom-4 text-6xl text-amber-500/5 group-hover:scale-110 transition-transform"><i className="fas fa-file-invoice-dollar"></i></div>
-            <div className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Phí phát sinh & Thanh toán</div>
-            <div className="text-[24px] font-black text-amber-400 flex items-baseline gap-1">{formatMoney(debtStats.extraDebt)}<span className="text-[12px] text-amber-400/50">đ</span></div>
-            <div className="mt-2 text-[10px] text-gray-500 flex justify-between border-t border-[#222] pt-2">
-                <span>Tổng phí: {formatMoney(debtStats.extraDebt + debtStats.totalPaid)}</span>
-                <span className="text-emerald-500">Đã TT: {formatMoney(debtStats.totalPaid)}</span>
+
+        {/* Card 2: Phí phát sinh & Thanh toán */}
+        <div className="bg-[#121214] border border-white/[0.08] hover:border-amber-500/30 rounded-2xl p-4 sm:p-5 shadow-sm relative overflow-hidden transition-all group">
+            <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">Phí phát sinh & Thanh toán</span>
+                <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 text-xs">
+                    <i className="fas fa-file-invoice-dollar"></i>
+                </div>
+            </div>
+            <div className="text-2xl sm:text-3xl font-black text-amber-400 font-mono tracking-tight">
+                {formatMoney(debtStats.extraDebt)}<span className="text-xs font-normal text-amber-400/60 ml-0.5">đ</span>
+            </div>
+            <div className="mt-3 text-[11px] text-zinc-400 font-medium flex justify-between border-t border-white/[0.06] pt-2.5">
+                <span>Tổng phí: <b className="text-zinc-200 font-mono">{formatMoney(debtStats.extraDebt + debtStats.totalPaid)}</b></span>
+                <span className="text-emerald-400 font-bold">Đã TT: <b className="font-mono">{formatMoney(debtStats.totalPaid)}</b></span>
             </div>
         </div>
-        <div className={`bg-gradient-to-br border rounded-2xl p-4 shadow-lg relative overflow-hidden group ${debtStats.finalDebt > 0 ? 'from-rose-950/40 to-[#0a0a0a] border-rose-500/30' : 'from-emerald-950/40 to-[#0a0a0a] border-emerald-500/30'}`}>
-            <div className="absolute -right-4 -bottom-4 text-6xl opacity-10 group-hover:scale-110 transition-transform"><i className="fas fa-balance-scale"></i></div>
-            <div className="text-[11px] font-bold text-gray-300 uppercase tracking-wider mb-1">{debtStats.finalDebt > 0 ? 'TỔNG CTV NỢ SHOP' : 'TỔNG SHOP NỢ CTV'}</div>
-            <div className={`text-[32px] font-black flex items-baseline gap-1 ${debtStats.finalDebt > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
-                {formatMoney(Math.abs(debtStats.finalDebt))}<span className="text-[14px] opacity-50">đ</span>
+
+        {/* Card 3: TỔNG CTV NỢ SHOP / SHOP NỢ CTV */}
+        <div className={`border rounded-2xl p-4 sm:p-5 shadow-md relative overflow-hidden transition-all group ${
+            debtStats.finalDebt > 0 
+                ? 'bg-gradient-to-br from-[#1c1214] to-[#121214] border-rose-500/30 hover:border-rose-500/50' 
+                : 'bg-gradient-to-br from-[#121c14] to-[#121214] border-emerald-500/30 hover:border-emerald-500/50'
+        }`}>
+            <div className="flex items-center justify-between mb-2">
+                <span className={`text-[11px] font-black uppercase tracking-wider ${debtStats.finalDebt > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                    {debtStats.finalDebt > 0 ? 'TỔNG CTV NỢ SHOP' : 'TỔNG SHOP NỢ CTV'}
+                </span>
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs border ${
+                    debtStats.finalDebt > 0 ? 'bg-rose-500/15 border-rose-500/30 text-rose-400' : 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                }`}>
+                    <i className="fas fa-balance-scale"></i>
+                </div>
             </div>
-            <div className="mt-2 text-[10px] text-gray-400 flex items-center gap-1.5 opacity-80">
-                <i className="fas fa-info-circle"></i> Sẽ gộp chung vào kỳ đối soát tiếp theo
+            <div className={`text-2xl sm:text-3xl font-black font-mono tracking-tight ${debtStats.finalDebt > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                {formatMoney(Math.abs(debtStats.finalDebt))}<span className="text-xs font-normal opacity-60 ml-0.5">đ</span>
+            </div>
+            <div className="mt-3 text-[11px] text-zinc-400 font-medium flex items-center gap-1.5 border-t border-white/[0.06] pt-2.5">
+                <i className="fas fa-info-circle text-[10px] text-[#d4af37]"></i>
+                <span>Sẽ gộp chung vào kỳ đối soát tiếp theo</span>
             </div>
         </div>
       </div>
 
-      {/* DANH SÁCH & HÀNH ĐỘNG */}
+      {/* ==========================================
+          3. HAI CỘT CHI TIẾT (LỊCH SỬ ĐƠN HÀNG & PHỤ PHÍ)
+          ========================================== */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* CỘT 1: ĐƠN HÀNG */}
-        <div className="bg-[#141414] border border-[#2a2a2a] rounded-2xl p-4 sm:p-5 flex flex-col h-[500px]">
-            <h3 className="text-sm font-black text-gray-200 uppercase tracking-widest mb-4 flex items-center">
-                <i className="fas fa-box text-[#3b82f6] mr-2"></i> Lịch Sử Đơn Hàng ({ctvOrders.length})
-            </h3>
-            <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 -mr-1 space-y-2">
+        
+        {/* CỘT 1: LỊCH SỬ ĐƠN HÀNG */}
+        <div className="bg-[#121214] border border-white/[0.08] rounded-2xl p-4 sm:p-5 flex flex-col h-[560px] shadow-sm">
+            <div className="flex items-center justify-between mb-3 border-b border-white/[0.08] pb-3">
+                <h3 className="text-xs sm:text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                    <i className="fas fa-box text-sky-400"></i>
+                    <span>Lịch Sử Đơn Hàng</span>
+                    <span className="text-xs font-mono font-bold bg-[#18181b] text-zinc-300 px-2 py-0.5 rounded-md border border-white/[0.08]">
+                        {ctvOrders.length}
+                    </span>
+                </h3>
+            </div>
+
+            <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 space-y-2.5">
                 {ctvOrders.length === 0 ? (
-                    <div className="text-center text-gray-500 text-xs italic mt-10">Chưa có đơn hàng nào.</div>
+                    <div className="flex flex-col items-center justify-center h-full text-zinc-500 text-xs italic py-10">
+                        <i className="fas fa-box-open text-3xl mb-2 opacity-30"></i>
+                        <span>Chưa có đơn hàng nào của CTV trong tháng này.</span>
+                    </div>
                 ) : (
                     ctvOrders.map(o => {
                         const extraExp = getOrderExtraExpenses(o);
+                        const orderDebtVal = (Number(o.revenue) || 0) - (Number(o.cod) || 0);
+
                         return (
-                            <div key={o.id} className="bg-[#0a0a0a] border border-[#222] rounded-xl p-3 hover:border-[#333] transition-colors space-y-2">
-                                <div className="flex justify-between items-start">
-                                    <div>
-                                        <div className="text-[13px] font-bold text-gray-200 mb-0.5">{o.customer}</div>
-                                        <div className="text-[10px] text-gray-500 font-mono">{o.orderCode} • {o.date?.substring(0,10)}</div>
-                                        <div className="flex items-center gap-2 mt-1">
-                                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#222] text-gray-300">{o.status}</span>
+                            <div key={o.id} className="bg-[#18181b] border border-white/[0.06] hover:border-white/[0.12] rounded-xl p-3.5 transition-all space-y-2.5 shadow-sm">
+                                <div className="flex justify-between items-start gap-2">
+                                    <div className="min-w-0">
+                                        <div className="text-[13px] font-black text-white truncate">{o.customer}</div>
+                                        <div className="text-[10px] text-zinc-400 font-mono mt-0.5">{o.orderCode} • {o.date?.substring(0,10)}</div>
+                                        <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-[#27272a] text-zinc-300 border border-white/[0.06]">
+                                                {o.status}
+                                            </span>
                                             {extraExp !== 0 && (
-                                                <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400" title="Chi phí phụ phát sinh gắn với đơn này">
-                                                    <i className="fas fa-file-invoice-dollar mr-1"></i>Phụ phí: {extraExp > 0 ? '+' : ''}{formatMoney(extraExp)}đ
+                                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-400 flex items-center gap-1" title="Chi phí phụ phát sinh gắn với đơn này">
+                                                    <i className="fas fa-file-invoice-dollar text-[9px]"></i>
+                                                    <span>Phụ phí: {extraExp > 0 ? '+' : ''}{formatMoney(extraExp)}đ</span>
                                                 </span>
                                             )}
                                         </div>
                                     </div>
-                                    <div className="text-right">
-                                        <div className="text-[12px] font-bold text-emerald-400">Giá: {formatMoney(o.revenue)}đ</div>
-                                        <div className="text-[12px] font-bold text-amber-400 mt-0.5">COD: {formatMoney(o.cod)}đ</div>
-                                        <div className={`text-[12px] font-black mt-1 ${((Number(o.revenue)||0) - (Number(o.cod)||0)) > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
-                                            Nợ: {formatMoney((Number(o.revenue)||0) - (Number(o.cod)||0))}đ
+                                    <div className="text-right shrink-0">
+                                        <div className="text-xs font-bold text-emerald-400 font-mono">Giá: {formatMoney(o.revenue)}đ</div>
+                                        <div className="text-xs font-bold text-amber-400 font-mono mt-0.5">COD: {formatMoney(o.cod)}đ</div>
+                                        <div className={`text-xs font-black font-mono mt-1 ${orderDebtVal > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                                            Nợ: {formatMoney(orderDebtVal)}đ
                                         </div>
                                     </div>
                                 </div>
 
-                                <div className="flex items-center justify-between border-t border-[#1a1a1a] pt-2 mt-1">
+                                <div className="flex items-center justify-between border-t border-white/[0.06] pt-2">
                                     <div className="flex items-center gap-1.5">
-                                        <button onClick={() => setEditingOrder(o)} className="text-[10px] font-bold text-amber-400 bg-amber-400/10 hover:bg-amber-400 hover:text-black border border-amber-400/20 px-2 py-1 rounded-lg flex items-center gap-1 transition-all" title="Chỉnh sửa đơn hàng">
-                                            <i className="fas fa-edit"></i> Sửa
+                                        <button
+                                            onClick={() => setEditingOrder(o)}
+                                            className="text-[10px] font-bold text-zinc-300 bg-[#27272a] hover:bg-zinc-700 hover:text-white border border-white/[0.08] px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all"
+                                            title="Chỉnh sửa đơn hàng"
+                                        >
+                                            <i className="fas fa-edit text-[9px]"></i> Sửa
                                         </button>
-                                        <button onClick={() => setViewingHistoryOrder(o)} className="text-[10px] font-bold text-blue-400 bg-blue-400/10 hover:bg-blue-400 hover:text-white border border-blue-400/20 px-2 py-1 rounded-lg flex items-center gap-1 transition-all" title="Xem nhật ký chỉnh sửa công khai">
-                                            <i className="fas fa-history"></i> Lịch sử
+                                        <button
+                                            onClick={() => setViewingHistoryOrder(o)}
+                                            className="text-[10px] font-bold text-sky-400 bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/20 px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all"
+                                            title="Xem nhật ký chỉnh sửa công khai"
+                                        >
+                                            <i className="fas fa-history text-[9px]"></i> Lịch sử
                                         </button>
                                     </div>
 
                                     {(userRole === 'TỐI CAO' || localStorage.getItem('rf_role') === 'TỐI CAO') && (
-                                        <button onClick={() => handleAddExpenseForOrder(o)} className="text-[10px] font-bold text-[#d4af37] bg-[#d4af37]/10 hover:bg-[#d4af37] hover:text-black border border-[#d4af37]/30 px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all shadow-sm" title="Thêm chi phí liên quan ngay cho đơn này">
+                                        <button
+                                            onClick={() => handleAddExpenseForOrder(o)}
+                                            className="text-[10px] font-bold text-[#d4af37] bg-[#d4af37]/10 hover:bg-[#d4af37] hover:text-black border border-[#d4af37]/30 px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all shadow-sm active:scale-95"
+                                            title="Thêm chi phí liên quan ngay cho đơn này"
+                                        >
                                             <i className="fas fa-plus text-[9px]"></i> Chi phí
                                         </button>
                                     )}
@@ -275,77 +364,124 @@ function TabAffiliate({ orders, ctvFinance, pushDeltas, currentUser, triggerToas
         </div>
 
         {/* CỘT 2: GIAO DỊCH & PHỤ PHÍ */}
-        <div className="bg-[#141414] border border-[#2a2a2a] rounded-2xl p-4 sm:p-5 flex flex-col h-[500px]">
-            <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-black text-gray-200 uppercase tracking-widest flex items-center">
-                    <i className="fas fa-money-bill-transfer text-amber-400 mr-2"></i> Giao Dịch Phụ Phí ({ctvTxs.length})
+        <div className="bg-[#121214] border border-white/[0.08] rounded-2xl p-4 sm:p-5 flex flex-col h-[560px] shadow-sm">
+            <div className="flex items-center justify-between mb-3 border-b border-white/[0.08] pb-3">
+                <h3 className="text-xs sm:text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                    <i className="fas fa-money-bill-transfer text-amber-400"></i>
+                    <span>Giao Dịch Phụ Phí</span>
+                    <span className="text-xs font-mono font-bold bg-[#18181b] text-zinc-300 px-2 py-0.5 rounded-md border border-white/[0.08]">
+                        {ctvTxs.length}
+                    </span>
                 </h3>
+
                 {isAdminOrKetoan && (
-                    <button onClick={() => { setShowAddTx(!showAddTx); setEditingTxId(null); setTxAmount(''); setTxNote(''); }} className="w-8 h-8 rounded-full bg-[#d4af37]/10 text-[#d4af37] border border-[#d4af37]/30 flex items-center justify-center hover:bg-[#d4af37] hover:text-black transition-all">
+                    <button
+                        onClick={() => { setShowAddTx(!showAddTx); setEditingTxId(null); setTxAmount(''); setTxNote(''); }}
+                        className="w-7 h-7 rounded-lg bg-[#d4af37] text-black font-black flex items-center justify-center hover:bg-[#b89628] transition-all shadow-sm active:scale-95 cursor-pointer"
+                        title="Thêm giao dịch phụ phí"
+                    >
                         <i className={`fas ${showAddTx ? 'fa-times' : 'fa-plus'} text-xs`}></i>
                     </button>
                 )}
             </div>
             
+            {/* Form Thêm/Sửa Phụ Phí */}
             {showAddTx && (
-                <div className="bg-[#0a0a0a] border border-[#d4af37]/30 rounded-xl p-3 mb-4 animate-fade-in shadow-[0_0_15px_rgba(212,175,55,0.05)]">
-                    <div className="grid grid-cols-2 gap-3 mb-3">
+                <div className="bg-[#18181b] border border-[#d4af37]/30 rounded-xl p-3.5 mb-3 animate-fade-in shadow-md space-y-3">
+                    <div className="grid grid-cols-2 gap-2.5">
                         <div>
-                            <label className="text-[10px] font-bold text-gray-500 uppercase mb-1 block">Loại Giao Dịch</label>
-                            <select value={txType} onChange={e=>setTxType(e.target.value)} className="w-full bg-[#141414] border border-[#333] rounded-lg px-2 py-2 text-[12px] font-bold text-gray-200 outline-none focus:border-[#d4af37]">
-                                <option value="PHÍ VẬN CHUYỂN">Phí Vận Chuyển</option>
-                                <option value="HOÀN HÀNG">Phí Hoàn Hàng</option>
-                                <option value="KHÁC">Khác (Tăng nợ CTV)</option>
-                                <option value="THANH TOÁN">CTV Thanh Toán (Giảm nợ CTV)</option>
-                                <option value="SHOP THANH TOÁN">Shop Thanh Toán (Tăng nợ CTV)</option>
-                                <option value="DƯ NỢ KỲ TRƯỚC (CTV NỢ)">Nợ kỳ trước (CTV nợ Shop)</option>
-                                <option value="DƯ NỢ KỲ TRƯỚC (SHOP NỢ)">Nợ kỳ trước (Shop nợ CTV)</option>
+                            <label className="text-[10px] font-bold text-zinc-400 uppercase mb-1 block">Loại Giao Dịch</label>
+                            <select
+                                value={txType}
+                                onChange={e => setTxType(e.target.value)}
+                                className="w-full bg-[#121214] border border-white/[0.1] rounded-lg px-2.5 py-2 text-xs font-bold text-white outline-none focus:border-[#d4af37] cursor-pointer"
+                            >
+                                <option value="PHÍ VẬN CHUYỂN" className="bg-[#18181b] text-white">Phí Vận Chuyển</option>
+                                <option value="HOÀN HÀNG" className="bg-[#18181b] text-white">Phí Hoàn Hàng</option>
+                                <option value="KHÁC" className="bg-[#18181b] text-white">Khác (Tăng nợ CTV)</option>
+                                <option value="THANH TOÁN" className="bg-[#18181b] text-white">CTV Thanh Toán (Giảm nợ CTV)</option>
+                                <option value="SHOP THANH TOÁN" className="bg-[#18181b] text-white">Shop Thanh Toán (Tăng nợ CTV)</option>
+                                <option value="DƯ NỢ KỲ TRƯỚC (CTV NỢ)" className="bg-[#18181b] text-white">Nợ kỳ trước (CTV nợ Shop)</option>
+                                <option value="DƯ NỢ KỲ TRƯỚC (SHOP NỢ)" className="bg-[#18181b] text-white">Nợ kỳ trước (Shop nợ CTV)</option>
                             </select>
                         </div>
                         <div>
-                            <label className="text-[10px] font-bold text-gray-500 uppercase mb-1 block">Số Tiền (VNĐ)</label>
-                            <input type="text" value={txAmount && txAmount !== '-' ? Number(txAmount).toLocaleString('vi-VN') : txAmount} onChange={e=>{
-                                const val = e.target.value.replace(/[^\d-]/g, '');
-                                const isNegative = val.startsWith('-');
-                                const cleanVal = val.replace(/-/g, '');
-                                setTxAmount(isNegative ? '-' + cleanVal : cleanVal);
-                            }} placeholder="0" className="w-full bg-[#141414] border border-[#333] rounded-lg px-2 py-2 text-[12px] font-bold text-amber-400 outline-none focus:border-[#d4af37]" />
+                            <label className="text-[10px] font-bold text-zinc-400 uppercase mb-1 block">Số Tiền (VNĐ)</label>
+                            <input
+                                type="text"
+                                value={txAmount && txAmount !== '-' ? Number(txAmount).toLocaleString('vi-VN') : txAmount}
+                                onChange={e => {
+                                    const val = e.target.value.replace(/[^\d-]/g, '');
+                                    const isNegative = val.startsWith('-');
+                                    const cleanVal = val.replace(/-/g, '');
+                                    setTxAmount(isNegative ? '-' + cleanVal : cleanVal);
+                                }}
+                                placeholder="0"
+                                className="w-full bg-[#121214] border border-white/[0.1] rounded-lg px-2.5 py-2 text-xs font-mono font-bold text-amber-400 outline-none focus:border-[#d4af37]"
+                            />
                         </div>
                     </div>
-                    <div className="mb-3">
-                        <label className="text-[10px] font-bold text-gray-500 uppercase mb-1 block">Tên khách hàng / Mã đơn liên quan</label>
-                        <input type="text" list="ctv-order-hints" value={txNote} onChange={e=>setTxNote(e.target.value)} placeholder="Chọn đơn hoặc nhập ghi chú..." className="w-full bg-[#141414] border border-[#333] rounded-lg px-2 py-2 text-[12px] text-gray-300 outline-none focus:border-[#d4af37]" />
+                    <div>
+                        <label className="text-[10px] font-bold text-zinc-400 uppercase mb-1 block">Tên khách hàng / Mã đơn liên quan</label>
+                        <input
+                            type="text"
+                            list="ctv-order-hints"
+                            value={txNote}
+                            onChange={e => setTxNote(e.target.value)}
+                            placeholder="Chọn đơn hoặc nhập ghi chú..."
+                            className="w-full bg-[#121214] border border-white/[0.1] rounded-lg px-2.5 py-2 text-xs text-zinc-200 outline-none focus:border-[#d4af37]"
+                        />
                         <datalist id="ctv-order-hints">
                             {ctvOrders.map(o => (
                                 <option key={o.id} value={`${o.customer || 'Khách'} - ${o.orderCode || ''}`} />
                             ))}
                         </datalist>
                     </div>
-                    <button onClick={handleAddTx} disabled={isProcessing} className="w-full py-2.5 bg-gradient-to-r from-[#d4af37] to-[#b8972e] text-black text-[12px] font-black uppercase tracking-wider rounded-lg shadow-sm hover:brightness-110 disabled:opacity-50">
+                    <button
+                        onClick={handleAddTx}
+                        disabled={isProcessing}
+                        className="w-full py-2 bg-[#d4af37] hover:bg-[#b89628] text-black text-xs font-black uppercase tracking-wider rounded-lg transition-all shadow-md active:scale-95 disabled:opacity-50 cursor-pointer"
+                    >
                         {isProcessing ? <i className="fas fa-spinner fa-spin"></i> : (editingTxId ? 'Cập Nhật Giao Dịch' : 'Lưu Giao Dịch')}
                     </button>
                 </div>
             )}
 
-            <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 -mr-1 space-y-2">
+            <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 space-y-2.5">
                 {ctvTxs.length === 0 ? (
-                    <div className="text-center text-gray-500 text-xs italic mt-10">Chưa có giao dịch phụ phí nào.</div>
+                    <div className="flex flex-col items-center justify-center h-full text-zinc-500 text-xs italic py-10">
+                        <i className="fas fa-receipt text-3xl mb-2 opacity-30"></i>
+                        <span>Chưa có giao dịch phụ phí nào trong tháng này.</span>
+                    </div>
                 ) : (
                     ctvTxs.map(t => (
-                        <div key={t.id} className="bg-[#0a0a0a] border border-[#222] rounded-xl p-3 flex justify-between items-center hover:border-[#333] transition-colors">
-                            <div>
-                                <div className="text-[13px] font-bold text-gray-200 mb-0.5">{t.type}</div>
-                                <div className="text-[11px] text-gray-400">{t.note || 'Không có ghi chú'}</div>
-                                <div className="text-[10px] text-gray-600 font-mono mt-1">{t.date}</div>
+                        <div key={t.id} className="bg-[#18181b] border border-white/[0.06] hover:border-white/[0.12] rounded-xl p-3.5 flex justify-between items-center transition-all shadow-sm">
+                            <div className="min-w-0">
+                                <div className="text-xs font-black text-white uppercase tracking-wide">{t.type}</div>
+                                <div className="text-xs text-zinc-300 font-medium mt-0.5 truncate max-w-[220px] sm:max-w-xs">{t.note || 'Không có ghi chú'}</div>
+                                <div className="text-[10px] text-zinc-500 font-mono mt-1">{t.date}</div>
                             </div>
-                            <div className="text-right flex flex-col items-end">
-                                <div className={`text-[14px] font-black ${t.type === 'THANH TOÁN' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            <div className="text-right flex flex-col items-end shrink-0 pl-2">
+                                <div className={`text-sm font-black font-mono ${t.type === 'THANH TOÁN' ? 'text-emerald-400' : 'text-rose-400'}`}>
                                     {t.type === 'THANH TOÁN' ? '-' : '+'}{formatMoney(t.amount)}đ
                                 </div>
                                 {isAdminOrKetoan && (
-                                    <div className="flex gap-3 mt-2 opacity-50 hover:opacity-100 transition-opacity">
-                                        <button onClick={() => handleEditTx(t)} className="text-[12px] text-gray-400 hover:text-[#d4af37]"><i className="fas fa-edit"></i></button>
-                                        <button onClick={() => handleDeleteTx(t.id)} disabled={isProcessing} className="text-[12px] text-gray-400 hover:text-rose-500"><i className="fas fa-trash"></i></button>
+                                    <div className="flex gap-2.5 mt-2 opacity-60 hover:opacity-100 transition-opacity">
+                                        <button
+                                            onClick={() => handleEditTx(t)}
+                                            className="text-xs text-zinc-400 hover:text-[#d4af37] transition-colors"
+                                            title="Sửa giao dịch"
+                                        >
+                                            <i className="fas fa-edit"></i>
+                                        </button>
+                                        <button
+                                            onClick={() => handleDeleteTx(t.id)}
+                                            disabled={isProcessing}
+                                            className="text-xs text-zinc-400 hover:text-rose-400 transition-colors"
+                                            title="Xóa giao dịch"
+                                        >
+                                            <i className="fas fa-trash"></i>
+                                        </button>
                                     </div>
                                 )}
                             </div>

@@ -324,24 +324,25 @@ function ImportStatementModal({ onClose, pushDeltas, triggerToast, erpData, cate
     React.useEffect(() => {
         const accs = (erpData?.Accounts || []);
         setBankAccounts(accs);
-        if (accs.length > 0) setSelectedBankId(accs[0].id);
+        setSelectedBankId(prev => {
+            if (prev && accs.some(a => a.id === prev)) return prev;
+            return accs[0]?.id || '';
+        });
         
         if (typeof window.XLSX === 'undefined') {
             const script = document.createElement('script');
             script.src = "https:\/\/cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
             document.body.appendChild(script);
         }
-    }, [erpData]);
+    }, [erpData?.Accounts]);
 
-    const handleFileUpload = (e) => {
+    const handleFileUpload = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
 
         setIsProcessing(true);
-        if (typeof window.XLSX === 'undefined') {
-            triggerToast('Đang tải thư viện xử lý Excel, vui lòng thử lại sau 3 giây!', 'fa-spinner', 'warning');
-            setIsProcessing(false);
-            return;
+        if (typeof window.ensureXLSXLoaded === 'function') {
+            await window.ensureXLSXLoaded();
         }
 
         const reader = new FileReader();
@@ -380,11 +381,22 @@ function ImportStatementModal({ onClose, pushDeltas, triggerToast, erpData, cate
         const existingTxs = erpData?.Transactions || []; 
         let parsedTransactions = [];
         let headerRowIndex = -1;
-        let colMap = { date: -1, debit: -1, credit: -1, desc: -1 };
+        let colMap = { date: -1, debit: -1, credit: -1, desc: -1, party: -1 };
+
+        // Tự động nhận diện tài khoản đích từ số tài khoản trong header file nếu có
+        const headerTextAll = json.slice(0, 20).map(r => Object.values(r).join(' ')).join(' ');
+        for (const a of (erpData?.Accounts || [])) {
+            const p = parseAccountInfo(a);
+            const num = (p.number || a.accountNumber || '').trim();
+            if (num && num.length >= 5 && headerTextAll.includes(num)) {
+                setSelectedBankId(a.id);
+                break;
+            }
+        }
 
         for (let i = 0; i < Math.min(20, json.length); i++) {
             const row = Object.values(json[i]);
-            let foundDate = -1, foundDebit = -1, foundCredit = -1, foundDesc = -1;
+            let foundDate = -1, foundDebit = -1, foundCredit = -1, foundDesc = -1, foundParty = -1;
             
             row.forEach((cellText, colIndex) => {
                 const text = String(cellText).toLowerCase().trim();
@@ -392,14 +404,17 @@ function ImportStatementModal({ onClose, pushDeltas, triggerToast, erpData, cate
                 if (text.includes('phát sinh nợ') || text.includes('ghi nợ') || text === 'nợ' || text.includes('debit') || text === 'chi' || text === 'số tiền chi') foundDebit = colIndex;
                 if (text.includes('phát sinh có') || text.includes('ghi có') || text === 'có' || text.includes('credit') || text === 'thu' || text === 'số tiền thu') foundCredit = colIndex;
                 if (text.includes('diễn giải') || text.includes('nội dung') || text.includes('desc') || text.includes('detail')) foundDesc = colIndex;
+                if (text.includes('đối tác') || text.includes('đối ứng') || text.includes('người nhận') || text.includes('người gửi') || text.includes('người nộp') || text.includes('thụ hưởng') || text.includes('tên người hưởng') || text.includes('tài khoản đối ứng') || text.includes('chủ tài khoản') || text.includes('beneficiary') || text.includes('counterparty') || text.includes('sender') || text.includes('receiver') || text.includes('tên đv thụ hưởng')) {
+                    if (foundParty === -1) foundParty = colIndex;
+                }
             });
 
             if (foundDate > -1 && foundDesc > -1 && (foundDebit > -1 || foundCredit > -1)) {
-                headerRowIndex = i; colMap = { date: foundDate, debit: foundDebit, credit: foundCredit, desc: foundDesc }; break;
+                headerRowIndex = i; colMap = { date: foundDate, debit: foundDebit, credit: foundCredit, desc: foundDesc, party: foundParty }; break;
             }
         }
 
-        if (headerRowIndex === -1) { headerRowIndex = 14; colMap = { date: 2, debit: 5, credit: 6, desc: 11 }; }
+        if (headerRowIndex === -1) { headerRowIndex = 14; colMap = { date: 2, debit: 5, credit: 6, desc: 11, party: -1 }; }
 
         for (let i = headerRowIndex + 1; i < json.length; i++) {
             const row = Object.values(json[i]);
@@ -407,6 +422,7 @@ function ImportStatementModal({ onClose, pushDeltas, triggerToast, erpData, cate
             
             const rawDate = String(row[colMap.date]);
             const rawDesc = String(row[colMap.desc] || '');
+            let rawParty = colMap.party > -1 ? String(row[colMap.party] || '').trim() : '';
             
             let debit = 0;
             if (colMap.debit > -1) debit = typeof row[colMap.debit] === 'number' ? row[colMap.debit] : (Number(String(row[colMap.debit] || '').replace(/[^\d]/g, '')) || 0);
@@ -430,15 +446,16 @@ function ImportStatementModal({ onClose, pushDeltas, triggerToast, erpData, cate
             } catch(e) {}
 
             let type = ''; let amount = 0; let category = 'Chờ Xử Lý';
+            let originalDirection = 'credit';
             
             if (credit > 0) {
-                type = 'Thu'; amount = credit;
+                type = 'Thu'; amount = credit; originalDirection = 'credit';
                 const thuVals = (categories?.THU || []).map(c => c.value);
                 if (rawDesc.toUpperCase().includes('SHOPEE') || rawDesc.toUpperCase().includes('TIKTOK')) {
                     category = thuVals.includes('Thu Tiền Bán Hàng') ? 'Thu Tiền Bán Hàng' : 'Chờ Xử Lý';
                 }
             } else if (debit > 0) {
-                type = 'Chi'; amount = debit;
+                type = 'Chi'; amount = debit; originalDirection = 'debit';
                 const chiVals = (categories?.CHI || []).map(c => c.value);
                 if (rawDesc.toUpperCase().includes('LUONG') || rawDesc.toUpperCase().includes('THUONG')) {
                     category = chiVals.includes('Trả Lương') ? 'Trả Lương' : 'Chờ Xử Lý';
@@ -459,6 +476,31 @@ function ImportStatementModal({ onClose, pushDeltas, triggerToast, erpData, cate
                 const match = String(text || '').match(/(DH|RF|SO|HD|DH-)\s*([0-9]{4,8})/i);
                 return match ? match[0].replace(/\s+/g, '').toUpperCase() : null;
             };
+
+            // Tự động nhận diện Người gửi / Người nhận từ Diễn giải nếu file không có cột riêng
+            const extractParty = (desc) => {
+                if (!desc) return '';
+                const d = String(desc).trim();
+                let m = d.match(/Beneficiary\s*name\s*:\s*([^,;\n\r\-]+)/i);
+                if (m && m[1].trim()) return m[1].trim();
+                m = d.match(/B\/O\s+([A-Z0-9\s\.\_\/]{3,40}?)(?:\s+F\/O|\s+DTLS|\s+-\s*|\s*,\s*|$)/i);
+                if (m && m[1].trim()) return m[1].trim();
+                m = d.match(/CT\s+tu\s+\d+\s+([A-Z\s]{3,35}?)(?:\s+toi|\s+den|\s+va|$)/i);
+                if (m && m[1].trim()) return m[1].trim();
+                m = d.match(/tai\s+[A-Za-z0-9]+\.\s*([A-Za-z0-9\s\-_]{3,30}?)(?:\s+chuyen|\s*-\s*|\s*,\s*|$)/i);
+                if (m && m[1].trim()) return m[1].trim();
+                m = d.match(/([A-Z\s]{3,30})\s+(?:chuyen\s+khoan|chuyen\s+tien|ck|nop\s+tien|thanh\s+toan)/i);
+                if (m && m[1].trim() && !['CT', 'REM', 'TK', 'SO', 'THONG BAO'].includes(m[1].trim())) return m[1].trim();
+                if (d.toUpperCase().includes('SHOPEEPAY') || d.toUpperCase().includes('SHOPEE')) return 'Shopee';
+                if (d.toUpperCase().includes('TIKTOK')) return 'TikTok Shop';
+                if (d.toUpperCase().includes('ZALOPAY')) return 'ZaloPay';
+                return '';
+            };
+
+            if (!rawParty) {
+                rawParty = extractParty(rawDesc);
+            }
+            const initialTitle = rawParty || `${type} Sao Kê`;
 
             const noteImportClean = cleanText(rawDesc);
             const orderIdImport = extractOrderId(rawDesc);
@@ -506,7 +548,19 @@ function ImportStatementModal({ onClose, pushDeltas, triggerToast, erpData, cate
             
             if (dupLevel === 3 && type === 'Thu') category = 'Bán Hàng';
 
-            parsedTransactions.push({ _id: 'TEMP_' + Date.now() + i, date: formattedDate, type: type, amount: amount, category: category, note: rawDesc, title: `${type} Sao Kê`, dupLevel: dupLevel, matchedTxId: matchedTxId });
+            parsedTransactions.push({ 
+                _id: 'TEMP_' + Date.now() + i, 
+                date: formattedDate, 
+                type: type, 
+                originalDirection: originalDirection,
+                amount: amount, 
+                category: category, 
+                targetAccount: '',
+                note: rawDesc, 
+                title: initialTitle, 
+                dupLevel: dupLevel, 
+                matchedTxId: matchedTxId 
+            });
         }
 
         setScannedData(parsedTransactions);
@@ -535,7 +589,7 @@ function ImportStatementModal({ onClose, pushDeltas, triggerToast, erpData, cate
         const transactionsToImport = scannedData.filter(t => selectedRows.has(t._id));
         
         let payload = { Transactions: [], Accounts: [] };
-        let totalNet = 0;
+        let accountBalanceDeltas = {};
 
         transactionsToImport.forEach((t, i) => {
             if (t.dupLevel === 3 && t.matchedTxId) {
@@ -545,28 +599,67 @@ function ImportStatementModal({ onClose, pushDeltas, triggerToast, erpData, cate
                     isCleared: true,
                     bankRef: 'BNK_' + Date.now() + '_' + i
                 });
-                // Nếu đối soát thu thì có thể là không cộng tiền vào quỹ nữa vì quỹ có thể đã cộng lúc thủ quỹ cầm tiền mặt
-                // Tuy nhiên, bank đã nhận tiền, tức là quỹ Bank tăng. Tuỳ thuộc hệ thống có tách quỹ Bank riêng không.
-                // Nếu Bank Account là quỹ đích, thì vẫn phải cộng cho nó, trừ khi Quỹ Bán Hàng chuyển sang.
-                // Tạm thời vẫn cộng trừ theo logic cũ để đảm bảo quỹ Bank đúng với sao kê.
-                totalNet += t.type === 'Thu' ? t.amount : -t.amount;
+                const delta = (t.originalDirection === 'debit' || t.type === 'Chi') ? -t.amount : t.amount;
+                accountBalanceDeltas[selectedBankId] = (accountBalanceDeltas[selectedBankId] || 0) + delta;
             } else {
                 // TẠO MỚI GIAO DỊCH SAO KÊ
                 const finalId = 'TX_SK_' + Date.now() + i;
+                let fromAcc = '';
+                let toAcc = '';
+
+                if (t.type === 'Thu') {
+                    toAcc = selectedBankId;
+                    accountBalanceDeltas[selectedBankId] = (accountBalanceDeltas[selectedBankId] || 0) + t.amount;
+                } else if (t.type === 'Chi') {
+                    fromAcc = selectedBankId;
+                    accountBalanceDeltas[selectedBankId] = (accountBalanceDeltas[selectedBankId] || 0) - t.amount;
+                } else if (t.type === 'Chuyển') {
+                    const isDebit = t.originalDirection === 'debit';
+                    if (isDebit) {
+                        // Tiền ra khỏi tài khoản sao kê -> Chuyển sang tài khoản đích
+                        fromAcc = selectedBankId;
+                        toAcc = t.targetAccount || '';
+                        accountBalanceDeltas[selectedBankId] = (accountBalanceDeltas[selectedBankId] || 0) - t.amount;
+                        if (t.targetAccount) {
+                            accountBalanceDeltas[t.targetAccount] = (accountBalanceDeltas[t.targetAccount] || 0) + t.amount;
+                        }
+                    } else {
+                        // Tiền vào tài khoản sao kê -> Chuyển từ tài khoản nguồn
+                        fromAcc = t.targetAccount || '';
+                        toAcc = selectedBankId;
+                        accountBalanceDeltas[selectedBankId] = (accountBalanceDeltas[selectedBankId] || 0) + t.amount;
+                        if (t.targetAccount) {
+                            accountBalanceDeltas[t.targetAccount] = (accountBalanceDeltas[t.targetAccount] || 0) - t.amount;
+                        }
+                    }
+                }
+
                 payload.Transactions.push({
-                    id: finalId, type: t.type, category: t.category, amount: t.amount, date: t.date, title: t.title, note: t.note,
-                    fromAccount: t.type === 'Chi' ? selectedBankId : '',
-                    toAccount: t.type === 'Thu' ? selectedBankId : '',
+                    id: finalId, 
+                    type: t.type, 
+                    category: t.type === 'Chuyển' ? (t.category || 'Chuyển Tiền Nội Bộ') : t.category, 
+                    amount: t.amount, 
+                    date: t.date, 
+                    title: t.title || `${t.type} Sao Kê`, 
+                    note: t.note,
+                    fromAccount: fromAcc,
+                    toAccount: toAcc,
                     isAuto: true,
                     isCleared: true,
                     bankRef: 'BNK_' + Date.now() + '_' + i
                 });
-                totalNet += t.type === 'Thu' ? t.amount : -t.amount;
             }
         });
 
-        const acc = bankAccounts.find(a => a.id === selectedBankId);
-        if (acc) payload.Accounts.push({ ...acc, balance: Number(acc.balance || 0) + totalNet });
+        Object.keys(accountBalanceDeltas).forEach(accId => {
+            const acc = bankAccounts.find(a => a.id === accId);
+            if (acc) {
+                payload.Accounts.push({
+                    ...acc,
+                    balance: Number(acc.balance || 0) + accountBalanceDeltas[accId]
+                });
+            }
+        });
 
         try {
             await pushDeltas(payload, `Đã import ${transactionsToImport.length} giao dịch thành công!`, 'fa-cloud-upload-alt');
@@ -579,7 +672,7 @@ function ImportStatementModal({ onClose, pushDeltas, triggerToast, erpData, cate
 
     return (
         <div className="fixed inset-0 bg-black/90 flex flex-col items-center justify-center z-[9999] p-4 backdrop-blur-sm animate-fade-in" onClick={onClose}>
-            <div className="bg-[#141414] border border-[#3b82f6]/50 w-full max-w-4xl rounded-3xl p-5 shadow-[0_0_40px_rgba(59,130,246,0.2)] flex flex-col h-[90vh] relative animate-slide-up" onClick={e => e.stopPropagation()}>
+            <div className="bg-[#141414] border border-[#3b82f6]/50 w-full max-w-5xl rounded-3xl p-5 shadow-[0_0_40px_rgba(59,130,246,0.2)] flex flex-col h-[90vh] relative animate-slide-up" onClick={e => e.stopPropagation()}>
                 <button onClick={onClose} className="absolute top-4 right-4 w-8 h-8 rounded-full bg-[#222] text-gray-500 hover:text-white hover:bg-rose-500 flex items-center justify-center transition-all z-20"><i className="fas fa-times text-sm"></i></button>
                 <div className="flex items-center gap-3 mb-4 border-b border-[#222] pb-3 shrink-0">
                     <div className="w-10 h-10 rounded-full bg-[#3b82f6]/20 text-[#3b82f6] flex items-center justify-center text-xl"><i className="fas fa-file-excel"></i></div>
@@ -621,12 +714,13 @@ function ImportStatementModal({ onClose, pushDeltas, triggerToast, erpData, cate
                         ) : (
                             <table className="w-full text-left border-collapse text-[11px]">
                                 <thead>
-                                    <tr className="text-gray-500 font-black tracking-wider uppercase border-b border-[#333] sticky top-0 bg-[#0a0a0a] z-10">
-                                        <th className="p-2 w-10 text-center">X</th>
-                                        <th className="p-2 w-[120px]">Thời gian</th>
-                                        <th className="p-2 w-[50px]">Loại</th>
-                                        <th className="p-2 w-[100px] text-right">Số tiền</th>
-                                        <th className="p-2 w-[150px]">Phân loại Thu / Chi</th>
+                                    <tr className="text-gray-500 font-black tracking-wider uppercase border-b border-[#333] sticky top-0 bg-[#0a0a0a] z-10 text-[10px]">
+                                        <th className="p-2 w-8 text-center">X</th>
+                                        <th className="p-2 w-[110px]">Thời gian</th>
+                                        <th className="p-2 w-[85px]">Loại</th>
+                                        <th className="p-2 w-[95px] text-right">Số tiền</th>
+                                        <th className="p-2 w-[145px]">Phân loại / Quỹ đích</th>
+                                        <th className="p-2 w-[150px]">Người gửi / Nhận</th>
                                         <th className="p-2">Nội dung (Diễn giải)</th>
                                     </tr>
                                 </thead>
@@ -652,23 +746,105 @@ function ImportStatementModal({ onClose, pushDeltas, triggerToast, erpData, cate
                                             rowClass = 'hover:bg-amber-900/20 cursor-pointer bg-amber-900/10 border-amber-900/50';
                                             textClass = 'text-amber-200';
                                             tagHtml = <div className="text-[8px] text-amber-500 font-black bg-amber-500/10 px-1 py-0.5 rounded mt-1 inline-block border border-amber-500/30 tracking-widest uppercase" title="Trùng ngày & số tiền nhưng khác nội dung">Nghi Ngờ</div>;
-                                            if (isSelected) rowClass = t.type === 'Thu' ? 'bg-[#10b981]/10' : 'bg-rose-500/10';
+                                            if (isSelected) rowClass = t.type === 'Thu' ? 'bg-[#10b981]/10' : (t.type === 'Chuyển' ? 'bg-blue-500/10' : 'bg-rose-500/10');
                                         } else {
-                                            if (isSelected) rowClass = t.type === 'Thu' ? 'bg-[#10b981]/10' : 'bg-rose-500/10';
+                                            if (isSelected) rowClass = t.type === 'Thu' ? 'bg-[#10b981]/10' : (t.type === 'Chuyển' ? 'bg-blue-500/10' : 'bg-rose-500/10');
                                         }
 
                                         return (
                                             <tr key={t._id} onClick={() => t.dupLevel !== 2 && toggleRow(t._id)} className={`border-b border-[#222] transition-colors ${rowClass}`}>
                                                 <td className="p-2 text-center"><div className={`w-4 h-4 rounded border flex items-center justify-center mx-auto ${chkClass}`}><i className="fas fa-check text-[8px]"></i></div></td>
                                                 <td className="p-2 font-mono"><div className={textClass}>{t.date}</div>{tagHtml}</td>
-                                                <td className="p-2"><span className={`px-1.5 py-0.5 rounded font-black text-[9px] uppercase ${t.dupLevel === 2 ? 'bg-[#333] text-gray-500' : (t.type === 'Thu' ? 'bg-[#10b981]/20 text-[#10b981]' : 'bg-rose-500/20 text-rose-500')}`}>{t.type}</span></td>
-                                                <td className={`p-2 text-right font-black ${t.dupLevel === 2 ? 'text-gray-500 line-through' : (t.type === 'Thu' ? 'text-[#10b981]' : 'text-rose-500')}`}>{Number(t.amount).toLocaleString('vi-VN')}đ</td>
-                                                <td className="p-2">
-                                                    <select value={t.category} disabled={t.dupLevel === 2} onClick={e => e.stopPropagation()} onChange={(e) => { const newData = [...scannedData]; const idx = newData.findIndex(x => x._id === t._id); newData[idx].category = e.target.value; setScannedData(newData); }} className={`w-full bg-[#111] border border-[#333] rounded text-[10px] p-1.5 outline-none font-bold ${t.dupLevel === 2 ? 'text-gray-600' : 'text-white focus:border-[#3b82f6]'}`}>
-                                                        {(t.type === 'Thu' ? (categories?.THU || []) : (categories?.CHI || [])).map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                                                <td className="p-2" onClick={e => e.stopPropagation()}>
+                                                    <select 
+                                                        value={t.type} 
+                                                        disabled={t.dupLevel === 2} 
+                                                        onChange={(e) => {
+                                                            const newType = e.target.value;
+                                                            setScannedData(prev => prev.map(item => {
+                                                                if (item._id !== t._id) return item;
+                                                                let newCat = item.category;
+                                                                if (newType === 'Thu') newCat = (categories?.THU || [])[0]?.value || 'Thu Tiền Bán Hàng';
+                                                                else if (newType === 'Chi') newCat = (categories?.CHI || [])[0]?.value || 'Chi Phí Khác';
+                                                                else if (newType === 'Chuyển') newCat = 'Chuyển Tiền Nội Bộ';
+                                                                return { ...item, type: newType, category: newCat };
+                                                            }));
+                                                        }}
+                                                        className={`w-full border rounded text-[10px] py-1 px-1 font-black uppercase outline-none cursor-pointer transition-all ${
+                                                            t.dupLevel === 2 ? 'bg-[#222] border-[#333] text-gray-600' :
+                                                            t.type === 'Thu' ? 'bg-[#10b981]/20 border-[#10b981]/50 text-[#10b981]' : 
+                                                            t.type === 'Chuyển' ? 'bg-blue-500/20 border-blue-500/50 text-blue-400' : 
+                                                            'bg-rose-500/20 border-rose-500/50 text-rose-500'
+                                                        }`}
+                                                    >
+                                                        <option value="Thu" className="bg-[#141414] text-[#10b981]">Thu</option>
+                                                        <option value="Chi" className="bg-[#141414] text-rose-500">Chi</option>
+                                                        <option value="Chuyển" className="bg-[#141414] text-blue-400">Chuyển</option>
                                                     </select>
                                                 </td>
-                                                <td className={`p-2 font-medium line-clamp-2 leading-snug ${t.dupLevel === 2 ? 'text-gray-600' : (t.dupLevel === 1 ? 'text-amber-200/80' : 'text-gray-300')}`} title={t.note}>{t.note}</td>
+                                                <td className={`p-2 text-right font-black ${
+                                                    t.dupLevel === 2 ? 'text-gray-500 line-through' : 
+                                                    (t.type === 'Thu' ? 'text-[#10b981]' : (t.type === 'Chuyển' ? 'text-blue-400' : 'text-rose-500'))
+                                                }`}>
+                                                    {Number(t.amount).toLocaleString('vi-VN')}đ
+                                                </td>
+                                                <td className="p-2" onClick={e => e.stopPropagation()}>
+                                                    {t.type === 'Chuyển' ? (
+                                                        <select 
+                                                            value={t.targetAccount || ''} 
+                                                            disabled={t.dupLevel === 2} 
+                                                            onChange={(e) => { 
+                                                                const val = e.target.value; 
+                                                                setScannedData(prev => prev.map(x => x._id === t._id ? { ...x, targetAccount: val } : x)); 
+                                                            }} 
+                                                            className="w-full bg-[#111] border border-blue-500/40 text-blue-300 rounded text-[10px] p-1.5 outline-none font-bold focus:border-blue-400"
+                                                        >
+                                                            <option value="">-- Quỹ Đối Ứng --</option>
+                                                            {bankAccounts.filter(a => a.id !== selectedBankId).map(a => {
+                                                                const p = parseAccountInfo(a);
+                                                                return <option key={a.id} value={a.id}>{p.name} {p.number ? `(${p.number})` : ''}</option>;
+                                                            })}
+                                                        </select>
+                                                    ) : (
+                                                        <select 
+                                                            value={t.category} 
+                                                            disabled={t.dupLevel === 2} 
+                                                            onChange={(e) => { 
+                                                                const val = e.target.value; 
+                                                                setScannedData(prev => prev.map(x => x._id === t._id ? { ...x, category: val } : x)); 
+                                                            }} 
+                                                            className={`w-full bg-[#111] border border-[#333] rounded text-[10px] p-1.5 outline-none font-bold ${t.dupLevel === 2 ? 'text-gray-600' : 'text-white focus:border-[#3b82f6]'}`}
+                                                        >
+                                                            {(t.type === 'Thu' ? (categories?.THU || []) : (categories?.CHI || [])).map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                                                        </select>
+                                                    )}
+                                                </td>
+                                                <td className="p-2" onClick={e => e.stopPropagation()}>
+                                                    <input 
+                                                        type="text" 
+                                                        value={t.title || ''} 
+                                                        placeholder="Tên người gửi / nhận..." 
+                                                        disabled={t.dupLevel === 2} 
+                                                        onChange={(e) => { 
+                                                            const val = e.target.value; 
+                                                            setScannedData(prev => prev.map(x => x._id === t._id ? { ...x, title: val } : x)); 
+                                                        }} 
+                                                        className={`w-full bg-[#111] border border-[#333] rounded text-[11px] px-2 py-1.5 outline-none font-bold placeholder-gray-600 transition-all ${t.dupLevel === 2 ? 'text-gray-600 cursor-not-allowed' : 'text-white focus:border-[#3b82f6] focus:bg-[#181818]'}`} 
+                                                    />
+                                                </td>
+                                                <td className="p-2" onClick={e => e.stopPropagation()}>
+                                                    <textarea 
+                                                        rows={2} 
+                                                        value={t.note || ''} 
+                                                        placeholder="Nội dung diễn giải..." 
+                                                        disabled={t.dupLevel === 2} 
+                                                        onChange={(e) => { 
+                                                            const val = e.target.value; 
+                                                            setScannedData(prev => prev.map(x => x._id === t._id ? { ...x, note: val } : x)); 
+                                                        }} 
+                                                        className={`w-full bg-[#111] border border-[#333] rounded text-[11px] px-2 py-1 outline-none font-medium leading-snug placeholder-gray-600 resize-y transition-all ${t.dupLevel === 2 ? 'text-gray-600 cursor-not-allowed' : (t.dupLevel === 1 ? 'text-amber-200 focus:border-amber-500 focus:bg-[#181818]' : 'text-gray-200 focus:border-[#3b82f6] focus:bg-[#181818]')}`} 
+                                                    />
+                                                </td>
                                             </tr>
                                         );
                                     })}
@@ -703,9 +879,9 @@ function ShopeeWalletScannerModal({ categories, erpData, onClose, pushDeltas, tr
 
     React.useEffect(() => {
         if (shopeeAccounts.length > 0) {
-            setSelectedWalletId(shopeeAccounts[0].id);
+            setSelectedWalletId(prev => (prev && shopeeAccounts.some(a => a.id === prev)) ? prev : shopeeAccounts[0].id);
         } else if (accountsData && accountsData.length > 0) {
-            setSelectedWalletId(accountsData[0].id);
+            setSelectedWalletId(prev => (prev && accountsData.some(a => a.id === prev)) ? prev : accountsData[0].id);
         }
     }, [shopeeAccounts, accountsData]);
 
@@ -754,8 +930,26 @@ function ShopeeWalletScannerModal({ categories, erpData, onClose, pushDeltas, tr
                     return;
                 }
 
-                let parsedTransactions = [];
-                const parseAmt = (val) => parseFloat(String(val || '0').replace(/[^0-9.-]/g, '')) || 0;
+                const parseAmt = (val) => {
+                    if (val === undefined || val === null || val === '') return 0;
+                    if (typeof val === 'number') return isNaN(val) ? 0 : val;
+                    let s = String(val).trim();
+                    if (!s || s === '-') return 0;
+                    s = s.replace(/[^\d.,-]/g, '');
+                    if (!s || s === '-') return 0;
+                    const hasComma = s.includes(',');
+                    const hasDot = s.includes('.');
+                    if (hasComma && hasDot) {
+                        if (s.lastIndexOf('.') > s.lastIndexOf(',')) s = s.replace(/,/g, '');
+                        else s = s.replace(/\./g, '').replace(/,/g, '.');
+                    } else if (hasComma) {
+                        if (/\,\d{3}$/.test(s) || /\,\d{3}\,/.test(s)) s = s.replace(/,/g, '');
+                        else if (/\,\d{1,2}$/.test(s)) s = s.replace(/,/g, '.');
+                        else s = s.replace(/,/g, '');
+                    }
+                    const num = parseFloat(s);
+                    return isNaN(num) ? 0 : num;
+                };
 
                 for (let i = headerIdx + 1; i < rows.length; i++) {
                     const cols = rows[i];
@@ -1671,20 +1865,7 @@ const FinanceTab = React.memo(function FinanceTab({ orders, erpData, pushDeltas,
         setTimeout(() => { win.print(); win.close(); }, 800);
   };
 
-  const handleSyncBIDV = async () => {
-      try {
-          triggerToast('Đang quét Email BIDV...', 'fa-sync fa-spin', 'info');
-          const res = await runGAS('syncBIDVEmails');
-          if (res && res.success) {
-              triggerToast(res.message, 'fa-check', 'success');
-              window.dispatchEvent(new CustomEvent('triggerReloadData'));
-          } else {
-              triggerToast(res?.message || 'Lỗi đồng bộ', 'fa-times', 'danger');
-          }
-      } catch (err) {
-          triggerToast('Lỗi kết nối máy chủ', 'fa-wifi', 'danger');
-      }
-  };
+
 
     const shopeeIncomeInputRef = React.useRef(null);
     const [isImportingIncome, setIsImportingIncome] = React.useState(false);
@@ -1693,6 +1874,9 @@ const FinanceTab = React.memo(function FinanceTab({ orders, erpData, pushDeltas,
         const file = e.target.files[0];
         if (!file) return;
         setIsImportingIncome(true);
+        if (typeof window.ensureXLSXLoaded === 'function') {
+            await window.ensureXLSXLoaded();
+        }
         triggerToast('Đang phân tích báo cáo doanh thu Shopee...', 'fa-spinner fa-spin', 'info');
 
         try {
@@ -1873,9 +2057,7 @@ const FinanceTab = React.memo(function FinanceTab({ orders, erpData, pushDeltas,
 
 
 
-                  <button onClick={handleSyncBIDV} className="w-10 h-10 shrink-0 bg-[#1a1a1a] hover:bg-emerald-500/20 text-gray-400 hover:text-emerald-500 border border-[#333] hover:border-emerald-500/50 rounded-xl flex items-center justify-center transition-all" title="Đồng bộ BIDV">
-                      <i className="fas fa-university text-[15px]"></i>
-                  </button>
+
               </div>
           )}
 
@@ -2316,7 +2498,37 @@ const BusinessReportTab = React.memo(function BusinessReportTab({ erpData, pushD
     const formatMoney = (val) => Math.round(Number(val || 0)).toLocaleString('vi-VN');
     const REPORT_CHANNELS = ['Shopee VN', 'Tiktok Shop', 'Bán Lẻ', 'Bán Sỉ', 'Cộng Tác Viên', 'Xuất Khẩu'];
 
-    const [filter, setFilter] = React.useState('Tháng Này');
+    // 1. THANH FILTER KỲ BÁO CÁO ĐỘNG TỪ CSDL PROFITREPORTS & THÁNG HIỆN HÀNH
+    const filterOptions = React.useMemo(() => {
+        const currentM = new Date().getMonth() + 1;
+        const baseMonths = [];
+        for (let m = currentM; m >= 1; m--) {
+            baseMonths.push(`Tháng ${m}`);
+        }
+
+        // Lấy tất cả các period đã lưu trong ProfitReports
+        const dbPeriods = (erpData?.ProfitReports || [])
+            .map(r => String(r.period || '').trim())
+            .filter(p => p && p !== 'Năm Nay' && p !== 'Tất Cả');
+
+        const allMonthsSet = new Set([...baseMonths, ...dbPeriods]);
+
+        // Sắp xếp các tháng giảm dần: Tháng 12 -> Tháng 1
+        const sortedMonths = Array.from(allMonthsSet).sort((a, b) => {
+            const numA = parseInt(a.replace(/\D/g, '')) || 0;
+            const numB = parseInt(b.replace(/\D/g, '')) || 0;
+            return numB - numA;
+        });
+
+        return [...sortedMonths, 'Năm Nay', 'Tất Cả'];
+    }, [erpData?.ProfitReports]);
+
+    // Mặc định chọn tháng có dữ liệu mới nhất trong ProfitReports hoặc tháng hiện hành
+    const [filter, setFilter] = React.useState(() => {
+        const currentM = new Date().getMonth() + 1;
+        return `Tháng ${currentM}`;
+    });
+
     const [localReports, setLocalReports] = React.useState({}); 
     const [editingReport, setEditingReport] = React.useState(null);
     const [reportForm, setReportForm] = React.useState({});
@@ -2324,19 +2536,32 @@ const BusinessReportTab = React.memo(function BusinessReportTab({ erpData, pushD
     React.useEffect(() => {
         if (erpData?.ProfitReports && erpData.ProfitReports.length > 0) {
             const serverMap = {};
+            const validPeriods = [];
             erpData.ProfitReports.forEach(r => { 
                 if (r.period && r.channel) { 
                     serverMap[`PROFIT_${r.period}_${r.channel}`] = r; 
+                    if (r.period !== 'Năm Nay' && r.period !== 'Tất Cả') {
+                        validPeriods.push(r.period);
+                    }
                 } 
             });
             setLocalReports(prev => ({ ...serverMap, ...prev }));
+
+            // Tự động chọn tháng có dữ liệu mới nhất nếu ban đầu chưa khớp
+            if (validPeriods.length > 0) {
+                const latestPeriod = validPeriods.sort((a, b) => {
+                    const numA = parseInt(String(a).replace(/\D/g, '')) || 0;
+                    const numB = parseInt(String(b).replace(/\D/g, '')) || 0;
+                    return numB - numA;
+                })[0];
+                if (latestPeriod && filter === 'Tháng Này') {
+                    setFilter(latestPeriod);
+                }
+            }
         }
     }, [erpData?.ProfitReports]);
 
-    const filterOptions = React.useMemo(() => ['Tháng Này', 'Tháng Trước', 'Năm Nay', 'Tất Cả'], []);
-    const isCurrentMonth = filter === 'Tháng Này';
-
-    // 2. HYBRID DATA ENGINE
+    // 2. CƠ CHẾ KHỚP BẢN GHI BÁO CÁO CHUẨN XÁC
     const getAggregatedReport = React.useCallback((channelName) => {
         let agg = { revenue: 0, orderCount: 0, platformFee: 0, returns: 0, discount: 0, ads: 0, cogs: 0, salary: 0, operation: 0 };
         const today = new Date();
@@ -2344,9 +2569,114 @@ const BusinessReportTab = React.memo(function BusinessReportTab({ erpData, pushD
         const currentYear = today.getFullYear();
 
         const reportId = `PROFIT_${filter}_${channelName}`;
-        // Lấy dữ liệu đã lưu (nếu có) để đắp vào các chỉ số thủ công (Ads, Cogs, PlatformFee,...)
-        const saved = localReports[reportId] || (erpData?.ProfitReports || []).find(r => r.period === filter && r.channel === channelName) || {};
         
+        // Đối soát theo điều kiện: r.period === filter && r.channel === channelName HOẶC r.id === 'PROFIT_' + filter + '_' + channelName
+        const saved = localReports[reportId] || (erpData?.ProfitReports || []).find(r => 
+            (String(r.period || '').trim() === String(filter || '').trim() && String(r.channel || '').trim() === String(channelName || '').trim()) || 
+            String(r.id || '').trim() === reportId
+        ) || {};
+
+        // Kiểm tra xem bản ghi ProfitReports đã tồn tại dữ liệu hay chưa
+        const hasSavedData = saved && (
+            Number(saved.revenue || 0) > 0 || 
+            Number(saved.orderCount || 0) > 0 || 
+            Number(saved.cogs || 0) > 0 || 
+            Number(saved.platformFee || 0) > 0 ||
+            Number(saved.salary || 0) > 0 ||
+            Number(saved.operation || 0) > 0 ||
+            Number(saved.ads || 0) > 0 ||
+            Number(saved.discount || 0) > 0 ||
+            Number(saved.returns || 0) > 0
+        );
+
+        if (hasSavedData) {
+            // Nạp trực tiếp toàn bộ các trường từ ProfitReports
+            agg.revenue = Number(saved.revenue || 0);
+            agg.orderCount = Number(saved.orderCount || 0);
+            agg.platformFee = Number(saved.platformFee || 0);
+            agg.returns = Number(saved.returns || 0);
+            agg.discount = Number(saved.discount || 0);
+            agg.ads = Number(saved.ads || 0);
+            agg.cogs = Number(saved.cogs || 0);
+            agg.salary = Number(saved.salary || 0);
+            agg.operation = Number(saved.operation || 0);
+            return agg;
+        }
+
+        // Nếu là chi phí công ty COMPANY_GENERAL mà chưa có dữ liệu lưu thì giữ 0
+        if (channelName === 'COMPANY_GENERAL') {
+            agg.cogs = Number(saved.cogs || 0);
+            agg.salary = Number(saved.salary || 0);
+            agg.operation = Number(saved.operation || 0);
+            return agg;
+        }
+
+        // Fallback: Quét Live từ Orders khi bản ghi trong ProfitReports chưa tồn tại hoặc toàn bộ bằng 0
+        let dynamicRev = 0, dynamicRet = 0, dynamicCount = 0;
+        const orders = erpData?.Orders || [];
+
+        let filterMonthNum = null;
+        if (filter.startsWith('Tháng')) {
+            const mMatch = filter.match(/\d+/);
+            if (mMatch) filterMonthNum = parseInt(mMatch[0], 10);
+        }
+
+        for (let i = 0; i < orders.length; i++) {
+            const o = orders[i];
+            const rawCh = String(o.channel || '').trim();
+            // Bỏ qua đơn nội bộ
+            if (rawCh === 'Sản Xuất Tồn' || rawCh === 'Sản Xuất Bù Kho' || rawCh.toLowerCase().includes('sản xuất tồn') || rawCh.toLowerCase().includes('bù kho')) {
+                continue;
+            }
+
+            const oDate = new Date(o.date || o.createdAt);
+            if (isNaN(oDate.getTime())) continue;
+
+            let isMatch = false;
+            if (filterMonthNum !== null) {
+                isMatch = (oDate.getMonth() + 1) === filterMonthNum && oDate.getFullYear() === currentYear;
+            } else if (filter === 'Năm Nay') {
+                isMatch = oDate.getFullYear() === currentYear;
+            } else {
+                isMatch = true; // Tất Cả
+            }
+
+            if (isMatch) {
+                let ch = String(o.channel || '').trim().toUpperCase();
+                let rate = 1;
+                let rawVal = Number(String(o.revenue || 0).replace(/[^\d.]/g, '')) || 0;
+                if (rawVal > 100000000 && Number.isInteger(rawVal)) rawVal = 0; // Chống rác mã vận đơn / SĐT
+
+                if (ch.includes('USD') && rawVal < 10000) {
+                    rate = 25500;
+                }
+
+                let mappedChannel = 'Bán Lẻ';
+                if (ch.includes('XUẤT KHẨU') || ch.includes('QUỐC TẾ') || ch.includes('USD')) mappedChannel = 'Xuất Khẩu';
+                else if (ch.includes('SHOPEE TH') || ch.includes('THÁI')) mappedChannel = 'Shopee TH';
+                else if (ch.includes('SHOPEE SG') || ch.includes('SING')) mappedChannel = 'Shopee SG';
+                else if (ch.includes('SHOPEE MY') || ch.includes('SHOPEE MA') || ch.includes('MALAY')) mappedChannel = 'Shopee MA';
+                else if (ch.includes('SHOPEE PH') || ch.includes('PHILIP')) mappedChannel = 'Shopee PH';
+                else if (ch.includes('SHOPEE TW') || ch.includes('ĐÀI')) mappedChannel = 'Shopee TW';
+                else if (ch.includes('SHOPEE')) mappedChannel = 'Shopee VN';
+                else if (ch.includes('TIKTOK')) mappedChannel = 'Tiktok Shop';
+                else if (ch.includes('CỘNG TÁC VIÊN') || ch.includes('CTV')) mappedChannel = 'Cộng Tác Viên';
+                else if (ch.includes('BÁN SỈ') || ch.includes('SỈ') || ch.includes('SI')) mappedChannel = 'Bán Sỉ';
+                else if (REPORT_CHANNELS.includes(o.channel)) mappedChannel = o.channel;
+
+                if (mappedChannel === channelName) {
+                    const status = String(o.status || '').toUpperCase();
+                    const val = Math.round(rawVal * rate);
+                    if (status === 'ĐƠN HỦY' || status === 'ĐƠN HUỶ') { continue; }
+                    else if (status === 'HÀNG HOÀN') { dynamicRet += val; }
+                    else { dynamicRev += val; dynamicCount++; }
+                }
+            }
+        }
+
+        agg.revenue = dynamicRev;
+        agg.returns = dynamicRet;
+        agg.orderCount = dynamicCount;
         agg.platformFee = Number(saved.platformFee || 0);
         agg.discount = Number(saved.discount || 0);
         agg.ads = Number(saved.ads || 0);
@@ -2354,70 +2684,8 @@ const BusinessReportTab = React.memo(function BusinessReportTab({ erpData, pushD
         agg.salary = Number(saved.salary || 0);
         agg.operation = Number(saved.operation || 0);
 
-        // Quét Live từ Orders nếu là Tháng Này hoặc nếu báo cáo lịch sử chưa được Lưu (revenue = 0)
-        let dynamicRev = 0, dynamicRet = 0, dynamicCount = 0;
-        let shouldScanLive = isCurrentMonth || !saved.revenue;
-        
-        if (shouldScanLive) {
-            const orders = erpData?.Orders || [];
-            for (let i = 0; i < orders.length; i++) {
-                const o = orders[i];
-                const oDate = new Date(o.date || o.createdAt);
-                if (isNaN(oDate.getTime())) continue;
-                
-                let isMatch = false;
-                if (filter === 'Tháng Này') {
-                    isMatch = oDate.getFullYear() === currentYear && (oDate.getMonth() + 1) === currentMonth;
-                } else if (filter === 'Tháng Trước') {
-                    let lastMonth = currentMonth - 1;
-                    let lastYear = currentYear;
-                    if (lastMonth === 0) { lastMonth = 12; lastYear -= 1; }
-                    isMatch = oDate.getFullYear() === lastYear && (oDate.getMonth() + 1) === lastMonth;
-                } else if (filter === 'Năm Nay') {
-                    isMatch = oDate.getFullYear() === currentYear;
-                } else {
-                    isMatch = true; // Tất Cả
-                }
-                
-                if (isMatch) {
-                    let ch = String(o.channel || '').trim().toUpperCase();
-                    let code = String(o.orderCode || '').toUpperCase();
-                    let isForeign = false, rate = 1;
-                    
-                    if (ch.includes('SG') || code.includes('SG')) { isForeign = true; rate = 18700; }
-                    else if (ch.includes('MY') || ch.includes('MA') || code.includes('MY')) { isForeign = true; rate = 5400; }
-                    else if (ch.includes('TH') || code.includes('TH')) { isForeign = true; rate = 700; }
-                    else if (ch.includes('PH') || code.includes('PH')) { isForeign = true; rate = 440; }
-                    
-                    let mappedChannel = 'Bán Lẻ';
-                    if (isForeign || ch.includes('XUẤT KHẨU') || ch.includes('QUỐC TẾ')) mappedChannel = 'Xuất Khẩu';
-                    else if (ch.includes('SHOPEE')) mappedChannel = 'Shopee VN';
-                    else if (ch.includes('TIKTOK')) mappedChannel = 'Tiktok Shop';
-                    else if (ch.includes('CỘNG TÁC VIÊN') || ch.includes('CTV')) mappedChannel = 'Cộng Tác Viên';
-                    else if (ch.includes('BÁN SỈ') || ch.includes('SỈ') || ch.includes('SI')) mappedChannel = 'Bán Sỉ';
-                    else if (REPORT_CHANNELS.includes(o.channel)) mappedChannel = o.channel;
-
-                    if (mappedChannel === channelName) {
-                        const status = String(o.status || '').toUpperCase();
-                        const val = Number(o.revenue || 0) * rate;
-                        if (status === 'ĐƠN HỦY' || status === 'ĐƠN HUỶ') { continue; }
-                        else if (status === 'HÀNG HOÀN') { dynamicRet += val; }
-                        else { dynamicRev += val; dynamicCount++; }
-                    }
-                }
-            }
-            agg.revenue = dynamicRev;
-            agg.returns = dynamicRet;
-            agg.orderCount = dynamicCount;
-        } else {
-            // Đã chốt sổ, lấy cứng từ dữ liệu đã lưu
-            agg.revenue = Number(saved.revenue || 0);
-            agg.returns = Number(saved.returns || 0);
-            agg.orderCount = Number(saved.orderCount || 0);
-        }
-
         return agg;
-    }, [erpData?.ProfitReports, erpData?.Orders, filter, localReports, isCurrentMonth]);
+    }, [erpData?.ProfitReports, erpData?.Orders, filter, localReports]);
 
     const profitData = React.useMemo(() => {
         let summary = { totalRev: 0, totalSalesExp: 0, totalGeneralExp: 0, netProfit: 0 };
@@ -2437,18 +2705,21 @@ const BusinessReportTab = React.memo(function BusinessReportTab({ erpData, pushD
 
     const handleEditReport = (channel) => {
         const reportId = `PROFIT_${filter}_${channel}`;
-        const saved = localReports[reportId] || {};
+        const saved = localReports[reportId] || (erpData?.ProfitReports || []).find(r => 
+            (String(r.period || '').trim() === String(filter || '').trim() && String(r.channel || '').trim() === String(channel || '').trim()) || 
+            String(r.id || '').trim() === reportId
+        ) || {};
         const agg = getAggregatedReport(channel);
         setReportForm({ 
             revenue: agg.revenue || 0, 
             orderCount: agg.orderCount || 0, 
-            platformFee: saved.platformFee || 0, 
+            platformFee: saved.platformFee || agg.platformFee || 0, 
             returns: agg.returns || 0, 
-            discount: saved.discount || 0, 
-            ads: saved.ads || 0, 
-            cogs: saved.cogs || 0, 
-            salary: saved.salary || 0, 
-            operation: saved.operation || 0 
+            discount: saved.discount || agg.discount || 0, 
+            ads: saved.ads || agg.ads || 0, 
+            cogs: saved.cogs || agg.cogs || 0, 
+            salary: saved.salary || agg.salary || 0, 
+            operation: saved.operation || agg.operation || 0 
         });
         setEditingReport(channel);
     };
@@ -2467,10 +2738,10 @@ const BusinessReportTab = React.memo(function BusinessReportTab({ erpData, pushD
                 ...reportForm, 
                 updatedAt: new Date().toISOString() 
             };
-            await pushDeltas({ ProfitReports: [payload] }, `Đã lưu ${channel}`, 'fa-save');
+            await pushDeltas({ ProfitReports: [payload] }, `Đã lưu ${channel} (${filter})`, 'fa-save');
             setLocalReports(prev => ({ ...prev, [reportId]: payload }));
             setEditingReport(null); 
-            triggerToast(`Đã lưu báo cáo ${channel} thành công!`, 'fa-check', 'success');
+            triggerToast(`Đã lưu báo cáo ${channel} (${filter}) thành công!`, 'fa-check', 'success');
         } catch(e) { 
             triggerToast('Lỗi khi lưu báo cáo!', 'fa-times', 'danger'); 
         }
@@ -2488,7 +2759,7 @@ const BusinessReportTab = React.memo(function BusinessReportTab({ erpData, pushD
 
     return (
         <div className="space-y-6 animate-fade-in pb-12 w-full">
-            {/* Filters */}
+            {/* 1. Thanh Filters Kỳ Báo Cáo Động */}
             <div className="flex gap-2.5 overflow-x-auto custom-scrollbar pb-2 pt-1">
                 {filterOptions.map(p => (
                     <button key={p} onClick={() => { setFilter(p); setEditingReport(null); }} className={`whitespace-nowrap px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider transition-all shadow-sm border ${filter === p ? 'bg-gradient-to-r from-zinc-800 to-black text-[#d4af37] border-white/20 shadow-[0_4px_15px_rgba(212,175,55,0.15)] drop-shadow-[0_0_2px_rgba(212,175,55,0.8)]' : 'bg-black/40 text-gray-500 border-white/5 hover:border-white/10 hover:text-white backdrop-blur-md'}`}>
@@ -2497,7 +2768,7 @@ const BusinessReportTab = React.memo(function BusinessReportTab({ erpData, pushD
                 ))}
             </div>
 
-            {/* 3. DASHBOARD UI/UX (Hero Metrics) */}
+            {/* 2. DASHBOARD UI/UX (Hero Metrics) */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
                 <div className="bg-[#09090b]/60 backdrop-blur-xl p-5 rounded-3xl border border-blue-500/20 shadow-[0_8px_32px_rgba(0,0,0,0.3)] relative overflow-hidden group">
                     <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/10 rounded-full blur-2xl -mr-10 -mt-10 group-hover:bg-blue-500/20 transition-all duration-500"></div>
@@ -2529,7 +2800,7 @@ const BusinessReportTab = React.memo(function BusinessReportTab({ erpData, pushD
                 </div>
             </div>
 
-            {/* Channels Breakdown */}
+            {/* 3. Channels Breakdown */}
             <div className="flex items-center gap-3 mt-8 mb-5 pl-2">
                 <i className="fas fa-layer-group text-[#d4af37]"></i>
                 <span className="text-[13px] font-black text-gray-300 uppercase tracking-[0.15em] drop-shadow-md">Phân Tích Kênh Bán & Vận Hành ({filter})</span>
@@ -2539,8 +2810,7 @@ const BusinessReportTab = React.memo(function BusinessReportTab({ erpData, pushD
             <div className="space-y-5">
                 {REPORT_CHANNELS.map(channel => {
                     const isEditing = editingReport === channel; 
-                    const reportId = `PROFIT_${filter}_${channel}`;
-                    const data = isEditing ? reportForm : (localReports[reportId] || (erpData?.ProfitReports || []).find(r => r.period === filter && r.channel === channel) || {});
+                    const data = isEditing ? reportForm : getAggregatedReport(channel);
                     const channelGrossProfit = Number(data.revenue || 0) - (Number(data.platformFee || 0) + Number(data.returns || 0) + Number(data.discount || 0) + Number(data.ads || 0));
                     
                     return (
@@ -2563,10 +2833,10 @@ const BusinessReportTab = React.memo(function BusinessReportTab({ erpData, pushD
                             </div>
 
                             <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-6 relative z-10">
-                                <ReportMetricField label="Doanh Thu" field="revenue" value={data.revenue} isEditing={isEditing} disabled={isCurrentMonth} onChange={handleFormChange} color="text-blue-400" canView={true} />
-                                <ReportMetricField label="SL Đơn Hàng" field="orderCount" value={data.orderCount} isEditing={isEditing} disabled={isCurrentMonth} onChange={handleFormChange} color="text-zinc-200" canView={true} />
+                                <ReportMetricField label="Doanh Thu" field="revenue" value={data.revenue} isEditing={isEditing} onChange={handleFormChange} color="text-blue-400" canView={true} />
+                                <ReportMetricField label="SL Đơn Hàng" field="orderCount" value={data.orderCount} isEditing={isEditing} onChange={handleFormChange} color="text-zinc-200" canView={true} />
                                 <ReportMetricField label="Phí Sàn" field="platformFee" value={data.platformFee} isEditing={isEditing} onChange={handleFormChange} color="text-rose-400" canView={true} />
-                                <ReportMetricField label="Trả Hàng" field="returns" value={data.returns} isEditing={isEditing} disabled={isCurrentMonth} onChange={handleFormChange} color="text-rose-400" canView={true} />
+                                <ReportMetricField label="Trả Hàng" field="returns" value={data.returns} isEditing={isEditing} onChange={handleFormChange} color="text-rose-400" canView={true} />
                                 <ReportMetricField label="Giảm Giá / Voucher" field="discount" value={data.discount} isEditing={isEditing} onChange={handleFormChange} color="text-amber-400" canView={true} />
                                 <ReportMetricField label="Chi Phí ADS" field="ads" value={data.ads} isEditing={isEditing} onChange={handleFormChange} color="text-amber-400" canView={true} />
                             </div>
@@ -2576,11 +2846,11 @@ const BusinessReportTab = React.memo(function BusinessReportTab({ erpData, pushD
                                 <span className={`text-[22px] font-black drop-shadow-md ${channelGrossProfit >= 0 ? 'text-emerald-400' : 'text-rose-500'}`}>{formatMoney(channelGrossProfit)}<span className="text-[14px] opacity-70 ml-1">đ</span></span>
                             </div>
                         </div>
-                    )
+                    );
                 })}
             </div>
 
-            {/* Company General */}
+            {/* 4. Chi Phí Cố Định Công Ty COMPANY_GENERAL */}
             <div className="bg-[#09090b]/70 backdrop-blur-xl rounded-3xl border border-white/10 p-6 lg:p-8 mt-10 shadow-[0_8px_40px_rgba(0,0,0,0.5)] relative overflow-hidden group hover:border-[#d4af37]/30 transition-colors duration-500">
                 <div className="absolute top-0 right-0 w-48 h-48 bg-zinc-800/50 rounded-full blur-[60px] -mr-16 -mt-16 group-hover:bg-[#d4af37]/10 transition-colors duration-700 pointer-events-none"></div>
                 <div className="flex justify-between items-start sm:items-center flex-col sm:flex-row mb-6 pb-5 border-b border-white/10 gap-4 relative z-10">
@@ -2588,7 +2858,7 @@ const BusinessReportTab = React.memo(function BusinessReportTab({ erpData, pushD
                         <div className="w-12 h-12 rounded-xl bg-black/60 border border-white/10 flex items-center justify-center shadow-inner group-hover:border-[#d4af37]/30 transition-colors">
                             <i className="fas fa-building text-[18px] text-gray-300 group-hover:text-[#d4af37] transition-colors drop-shadow-md"></i>
                         </div>
-                        <span className="font-black text-white text-[16px] uppercase tracking-wider drop-shadow-md">Chi Phí Cố Định Công Ty</span>
+                        <span className="font-black text-white text-[16px] uppercase tracking-wider drop-shadow-md">Chi Phí Cố Định Công Ty ({filter})</span>
                     </div>
                     {editingReport === 'COMPANY_GENERAL' ? (
                         <div className="flex gap-2.5 flex-wrap w-full sm:w-auto justify-end">
@@ -2603,8 +2873,7 @@ const BusinessReportTab = React.memo(function BusinessReportTab({ erpData, pushD
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-5 relative z-10">
                     {(() => {
                         const isEditing = editingReport === 'COMPANY_GENERAL'; 
-                        const genId = `PROFIT_${filter}_COMPANY_GENERAL`;
-                        const data = isEditing ? reportForm : (localReports[genId] || (erpData?.ProfitReports || []).find(r => r.period === filter && r.channel === 'COMPANY_GENERAL') || {});
+                        const data = isEditing ? reportForm : getAggregatedReport('COMPANY_GENERAL');
                         return (
                             <>
                                 <ReportMetricField label="Giá Vốn Hàng Bán (COGS)" field="cogs" value={data.cogs} isEditing={isEditing} onChange={handleFormChange} color="text-rose-400" canView={true} />

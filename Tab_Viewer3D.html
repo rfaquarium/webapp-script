@@ -15,6 +15,12 @@ function Viewer3DTab({ models3D, pushDeltas, erpProducts = [] }) {
     const viewerRef = React.useRef(null);
 
     React.useEffect(() => {
+        if (typeof window.ensureModelViewerLoaded === 'function') {
+            window.ensureModelViewerLoaded();
+        }
+    }, []);
+
+    React.useEffect(() => {
         setShowMaterials(false);
     }, [selectedModel]);
 

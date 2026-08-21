@@ -26,6 +26,23 @@
         }
     };
 
+    // HÀM FETCH JSON AN TOÀN ĐỂ TRÁNH LỖI HTML ERROR PAGES (SYNTAX ERROR)
+    window.safeFetchJSON = async function (url, options = {}) {
+        const response = await fetch(url, options);
+        const contentType = response.headers.get("content-type");
+        if (contentType && contentType.indexOf("application/json") !== -1) {
+            return await response.json();
+        } else {
+            const text = await response.text();
+            try {
+                return JSON.parse(text);
+            } catch (e) {
+                console.warn("safeFetchJSON: API returned non-JSON response from", url, text.substring(0, 200));
+                throw new Error("Máy chủ đối tác trả về dữ liệu không hợp lệ (không phải JSON). Vui lòng thử lại sau.");
+            }
+        }
+    };
+
     // KHAI BÁO HÀM ĐỒNG BỘ DỮ LIỆU TỪ SERVER (APP SCRIPT) XUỐNG CLIENT
     window.runGAS = function (serverFunctionName, ...args) {
         return new Promise((resolve, reject) => {
@@ -43,27 +60,19 @@
 
                 const runner = google.script.run
                     .withSuccessHandler((res) => {
-                        if (res && (res._AUTH_FAILED || res.isAuthFailed)) {
-                            if (localStorage.getItem('rf_pin')) {
-                                alert('Phiên làm việc hết hạn hoặc bị thu hồi! Vui lòng đăng nhập lại.');
-                                localStorage.clear();
-                                window.location.reload();
-                            } else {
-                                resolve(res);
-                            }
+                        if (res && (res._AUTH_FAILED || res.isAuthFailed || res.error === "AUTH_FAILED")) {
+                            alert('Phiên làm việc chưa xác thực hoặc đã hết hạn! Vui lòng đăng nhập lại.');
+                            localStorage.clear();
+                            window.location.reload();
                             return;
                         }
                         resolve(res);
                     })
                     .withFailureHandler((err) => {
                         if (err && err.message && err.message.includes('AUTH_FAILED')) {
-                            if (localStorage.getItem('rf_pin')) {
-                                alert('Lỗi xác thực! Vui lòng đăng nhập lại.');
-                                localStorage.clear();
-                                window.location.reload();
-                            } else {
-                                reject(err);
-                            }
+                            alert('Lỗi xác thực! Vui lòng đăng nhập lại.');
+                            localStorage.clear();
+                            window.location.reload();
                             return;
                         }
                         reject(err);
@@ -94,49 +103,105 @@
         return outputArray;
     };
 
-    // ĐĂNG KÝ SERVICE WORKER VÀ LẤY PUSH TOKEN CHO NHÂN SỰ
-    window.registerWebPushNotifications = async function (currentUser) {
+    // ĐĂNG KÝ VÀ LẤY PUSH TOKEN CHO NHÂN SỰ (DESKTOP & MOBILE)
+    window.registerWebPushNotifications = async function (currentUser, forcePrompt, triggerToast) {
         if (!currentUser) return;
-        if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-            console.warn('⚠️ Trình duyệt/Thiết bị này không hỗ trợ Web Push Notification');
+        forcePrompt = forcePrompt || false;
+        if (!('Notification' in window)) {
+            console.warn('⚠️ Trình duyệt/Thiết bị này không hỗ trợ Web Notification API');
+            if (forcePrompt && typeof triggerToast === 'function') {
+                triggerToast('Trình duyệt không hỗ trợ thông báo đẩy!', 'fa-exclamation-triangle', 'warning');
+            }
             return;
         }
 
         try {
-            const reg = await navigator.serviceWorker.register('./sw.js');
-            await navigator.serviceWorker.ready;
-
-            // Kiểm tra trạng thái cấp quyền hiện tại
             let permission = Notification.permission;
-            if (permission === 'default') {
+            if (permission === 'default' || forcePrompt) {
                 permission = await Notification.requestPermission();
             }
+
             if (permission !== 'granted') {
-                console.log('ℹ️ Người dùng chưa cấp quyền thông báo');
+                console.log('ℹ️ Người dùng chưa cấp quyền thông báo đẩy (Trạng thái:', permission, ')');
+                if (forcePrompt && typeof triggerToast === 'function') {
+                    triggerToast('Bạn chưa cấp quyền thông báo. Vui lòng cho phép trong cài đặt trình duyệt!', 'fa-bell-slash', 'warning');
+                }
                 return;
             }
 
-            const VAPID_PUBLIC_KEY = 'BE28tc0C-AHuGSmjcuTFRwIZpyz_bVAqq-SgMltz7zLF8gpa8B0fewHHw2oRDbcr8mHNqDF_r3Hpm_cqpHdMwZo';
-            const convertedVapidKey = window.urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
+            let subPayload = null;
 
-            let subscription = await reg.pushManager.getSubscription();
-            if (!subscription) {
-                subscription = await reg.pushManager.subscribe({
-                    userVisibleOnly: true,
-                    applicationServerKey: convertedVapidKey
-                });
+            // 1. Thử đăng ký Service Worker / PushManager nếu có hỗ trợ
+            if ('serviceWorker' in navigator && 'PushManager' in window && !window.location.hostname.includes('googleusercontent.com')) {
+                try {
+                    const reg = await navigator.serviceWorker.register('./sw.js');
+                    await navigator.serviceWorker.ready;
+
+                    const VAPID_PUBLIC_KEY = 'BE28tc0C-AHuGSmjcuTFRwIZpyz_bVAqq-SgMltz7zLF8gpa8B0fewHHw2oRDbcr8mHNqDF_r3Hpm_cqpHdMwZo';
+                    const convertedVapidKey = window.urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
+
+                    let subscription = await reg.pushManager.getSubscription();
+                    if (!subscription) {
+                        subscription = await reg.pushManager.subscribe({
+                            userVisibleOnly: true,
+                            applicationServerKey: convertedVapidKey
+                        });
+                    }
+                    if (subscription) {
+                        subPayload = JSON.stringify(subscription);
+                    }
+                } catch (swErr) {
+                    console.log('PushManager fallback to client token:', swErr);
+                }
             }
 
-            if (subscription) {
-                await runGAS('saveUserPushSubscription', {
-                    user: currentUser,
-                    subscription: JSON.stringify(subscription),
-                    userAgent: navigator.userAgent
-                });
-                console.log('✅ Đã đăng ký Web Push cho nhân sự:', currentUser);
+            // 2. Nếu trong môi trường GAS iframe hoặc không hỗ trợ PushManager, tạo Device Token định danh
+            if (!subPayload) {
+                let deviceId = localStorage.getItem('rf_device_id');
+                if (!deviceId) {
+                    deviceId = 'DEV_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
+                    localStorage.setItem('rf_device_id', deviceId);
+                }
+
+                const clientToken = {
+                    endpoint: 'browser://' + (navigator.userAgent.includes('Mobile') ? 'mobile' : 'desktop') + '/' + deviceId,
+                    deviceId: deviceId,
+                    platform: navigator.platform || 'Web',
+                    isMobile: /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent),
+                    permission: 'granted',
+                    type: 'WEB_CLIENT_PUSH',
+                    registeredAt: new Date().toISOString()
+                };
+                subPayload = JSON.stringify(clientToken);
+            }
+
+            // 3. Gửi lên Backend Google Apps Script lưu vào sheet Push_Subscriptions
+            const res = await runGAS('saveUserPushSubscription', {
+                user: currentUser,
+                subscription: subPayload,
+                userAgent: navigator.userAgent
+            });
+
+            if (res && res.success) {
+                localStorage.setItem('rf_push_enabled', 'true');
+                console.log('✅ Đã lưu token thông báo đẩy vào Push_Subscriptions cho:', currentUser);
+                if (forcePrompt && typeof triggerToast === 'function') {
+                    triggerToast('Đã kích hoạt & lưu Token thông báo đẩy thành công!', 'fa-bell', 'success');
+                }
+                // Bắn thông báo thử nghiệm
+                try {
+                    const notifBody = 'Xin chào ' + (currentUser || '') + '! Thiết bị này đã sẵn sàng nhận thông báo đẩy.';
+                    new Notification('🔔 Rich Fish Workspace', {
+                        body: notifBody,
+                        icon: 'https://i.postimg.cc/TYD5NncZ/icon.png'
+                    });
+                } catch (e) { }
             }
         } catch (err) {
             console.error('❌ Lỗi registerWebPushNotifications:', err);
+            if (forcePrompt && typeof triggerToast === 'function') {
+                triggerToast('Lỗi khi đăng ký thông báo: ' + err.message, 'fa-times', 'danger');
+            }
         }
     };
 
@@ -171,7 +236,11 @@
 
         const [isDarkMode, setIsDarkMode] = React.useState(() => safeGet('rf_theme', 'dark') !== 'light');
 
-        const [currentUser, setCurrentUser] = React.useState(() => safeGet('rf_user', ''));
+        const [currentUser, setCurrentUser] = React.useState(() => {
+            const p = safeGet('rf_pin', '');
+            const u = safeGet('rf_user', '');
+            return (p && u) ? u : '';
+        });
         const [isAdmin, setIsAdmin] = React.useState(() => safeGet('rf_admin', 'false') === 'true');
         const [isBoss, setIsBoss] = React.useState(() => safeGet('rf_boss', 'false') === 'true');
         const [userRole, setUserRole] = React.useState(() => safeGet('rf_role', ''));
@@ -424,7 +493,11 @@
                         updateStateWithData(d);
                         if (d.serverTime) lastSyncTimeRef.current = d.serverTime;
                     } else if (d && d.error) {
-                        if (d.error !== "AUTH_FAILED" && !d.isAuthFailed) {
+                        if (d.error === "AUTH_FAILED" || d.isAuthFailed) {
+                            localStorage.clear();
+                            window.location.reload();
+                            return;
+                        } else {
                             alert("Lỗi tải dữ liệu: " + d.error);
                             triggerToast("Lỗi tải dữ liệu: " + d.error, "fa-times", "danger");
                         }
@@ -482,6 +555,8 @@
             }
         };
 
+        const [pushPermission, setPushPermission] = React.useState(() => typeof Notification !== 'undefined' ? Notification.permission : 'denied');
+
         React.useEffect(() => {
             if (!currentUser) {
                 setLoading(false);
@@ -492,7 +567,9 @@
 
             // Đăng ký Web Push Notification chạy ngầm khi đã đăng nhập
             if (window.registerWebPushNotifications) {
-                window.registerWebPushNotifications(currentUser);
+                window.registerWebPushNotifications(currentUser).then(() => {
+                    if (typeof Notification !== 'undefined') setPushPermission(Notification.permission);
+                });
             }
 
             // Bật tính năng Real-time Sync với Firebase
@@ -505,6 +582,21 @@
                         if (data.client_id !== clientId && data.timestamp > lastSyncTimeRef.current) {
                             lastSyncTimeRef.current = data.timestamp;
                             console.log("⚡ [Firebase] Đã phát hiện thay đổi từ:", data.trigger_by, "-> Kéo dữ liệu về ngay!");
+
+                            // Bắn OS Desktop/Mobile Notification nếu cửa sổ đang ẩn (background)
+                            if (typeof Notification !== 'undefined' && Notification.permission === 'granted' && document.hidden) {
+                                try {
+                                    const actionText = data.action_name || (data.trigger_by ? `${data.trigger_by} vừa cập nhật dữ liệu xưởng` : 'Có đơn hàng/công việc mới từ xưởng!');
+                                    new Notification('🔔 Rich Fish Workspace', {
+                                        body: actionText,
+                                        icon: 'https://i.postimg.cc/TYD5NncZ/icon.png',
+                                        tag: 'rf-action-' + data.timestamp
+                                    });
+                                } catch (notifErr) {
+                                    console.log('Notification error:', notifErr);
+                                }
+                            }
+
                             if (!isSyncing) {
                                 isSyncing = true;
                                 Promise.resolve(loadData(false)).finally(() => { isSyncing = false; });
@@ -664,6 +756,10 @@
             setTrainings(prev => optimisticMerge(prev, payload.trainings, deletes.Trainings || deletes.trainings));
             setReimbursements(prev => optimisticMerge(prev, payload.Reimbursements, deletes.Reimbursements || deletes.reimbursements));
 
+            if (payload.orders || deletes.Orders || deletes.orders) {
+                try { window.dispatchEvent(new CustomEvent('ordersUpdated')); } catch (e) { }
+            }
+
             if (payload.UserConfigs && payload.UserConfigs.length > 0) {
                 setUserConfigs(payload.UserConfigs[0]);
             }
@@ -778,7 +874,7 @@
         }} />;
 
         return (
-            <div className={`h-screen flex flex-row w-full text-[12px] max-w-[100vw] mx-auto relative overflow-hidden transition-colors duration-500 premium-ui ${isDarkMode ? 'is-dark bg-[#000000] text-zinc-100 selection:bg-[#d4af37]/30' : 'bg-[#f8fafc] text-gray-900 selection:bg-blue-500/30'}`} style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+            <div className={`absolute inset-0 flex flex-row w-full text-[12px] max-w-[100vw] mx-auto overflow-hidden transition-colors duration-500 premium-ui ${isDarkMode ? 'is-dark bg-[#000000] text-zinc-100 selection:bg-[#d4af37]/30' : 'bg-[#f8fafc] text-gray-900 selection:bg-blue-500/30'}`} style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
                 {isDarkMode && (
                     <div className="fixed inset-0 pointer-events-none z-[-1] bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-zinc-900/40 via-[#000000] to-[#000000]"></div>
                 )}
@@ -902,7 +998,7 @@
                                                     <span>{item.label}</span>
                                                     {item.id === 'training' && unreadTrainingsCount > 0 && (
                                                         <span className="ml-auto bg-[#d4af37] text-black text-[10px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
-                                                             {unreadTrainingsCount}
+                                                            {unreadTrainingsCount}
                                                         </span>
                                                     )}
                                                 </button>
@@ -953,12 +1049,12 @@
                     </div>
                 </aside>
 
-                <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden relative">
-                    <header className="px-5 py-3 lg:py-4 sticky top-0 z-50 flex justify-between items-center w-full mx-auto transition-all duration-300 bg-[#09090b]/90 backdrop-blur-xl border-b border-white/[0.08] shadow-sm">
-                        <div className="flex items-center gap-3 lg:gap-4">
-                            <button onClick={() => setIsMenuOpen(true)} className="lg:hidden w-9 h-9 rounded-md flex items-center justify-center transition-all text-zinc-400 hover:text-zinc-100 hover:bg-white/5">{typeof LucideIcon !== 'undefined' ? <LucideIcon name="menu" size={20} /> : <i className="fas fa-bars text-lg"></i>}</button>
+                <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
+                    <header className="px-3 sm:px-5 py-2.5 sm:py-3 lg:py-4 sticky top-0 z-50 flex justify-between items-center w-full mx-auto transition-all duration-300 bg-[#09090b]/90 backdrop-blur-xl border-b border-white/[0.08] shadow-sm shrink-0 pt-[max(0.625rem,env(safe-area-inset-top))]">
+                        <div className="flex items-center gap-2 sm:gap-3 lg:gap-4 min-w-0 shrink">
+                            <button onClick={() => setIsMenuOpen(true)} className="lg:hidden w-8 h-8 sm:w-9 sm:h-9 rounded-md flex items-center justify-center transition-all text-zinc-400 hover:text-zinc-100 hover:bg-white/5 shrink-0">{typeof LucideIcon !== 'undefined' ? <LucideIcon name="menu" size={18} /> : <i className="fas fa-bars text-base"></i>}</button>
 
-                            <div className="flex flex-col justify-center cursor-pointer" onClick={() => {
+                            <div className="flex flex-col justify-center cursor-pointer min-w-0" onClick={() => {
                                 if (!isAdmin) {
                                     const p = prompt('Nhập Mã Quản Lý để mở khóa hệ thống:');
                                     if (!p) return;
@@ -989,14 +1085,14 @@
                                     }
                                 }
                             }}>
-                                <span className="text-[10px] font-semibold uppercase tracking-widest mb-0.5 text-zinc-400">{mode === 'ERP' ? 'Kế Toán & Kho Vận' : 'Hệ Thống Nội Bộ'}</span>
-                                <span className="font-display font-semibold text-[16px] leading-none flex items-center text-zinc-100">
+                                <span className="text-[9px] sm:text-[10px] font-semibold uppercase tracking-widest mb-0.5 text-zinc-400 truncate">{mode === 'ERP' ? 'Kế Toán & Kho Vận' : 'Hệ Thống Nội Bộ'}</span>
+                                <span className="font-display font-semibold text-[14px] sm:text-[16px] leading-none flex items-center text-zinc-100 truncate">
                                     {isAdmin ? (isBoss ? 'Workspace Pro' : getDisplayRole(userRole)) : 'Workspace'}
-                                    {isAdmin && <i className={`fas fa-shield-check ml-2 text-[12px] ${isBoss ? 'text-[#d4af37]' : 'text-emerald-400'}`}></i>}
+                                    {isAdmin && <i className={`fas fa-shield-check ml-1.5 sm:ml-2 text-[11px] sm:text-[12px] shrink-0 ${isBoss ? 'text-[#d4af37]' : 'text-emerald-400'}`}></i>}
                                 </span>
                             </div>
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
                             {/* TIỀN XU (XU) */}
                             {currentUser && (() => {
                                 const totalXu = (erpData?.KPI_Progress || []).filter(k => k.user === currentUser && String(k.unit).toLowerCase() === 'xu').reduce((sum, k) => sum + Number(k.reward || 0), 0) +
@@ -1004,24 +1100,47 @@
 
                                 if (totalXu > 0) {
                                     return (
-                                        <div className="animate-fade-in flex items-center gap-1.5 bg-[#d4af37]/10 px-2.5 py-1 rounded-md border border-[#d4af37]/20 shadow-sm cursor-default" title="Điểm Thưởng Tích Lũy">
-                                            <i className="fas fa-coins text-[#d4af37] text-[12px]"></i>
-                                            <span className="text-[12px] font-bold text-[#d4af37] font-mono leading-none">{Math.ceil(Number(totalXu)).toLocaleString('vi-VN')}</span>
+                                        <div className="animate-fade-in flex items-center gap-1 bg-[#d4af37]/10 px-2 py-1 rounded-md border border-[#d4af37]/20 shadow-sm cursor-default shrink-0" title="Điểm Thưởng Tích Lũy">
+                                            <i className="fas fa-coins text-[#d4af37] text-[11px] sm:text-[12px]"></i>
+                                            <span className="text-[11px] sm:text-[12px] font-bold text-[#d4af37] font-mono leading-none">{Math.ceil(Number(totalXu)).toLocaleString('vi-VN')}</span>
                                         </div>
                                     );
                                 }
                                 return null;
                             })()}
 
+                            {/* NÚT THÔNG BÁO ĐẨY PUSH NOTIFICATION */}
+                            {currentUser && (
+                                <button
+                                    type="button"
+                                    onClick={async () => {
+                                        if (window.registerWebPushNotifications) {
+                                            await window.registerWebPushNotifications(currentUser, true, triggerToast);
+                                            if (typeof Notification !== 'undefined') setPushPermission(Notification.permission);
+                                        }
+                                    }}
+                                    className={`h-8 px-2 sm:px-2.5 rounded-lg flex items-center gap-1 sm:gap-1.5 transition-all border shadow-sm cursor-pointer shrink-0 ${pushPermission === 'granted'
+                                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
+                                            : 'bg-amber-500/15 border-amber-500/40 text-amber-400 hover:bg-amber-500/25 animate-pulse'
+                                        }`}
+                                    title={pushPermission === 'granted' ? "Thông báo đẩy: ĐÃ BẬT (Bấm để cập nhật lại Token)" : "Nhấn để BẬT thông báo đẩy về thiết bị"}
+                                >
+                                    <i className={`fas ${pushPermission === 'granted' ? 'fa-bell' : 'fa-bell-slash'} text-[12px]`}></i>
+                                    <span className="text-[10px] font-bold uppercase tracking-wider hidden md:inline">
+                                        {pushPermission === 'granted' ? 'Thông Báo' : 'Bật Thông Báo'}
+                                    </span>
+                                </button>
+                            )}
+
                             {isAdmin && (
-                                <div className="hidden sm:block animate-fade-in">
+                                <div className="hidden md:block animate-fade-in shrink-0">
                                     <div className="text-[10px] font-bold text-[#d4af37] uppercase tracking-wider bg-[#d4af37]/10 px-2.5 py-1 rounded-md border border-[#d4af37]/20 shadow-sm">
                                         {isBoss ? 'TỐI CAO' : getDisplayRole(userRole)}
                                     </div>
                                 </div>
                             )}
                             <div
-                                className="relative cursor-pointer group ml-1"
+                                className="relative cursor-pointer group shrink-0 ml-0.5 sm:ml-1"
                                 onClick={() => {
                                     if (typeof window !== 'undefined') {
                                         const setIsSpinning = (val) => { }; // dummy or actual if needed
@@ -1030,17 +1149,17 @@
                                 }}
                                 title="Nhấn để làm mới dữ liệu"
                             >
-                                {syncing ? <i className="fas fa-sync animate-spin text-[16px] text-[#d4af37] w-9 h-9 flex items-center justify-center"></i> : (typeof Avatar !== 'undefined' ? <Avatar name={currentUser} userConfigs={userConfigs} className="w-9 h-9 border border-white/10 rounded-full transition-transform group-hover:scale-105 shadow-sm" /> : <div className="w-9 h-9 rounded-full bg-zinc-800"></div>)}
+                                {syncing ? <i className="fas fa-sync animate-spin text-[16px] text-[#d4af37] w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center"></i> : (typeof Avatar !== 'undefined' ? <Avatar name={currentUser} userConfigs={userConfigs} className="w-8 h-8 sm:w-9 sm:h-9 border border-white/10 rounded-full transition-transform group-hover:scale-105 shadow-sm object-cover" /> : <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-zinc-800"></div>)}
                                 {!syncing && (
-                                    <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-emerald-500 rounded-full flex items-center justify-center border-2 border-[#09090b] shadow-sm group-hover:rotate-180 transition-all duration-300">
-                                        <i className="fas fa-sync-alt text-[7px] text-[#09090b]"></i>
+                                    <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 sm:w-4 sm:h-4 bg-emerald-500 rounded-full flex items-center justify-center border-2 border-[#09090b] shadow-sm group-hover:rotate-180 transition-all duration-300">
+                                        <i className="fas fa-sync-alt text-[6px] sm:text-[7px] text-[#09090b]"></i>
                                     </div>
                                 )}
                             </div>
                         </div>
                     </header>
 
-                    <main className={`flex-1 w-full p-4 lg:p-6 pb-24 md:pb-8 overflow-y-auto custom-scrollbar relative z-10 ${userRole === 'KHÁCH' ? 'rf-guest-mode' : ''}`}>
+                    <main className={`flex-1 min-h-0 w-full p-3 sm:p-4 lg:p-6 pb-6 md:pb-8 overflow-y-auto custom-scrollbar relative z-10 ${userRole === 'KHÁCH' ? 'rf-guest-mode' : ''}`}>
                         <ErrorBoundary>
                             {(() => {
                                 const isCTV = userRole === 'CTV';
@@ -1059,7 +1178,7 @@
                                             {activeTab === 'orders' && typeof OrdersTab !== 'undefined' && <OrdersTab loadArchiveData={loadArchiveData} isArchiveLoaded={isArchiveLoaded} isLoadingArchive={isLoadingArchive} attendance={attendance || []} orders={orders || []} prodItems={prodItems || []} packings={packings || []} erpProducts={erpData?.Products || []} erpData={erpData || {}} isAdmin={isAdmin} currentUser={currentUser} pushDeltas={pushDeltas} userConfigs={userConfigs} triggerToast={triggerToast} kpiConfig={typeof kpiConfig !== 'undefined' ? kpiConfig : []} configGiaLayout={configGiaLayout || []} />}
                                             {activeTab === 'production' && typeof ProductionTab !== 'undefined' && <ProductionTab attendance={attendance || []} orders={orders || []} prodItems={prodItems || []} erpProducts={erpData?.Products || []} erpData={erpData || {}} currentUser={currentUser} pushDeltas={pushDeltas} userConfigs={userConfigs} triggerToast={triggerToast} kpiConfig={typeof kpiConfig !== 'undefined' ? kpiConfig : []} models3D={models3D || []} />}
                                             {activeTab === 'ERRORS' && typeof TabErrors !== 'undefined' && <TabErrors activeTab={activeTab} runGAS={runGAS} triggerToast={triggerToast} currentUser={currentUser} prodItems={prodItems || []} erpProducts={erpData?.Products || []} erpData={erpData || {}} orders={orders || []} pushDeltas={pushDeltas} isAdmin={isAdmin} />}
-                                            {activeTab === 'hr' && typeof HRTab !== 'undefined' && (isCTV ? renderCTVLocked() : <HRTab documents={documents} hasPerm={hasPerm} attendance={attendance || []} erpData={erpData || {}} userConfigs={userConfigs} prodItems={prodItems || []} packings={packings || []} pushDeltas={pushDeltas} triggerToast={triggerToast} />)}
+                                            {activeTab === 'hr' && typeof HRTab !== 'undefined' && (isCTV ? renderCTVLocked() : <HRTab orders={orders || []} documents={documents} hasPerm={hasPerm} attendance={attendance || []} erpData={erpData || {}} userConfigs={userConfigs} prodItems={prodItems || []} packings={packings || []} pushDeltas={pushDeltas} triggerToast={triggerToast} />)}
                                             {activeTab === 'documents' && typeof DocumentsTab !== 'undefined' && (isCTV ? renderCTVLocked() : <DocumentsTab documents={documents} isAdmin={isAdmin} pushDeltas={pushDeltas} triggerToast={triggerToast} />)}
                                             {activeTab === 'viewer3d' && typeof Viewer3DTab !== 'undefined' && <Viewer3DTab models3D={models3D} pushDeltas={pushDeltas} erpProducts={erpData?.Products || []} />}
                                             {activeTab === 'affiliate' && typeof TabAffiliate !== 'undefined' && <TabAffiliate orders={orders || []} ctvFinance={ctvFinance || []} configGiaLayout={configGiaLayout || []} pushDeltas={pushDeltas} currentUser={currentUser} triggerToast={triggerToast} userRole={userRole} userConfigs={userConfigs} erpData={erpData || {}} prodItems={prodItems || []} />}
@@ -1102,28 +1221,7 @@
                         {typeof AdminApprovalModal !== 'undefined' && <AdminApprovalModal data={adminApproveModalData} onClose={closeModals} pushDeltas={pushDeltas} triggerToast={triggerToast} />}
                     </>
 
-                    {/* MOBILE BOTTOM NAVIGATION (Chỉ hiển thị trên Mobile) */}
-                    <div className={`md:hidden fixed bottom-0 left-0 w-full z-[150] border-t backdrop-blur-xl pb-[env(safe-area-inset-bottom)] ${isDarkMode ? 'bg-[#000000]/80 border-white/10' : 'bg-white/90 border-gray-200 shadow-[0_-4px_15px_rgba(0,0,0,0.05)]'}`}>
-                        <div className="flex justify-around items-center h-[60px]">
-                            {[
-                                { id: 'dashboard', icon: 'fa-home', label: 'Tổng Quan', mode: 'WORKSPACE' },
-                                { id: 'orders', icon: 'fa-shopping-cart', label: 'Đơn Hàng', mode: 'WORKSPACE' },
-                                { id: 'production', icon: 'fa-hammer', label: 'Sản Xuất', mode: 'WORKSPACE' }
-                            ].map(item => {
-                                const isActive = activeTab === item.id;
-                                return (
-                                    <button key={item.id} onClick={() => { setActiveTab(item.id); setMode(item.mode); setIsMenuOpen(false); }} className={`flex flex-col items-center justify-center w-full h-full space-y-1 transition-all ${isActive ? (isDarkMode ? 'text-[#d4af37]' : 'text-yellow-600') : (isDarkMode ? 'text-zinc-500 hover:text-zinc-300' : 'text-gray-400 hover:text-gray-600')}`}>
-                                        <div className={`text-[18px] transition-transform ${isActive ? 'scale-110 -translate-y-0.5' : ''}`}><i className={`fas ${item.icon}`}></i></div>
-                                        <span className="text-[9px] font-black">{item.label}</span>
-                                    </button>
-                                );
-                            })}
-                            <button onClick={() => setIsMenuOpen(true)} className={`flex flex-col items-center justify-center w-full h-full space-y-1 transition-all ${isDarkMode ? 'text-zinc-500 hover:text-zinc-300' : 'text-gray-400 hover:text-gray-600'}`}>
-                                <div className="text-[18px]"><i className="fas fa-bars"></i></div>
-                                <span className="text-[9px] font-black">Menu</span>
-                            </button>
-                        </div>
-                    </div>
+
                 </div>
             </div>
         );

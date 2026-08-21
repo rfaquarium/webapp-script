@@ -131,7 +131,7 @@ function VariantGroupCard({ group, setEditProd, setAddVarGroup, pushData, data }
                         <div className={"flex gap-4 sm:gap-6"}>
                             {currentRole !== 'CTV' && (
                                 <div>
-                                    <span className={"text-[9px] font-black text-gray-500 block mb-1 uppercase tracking-widest"}><i className={"fas fa-tag mr-1 text-[#444]"}></i>Giá Vốn</span>
+                                    <span className={"text-[9px] font-black text-gray-500 block mb-1 uppercase tracking-widest"}><i className={"fas fa-tag mr-1 text-[#444]"}></i>Giá Nguyên Liệu</span>
                                     <span className={"text-[12px] font-bold text-gray-400"}>{canViewCost ? <>{formatMoney(selectedVar.costPrice)}<span className={"text-[9px]"}>đ</span></> : '******'}</span>
                                 </div>
                             )}
@@ -200,7 +200,11 @@ function VariantGroupCard({ group, setEditProd, setAddVarGroup, pushData, data }
                             
                             {selectedVar.model3D && (
                                 <button 
-                                    onClick={(e) => { e.stopPropagation(); setPreview3D(selectedVar.model3D); }}
+                                    onClick={(e) => { 
+                                        e.stopPropagation(); 
+                                        if (typeof window.ensureModelViewerLoaded === 'function') window.ensureModelViewerLoaded();
+                                        setPreview3D(selectedVar.model3D); 
+                                    }}
                                     className={"w-10 h-10 rounded-xl bg-[#3b82f6]/10 text-[#3b82f6] border border-[#3b82f6]/30 flex items-center justify-center hover:bg-[#3b82f6] hover:text-white transition-all active:scale-95 shadow-[0_0_10px_rgba(59,130,246,0.1)]"}
                                     title="Xem mô hình 3D"
                                 >
@@ -613,7 +617,7 @@ function ProductEditModal({ prod, onClose, pushData, currentCat, data }) {
 
           <div className={"grid grid-cols-3 gap-3"}>
             <div>
-              <label className={"text-[10px] font-black text-gray-400 block mb-1"}>GIÁ VỐN</label>
+              <label className={"text-[10px] font-black text-gray-400 block mb-1"}>GIÁ NGUYÊN LIỆU</label>
               <input type="number" value={form.costPrice} onChange={(e) => setForm({...form, costPrice: e.target.value})} className={"w-full bg-[#0a0a0a] border border-[#444] rounded-xl px-3 py-2.5 text-white font-black outline-none focus:border-[#d4af37]"} />
             </div>
             <div>
@@ -974,7 +978,7 @@ function AddVariantModal({ group, onClose, pushData, data }) {
 
           <div className={"grid grid-cols-3 gap-3"}>
             <div>
-              <label className={"text-[10px] font-black text-gray-400 block mb-1"}>Giá Vốn</label>
+              <label className={"text-[10px] font-black text-gray-400 block mb-1"}>Giá Nguyên Liệu</label>
               <input type="number" value={costPrice} onChange={(e) => setCostPrice(e.target.value)} className={"w-full bg-[#0a0a0a] border border-[#444] rounded-xl px-3 py-2.5 text-white font-black outline-none"} />
             </div>
             <div>
@@ -1236,7 +1240,7 @@ function InventoryListView({ data, pushData, isAdmin, triggerToast }) {
   }, [displayProducts]);
 
   return (
-      <div className={"space-y-4 pb-12 w-full"}>
+      <div className={"space-y-4 pb-4 w-full"}>
           
           {currentRole !== 'CTV' && (
               <>

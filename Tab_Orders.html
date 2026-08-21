@@ -89,20 +89,34 @@
 
         const handleScanInput = (e) => { if (e.key === 'Enter') processCode(scanVal); };
 
-        const handleEmailScan = async () => {
+        const handleScanEmailReturn = async () => {
+            if (isProcessing) return;
             setIsProcessing(true);
-            triggerToast('Đang tự động quét email đơn hoàn...', 'fa-sync fa-spin', 'info');
+            triggerToast("Đang quét hòm thư Gmail tìm email hoàn hàng...", "fa-spinner fa-spin", "info");
             try {
-                const res = await runGAS('scanReturnedOrdersFromEmail');
-                if (res && res.success) {
-                    triggerToast(res.message, 'fa-check', 'success');
-                    if (res.count > 0) window.dispatchEvent(new CustomEvent('triggerReloadData'));
-                    onClose();
+                if (typeof runGAS === 'function') {
+                    const gasPromise = runGAS('scanReturnedOrdersFromEmail');
+                    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Quá thời gian phản hồi từ máy chủ Gmail (15s)")), 15000));
+                    const res = await Promise.race([gasPromise, timeoutPromise]);
+                    if (res && res.success) {
+                        if (res.count > 0) {
+                            triggerToast(`Thành công! Đã tự động cập nhật ${res.count} đơn hoàn từ email.`, "fa-check", "success");
+                            window.dispatchEvent(new CustomEvent('triggerReloadData'));
+                            onClose();
+                        } else {
+                            triggerToast(res.message || "Không có email hoàn trả mới nào cần xử lý!", "fa-info-circle", "info");
+                        }
+                    } else {
+                        triggerToast(res?.message || "Lỗi khi quét email!", "fa-times", "danger");
+                    }
                 } else {
-                    triggerToast(res?.message || 'Lỗi quét email đơn hoàn', 'fa-times', 'danger');
+                    triggerToast("Chức năng chỉ hoạt động trên môi trường Google Apps Script!", "fa-exclamation-triangle", "warning");
                 }
-            } catch (e) { triggerToast('Lỗi kết nối Server', 'fa-times', 'danger'); }
-            setIsProcessing(false);
+            } catch (err) {
+                triggerToast(err.message || "Lỗi kết nối hòm thư Gmail!", "fa-times", "danger");
+            } finally {
+                setIsProcessing(false);
+            }
         };
 
         const handleFileUpload = async (e) => {
@@ -113,6 +127,7 @@
             setIsProcessing(true);
 
             if (fName.endsWith('.xlsx') || fName.endsWith('.xls') || fName.endsWith('.csv')) {
+                if (typeof window.ensureXLSXLoaded === 'function') await window.ensureXLSXLoaded();
                 triggerToast("Đang phân tích file Excel Order.all...", "fa-spinner fa-spin", "info");
                 const reader = new FileReader();
                 reader.onload = (evt) => {
@@ -124,15 +139,15 @@
 
                         if (rows.length < 2) throw new Error("File rỗng");
                         let headerIdx = 0;
-                        for (let i = 0; i < Math.min(15, rows.length); i++) {
+                        for (let i = 0; i < Math.min(20, rows.length); i++) {
                             const rStr = (rows[i] || []).join(' ').toLowerCase();
-                            if (rStr.includes('mã đơn') || rStr.includes('order id')) { headerIdx = i; break; }
+                            if (rStr.includes('mã đơn') || rStr.includes('order id') || rStr.includes('order no') || rStr.includes('หมายเลขคำสั่งซื้อ') || rStr.includes('คำสั่งซื้อ')) { headerIdx = i; break; }
                         }
                         const headers = rows[headerIdx].map(h => String(h).toLowerCase().trim());
-                        const iCode = headers.findIndex(h => h.includes('mã đơn') || h.includes('order id'));
+                        const iCode = headers.findIndex(h => h.includes('mã đơn') || h.includes('order id') || h.includes('order no') || h.includes('หมายเลขคำสั่งซื้อ') || h.includes('คำสั่งซื้อ'));
                         let statusCols = [];
                         headers.forEach((h, idx) => {
-                            if (h.includes('trạng thái') || h.includes('lý do') || h.includes('status') || h.includes('hoàn tiền')) statusCols.push(idx);
+                            if (h.includes('trạng thái') || h.includes('lý do') || h.includes('status') || h.includes('hoàn tiền') || h.includes('trả hàng') || h.includes('refund') || h.includes('returned') || h.includes('สถานะ') || h.includes('คืนเงิน') || h.includes('คืนสินค้า')) statusCols.push(idx);
                         });
 
                         let foundOrders = [];
@@ -254,7 +269,7 @@
         return (
             <div className="fixed inset-0 bg-black/95 flex items-center justify-center z-[9999] p-4 backdrop-blur-md animate-fade-in" onClick={() => onClose()}>
                 <div className="bg-[#141414] border border-purple-500/50 w-full max-w-md rounded-3xl p-6 shadow-[0_0_50px_rgba(168,85,247,0.2)] text-center relative animate-slide-up flex flex-col" onClick={e => e.stopPropagation()}>
-                    <button onClick={onClose} disabled={isProcessing} className="absolute top-4 right-4 w-8 h-8 rounded-full bg-[#222] text-gray-500 hover:text-white hover:bg-rose-500 flex items-center justify-center transition-all z-20"><i className="fas fa-times text-sm"></i></button>
+                    <button onClick={onClose} className="absolute top-4 right-4 w-8 h-8 rounded-full bg-[#222] text-gray-400 hover:text-white hover:bg-rose-500 flex items-center justify-center transition-all z-20 cursor-pointer"><i className="fas fa-times text-sm"></i></button>
 
                     <h3 className="font-black text-white text-[15px] uppercase tracking-widest mb-1 flex items-center justify-center gap-2 mt-2">
                         <i className="fas fa-undo text-purple-400"></i> Quét Đơn Hoàn Tự Động
@@ -307,7 +322,7 @@
                         </div>
                     ) : (
                         <>
-                            <p className="text-gray-400 text-[11px] mb-3 leading-relaxed mt-1">Dùng súng bắn mã vạch, bấm Quét Email tự động, hoặc ném file Excel Order.all / PDF vào đây.</p>
+                            <p className="text-gray-400 text-[11px] mb-3 leading-relaxed mt-1">Dùng súng bắn mã vạch hoặc ném file Excel Order.all / PDF vào đây.</p>
 
                             <div className="w-full flex flex-col items-center">
                                 <div className="relative w-full mb-2">
@@ -321,11 +336,15 @@
                             </div>
 
                             <div className="mt-3 border-t border-[#333] pt-4 flex flex-col gap-2.5">
-                                <button onClick={handleEmailScan} disabled={isProcessing} className="w-full py-3 rounded-xl font-black text-[12px] uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:opacity-90 shadow-md active:scale-95">
-                                    <i className="fas fa-envelope-open-text text-base"></i> 1. QUÉT EMAIL ĐƠN HOÀN TỰ ĐỘNG
+                                <button 
+                                    onClick={handleScanEmailReturn} 
+                                    disabled={isProcessing} 
+                                    className={`w-full py-3 rounded-xl font-black text-[12px] uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 bg-gradient-to-br from-amber-500/20 to-purple-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-600 hover:text-white active:scale-95 ${isProcessing ? 'opacity-70 cursor-wait' : ''}`}
+                                >
+                                    <i className={`fas ${isProcessing ? 'fa-spinner fa-spin' : 'fa-envelope-open-text'} text-base`}></i> {isProcessing ? 'ĐANG QUÉT GMAIL...' : 'QUÉT EMAIL ĐƠN HOÀN (GMAIL)'}
                                 </button>
-                                <button onClick={() => fileInputRef.current?.click()} disabled={isProcessing} className="w-full py-3 rounded-xl font-black text-[12px] uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 bg-gradient-to-br from-purple-500/20 to-indigo-500/20 border border-purple-500/40 text-purple-300 hover:bg-purple-600 hover:text-white active:scale-95">
-                                    <i className="fas fa-file-excel text-base"></i> 2. TẢI FILE EXCEL (ORDER.ALL) / PDF
+                                <button onClick={() => fileInputRef.current?.click()} disabled={isProcessing} className="w-full py-3 rounded-xl font-black text-[12px] uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 bg-gradient-to-br from-purple-500/20 to-indigo-500/20 border border-purple-500/40 text-purple-300 hover:bg-purple-600 hover:text-white active:scale-95 disabled:opacity-50">
+                                    <i className="fas fa-file-excel text-base"></i> TẢI FILE EXCEL (ORDER.ALL) / PDF
                                 </button>
                                 <input ref={fileInputRef} type="file" accept=".xlsx, .xls, .csv, .pdf" className="hidden" onChange={handleFileUpload} disabled={isProcessing} />
                             </div>
@@ -387,20 +406,34 @@
             setScanVal('');
         };
 
-        const handleEmailScan = async () => {
+        const handleScanEmailCancel = async () => {
+            if (isProcessing) return;
             setIsProcessing(true);
-            triggerToast('Đang tự động quét email đơn hủy...', 'fa-sync fa-spin', 'info');
+            triggerToast("Đang quét hòm thư Gmail tìm email thông báo hủy đơn...", "fa-spinner fa-spin", "info");
             try {
-                const res = await runGAS('scanCancelledOrdersFromEmail');
-                if (res && res.success) {
-                    triggerToast(res.message, 'fa-check', 'success');
-                    if (res.count > 0) window.dispatchEvent(new CustomEvent('triggerReloadData'));
-                    onClose();
+                if (typeof runGAS === 'function') {
+                    const gasPromise = runGAS('scanCancelledOrdersFromEmail');
+                    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Quá thời gian phản hồi từ máy chủ Gmail (15s)")), 15000));
+                    const res = await Promise.race([gasPromise, timeoutPromise]);
+                    if (res && res.success) {
+                        if (res.count > 0) {
+                            triggerToast(`Thành công! Đã tự động cập nhật ${res.count} đơn huỷ từ email.`, "fa-check", "success");
+                            window.dispatchEvent(new CustomEvent('triggerReloadData'));
+                            onClose();
+                        } else {
+                            triggerToast(res.message || "Không có email hủy đơn mới nào cần xử lý!", "fa-info-circle", "info");
+                        }
+                    } else {
+                        triggerToast(res?.message || "Lỗi khi quét email!", "fa-times", "danger");
+                    }
                 } else {
-                    triggerToast(res?.message || 'Lỗi quét email đơn hủy', 'fa-times', 'danger');
+                    triggerToast("Chức năng chỉ hoạt động trên môi trường Google Apps Script!", "fa-exclamation-triangle", "warning");
                 }
-            } catch (e) { triggerToast('Lỗi kết nối Server', 'fa-times', 'danger'); }
-            setIsProcessing(false);
+            } catch (err) {
+                triggerToast(err.message || "Lỗi kết nối hòm thư Gmail!", "fa-times", "danger");
+            } finally {
+                setIsProcessing(false);
+            }
         };
 
         const handleFileUpload = async (e) => {
@@ -408,6 +441,7 @@
             if (!file) return;
 
             setIsProcessing(true);
+            if (typeof window.ensureXLSXLoaded === 'function') await window.ensureXLSXLoaded();
             triggerToast("Đang đọc file Excel Order.all...", "fa-spinner fa-spin", "info");
 
             const reader = new FileReader();
@@ -420,15 +454,15 @@
 
                     if (rows.length < 2) throw new Error("File rỗng");
                     let headerIdx = 0;
-                    for (let i = 0; i < Math.min(15, rows.length); i++) {
+                    for (let i = 0; i < Math.min(20, rows.length); i++) {
                         const rStr = (rows[i] || []).join(' ').toLowerCase();
-                        if (rStr.includes('mã đơn') || rStr.includes('order id')) { headerIdx = i; break; }
+                        if (rStr.includes('mã đơn') || rStr.includes('order id') || rStr.includes('order no') || rStr.includes('หมายเลขคำสั่งซื้อ') || rStr.includes('คำสั่งซื้อ')) { headerIdx = i; break; }
                     }
                     const headers = rows[headerIdx].map(h => String(h).toLowerCase().trim());
-                    const iCode = headers.findIndex(h => h.includes('mã đơn') || h.includes('order id'));
+                    const iCode = headers.findIndex(h => h.includes('mã đơn') || h.includes('order id') || h.includes('order no') || h.includes('หมายเลขคำสั่งซื้อ') || h.includes('คำสั่งซื้อ'));
                     let statusCols = [];
                     headers.forEach((h, idx) => {
-                        if (h.includes('trạng thái') || h.includes('lý do') || h.includes('status') || h.includes('hủy') || h.includes('huỷ')) statusCols.push(idx);
+                        if (h.includes('trạng thái') || h.includes('lý do') || h.includes('status') || h.includes('hủy') || h.includes('huỷ') || h.includes('cancel') || h.includes('สถานะ') || h.includes('ยกเลิก')) statusCols.push(idx);
                     });
 
                     let foundOrders = [];
@@ -495,11 +529,24 @@
 
                 let updatedProdItems = [];
                 scannedOrders.forEach(order => {
-                    const relatedProds = (prodItems || []).filter(p => p && p.orderId && String(p.orderId).includes(String(order.id)));
+                    const oId = String(order.id || '').trim();
+                    const oCode = String(order.orderCode || '').trim();
+                    const oBaseCode = oCode.split(' | ')[0].trim();
+
+                    const relatedProds = (prodItems || []).filter(p => {
+                        if (!p || !p.orderId) return false;
+                        const pOrd = String(p.orderId).trim();
+                        return (
+                            (oId && pOrd === oId) || 
+                            (oCode && pOrd === oCode) || 
+                            (oBaseCode && (pOrd === oBaseCode || pOrd.includes(oBaseCode) || oBaseCode.includes(pOrd))) ||
+                            (pOrd.includes(oId))
+                        );
+                    });
+
                     relatedProds.forEach(p => {
-                        const isComp = p.fulfilledFromStock === true || String(p.fulfilledFromStock).toUpperCase() === 'TRUE';
-                        // Huỷ lệnh với đơn bù kho (isComp == true), còn sản xuất mới thì GIỮ LẠI (status giữ nguyên)
-                        if (isComp) {
+                        const pStatus = String(p.status || '').toUpperCase().trim();
+                        if (pStatus !== 'DONE' && pStatus !== 'ĐÃ XONG') {
                             updatedProdItems.push({ ...p, status: 'Đã Huỷ' });
                         }
                     });
@@ -508,7 +555,7 @@
                 let payload = { orders: updatedOrders };
                 if (updatedProdItems.length > 0) payload.prodItems = updatedProdItems;
 
-                await pushDeltas(payload, `Đã chuyển ${updatedOrders.length} đơn sang Đơn Hủy!`, 'fa-ban');
+                await pushDeltas(payload, `Đã chuyển ${updatedOrders.length} đơn sang Đơn Hủy và hủy các lệnh sản xuất liên quan!`, 'fa-ban');
                 triggerToast(`Thành công! Đã chuyển ${updatedOrders.length} đơn sang Đơn Hủy.`, 'fa-check', 'success');
                 onClose();
             } catch (err) { triggerToast('Lỗi đồng bộ!', 'fa-times', 'danger'); }
@@ -525,7 +572,7 @@
         return (
             <div className="fixed inset-0 bg-black/95 flex items-center justify-center z-[9999] p-4 backdrop-blur-md animate-fade-in" onClick={() => onClose()}>
                 <div className="bg-[#141414] border border-rose-500/50 w-full max-w-md rounded-3xl p-6 shadow-[0_0_50px_rgba(244,63,94,0.2)] text-center relative animate-slide-up flex flex-col" onClick={e => e.stopPropagation()}>
-                    <button onClick={onClose} disabled={isProcessing} className="absolute top-4 right-4 w-8 h-8 rounded-full bg-[#222] text-gray-500 hover:text-white hover:bg-rose-500 flex items-center justify-center transition-all z-20"><i className="fas fa-times text-sm"></i></button>
+                    <button onClick={onClose} className="absolute top-4 right-4 w-8 h-8 rounded-full bg-[#222] text-gray-400 hover:text-white hover:bg-rose-500 flex items-center justify-center transition-all z-20 cursor-pointer"><i className="fas fa-times text-sm"></i></button>
 
                     <h3 className="font-black text-white text-[15px] uppercase tracking-widest mb-1 flex items-center justify-center gap-2 mt-2">
                         <i className="fas fa-ban text-rose-500"></i> Quét & Hủy Đơn Tự Động
@@ -605,11 +652,15 @@
                             </div>
 
                             <div className="mt-3 border-t border-[#333] pt-3 flex flex-col gap-2">
-                                <button onClick={handleEmailScan} disabled={isProcessing} className="w-full py-3 rounded-xl font-black text-[12px] uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 bg-gradient-to-r from-rose-600 to-red-600 text-white hover:opacity-90 shadow-md active:scale-95">
-                                    <i className="fas fa-envelope-open-text text-base"></i> 1. QUÉT EMAIL ĐƠN HỦY TỰ ĐỘNG
+                                <button 
+                                    onClick={handleScanEmailCancel} 
+                                    disabled={isProcessing} 
+                                    className={`w-full py-3 rounded-xl font-black text-[12px] uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-600 hover:text-white active:scale-95 ${isProcessing ? 'opacity-70 cursor-wait' : ''}`}
+                                >
+                                    <i className={`fas ${isProcessing ? 'fa-spinner fa-spin' : 'fa-envelope-open-text'} text-base`}></i> {isProcessing ? 'ĐANG QUÉT GMAIL...' : 'QUÉT EMAIL ĐƠN HỦY (GMAIL)'}
                                 </button>
-                                <button onClick={() => fileInputRef.current?.click()} disabled={isProcessing} className="w-full py-3 rounded-xl font-black text-[12px] uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 bg-gradient-to-br from-rose-500/20 to-red-500/20 border border-rose-500/40 text-rose-300 hover:bg-rose-600 hover:text-white active:scale-95">
-                                    <i className="fas fa-file-excel text-base"></i> 2. TẢI FILE EXCEL (ORDER.ALL)
+                                <button onClick={() => fileInputRef.current?.click()} disabled={isProcessing} className="w-full py-3 rounded-xl font-black text-[12px] uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 bg-gradient-to-br from-rose-500/20 to-red-500/20 border border-rose-500/40 text-rose-300 hover:bg-rose-600 hover:text-white active:scale-95 disabled:opacity-50">
+                                    <i className="fas fa-file-excel text-base"></i> TẢI FILE EXCEL (ORDER.ALL)
                                 </button>
                                 <input ref={fileInputRef} type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={handleFileUpload} disabled={isProcessing} />
                             </div>
@@ -624,10 +675,12 @@
     // MỤC 1: GIAO DIỆN TAB ĐƠN HÀNG (OrdersTab)
     // -------------------------------------------------------------------------
 
+    const EMPTY_ARRAY = [];
+
     // COMPONENT BỌC ĐƠN HÀNG THÊM LOGIC SLA VÀ PHÂN LOẠI
-    const RFOrderWrapper = React.memo(({ order, prods, ...props }) => {
-        const isEcom = String(order.channel).toUpperCase().includes('SHOPEE') || String(order.channel).toUpperCase().includes('TIKTOK');
-        const createdDate = new Date(order.createdAt || order.date || Date.now());
+    const RFOrderWrapper = React.memo(({ order, prods, onToggleSelect, onEditOrder, ...props }) => {
+        const isEcom = String(order?.channel || '').toUpperCase().includes('SHOPEE') || String(order?.channel || '').toUpperCase().includes('TIKTOK');
+        const createdDate = new Date(order?.createdAt || order?.date || Date.now());
         let deadline = new Date(createdDate);
         if (isEcom) {
             deadline.setDate(deadline.getDate() + 1);
@@ -639,11 +692,25 @@
         const now = new Date();
         const isLate = now > deadline;
         const hoursLeft = Math.max(0, Math.round((deadline - now) / (1000 * 60 * 60)));
-        const isDone = String(order._effectiveStatus || order.status || '').toUpperCase().includes('BÀN GIAO') || String(order._effectiveStatus || order.status || '').toUpperCase().includes('HOÀN THÀNH');
+        const isDone = String(order?._effectiveStatus || order?.status || '').toUpperCase().includes('BÀN GIAO') || String(order?._effectiveStatus || order?.status || '').toUpperCase().includes('HOÀN THÀNH');
+
+        const handleToggle = React.useCallback(() => {
+            if (onToggleSelect && order?.id) onToggleSelect(order.id);
+        }, [onToggleSelect, order?.id]);
+
+        const handleEdit = React.useCallback(() => {
+            if (onEditOrder && order) onEditOrder(order, prods);
+        }, [onEditOrder, order, prods]);
 
         return (
             <div className="relative mb-6 mt-4">
-                <OrderCardV2 order={order} prods={prods} {...props} />
+                <OrderCardV2 
+                    order={order} 
+                    prods={prods} 
+                    onToggleSelect={handleToggle}
+                    onEditOrder={handleEdit}
+                    {...props} 
+                />
             </div>
         );
     });
@@ -699,16 +766,33 @@
 
 
 
-        const toggleSelect = (orderId) => {
+        const toggleSelect = React.useCallback((orderId) => {
             setSelectedIds(prev => prev.includes(orderId) ? prev.filter(id => id !== orderId) : [...prev, orderId]);
-        };
+        }, []);
 
-        const clearSelection = () => setSelectedIds([]);
+        const clearSelection = React.useCallback(() => setSelectedIds([]), []);
+
+        const handleEditOrder = React.useCallback((order, prods) => {
+            setEditingOrder({ order, prods });
+        }, []);
 
         const isDateInRangeLocal = (dateStr, filterStr, customM) => {
             if (!dateStr) return false;
             if (filterStr === 'Tất Cả') return true;
-            const d = new Date(dateStr); const today = new Date();
+
+            let d = null;
+            if (typeof parseDateTimeSafe === 'function') {
+                const parsed = parseDateTimeSafe(dateStr);
+                if (parsed && parsed.timestamp) {
+                    d = new Date(parsed.timestamp);
+                }
+            }
+            if (!d || isNaN(d.getTime())) {
+                d = new Date(dateStr);
+            }
+            if (isNaN(d.getTime())) return true; // Tránh mất đơn nếu chuỗi ngày không chuẩn
+
+            const today = new Date();
             if (filterStr === 'Hôm Nay') return d.toDateString() === today.toDateString();
             if (filterStr === 'Hôm Qua') { const y = new Date(today); y.setDate(y.getDate() - 1); return d.toDateString() === y.toDateString(); }
             if (filterStr === 'Tuần Này') {
@@ -718,7 +802,7 @@
                 const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6); sunday.setHours(23, 59, 59, 999);
                 return d >= monday && d <= sunday;
             }
-            if (filterStr === 'Tháng Này') return d.getMonth() === new Date().getMonth() && d.getFullYear() === new Date().getFullYear();
+            if (filterStr === 'Tháng Này') return d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
             if (filterStr === 'Tháng Trước') {
                 const lastMonth = new Date();
                 lastMonth.setMonth(lastMonth.getMonth() - 1);
@@ -776,6 +860,30 @@
             return map;
         }, [prodItems]);
 
+        const getMatchedProds = React.useCallback((order) => {
+            if (!order) return EMPTY_ARRAY;
+            const oId = String(order.id || '').trim();
+            const oCode = String(order.orderCode || '').trim();
+            const oBaseCode = oCode.split(' | ')[0].split('|')[0].trim();
+
+            const candidates = [
+                ...(oId ? (prodMapByOrderId[oId] || []) : []),
+                ...(oCode && oCode !== oId ? (prodMapByOrderId[oCode] || []) : []),
+                ...(oBaseCode && oBaseCode !== oCode && oBaseCode !== oId ? (prodMapByOrderId[oBaseCode] || []) : [])
+            ];
+
+            if (candidates.length === 0) return EMPTY_ARRAY;
+            const seen = new Set();
+            const unique = [];
+            for (let p of candidates) {
+                if (p && p.id && !seen.has(p.id)) {
+                    seen.add(p.id);
+                    unique.push(p);
+                }
+            }
+            return unique;
+        }, [prodMapByOrderId]);
+
         const productStockMap = React.useMemo(() => {
             const map = {};
             const list = erpProducts || erpData?.Products || [];
@@ -796,11 +904,13 @@
                     eff = 'CHỜ SẢN XUẤT';
                 }
                 
-                // Ưu tiên cao nhất cho trạng thái HÀNG HOÀN (kể cả khi đã isReconciled)
-                if (rawStatus === 'HÀNG HOÀN' || rawStatus === 'HOÀN' || rawStatus.includes('HOÀN CHỜ XỬ') || rawStatus.includes('HOÀN TRẢ') || eff === 'HÀNG HOÀN' || eff.includes('HOÀN CHỜ XỬ')) {
-                    eff = 'HÀNG HOÀN CHỜ XỬ LÝ';
-                } else if (o.isReconciled || Boolean(o.isReconciled) || eff === 'ĐỐI SOÁT THÀNH CÔNG' || eff === 'HOÀN THÀNH') {
+                // Chuẩn hóa trạng thái đơn hàng
+                if (rawStatus === 'HOÀN THÀNH' || rawStatus === 'ĐỐI SOÁT THÀNH CÔNG' || eff === 'HOÀN THÀNH' || eff === 'ĐỐI SOÁT THÀNH CÔNG' || o.isReconciled || Boolean(o.isReconciled)) {
                     eff = 'HOÀN THÀNH';
+                } else if (rawStatus === 'HÀNG HOÀN' || rawStatus === 'HOÀN' || rawStatus.includes('HOÀN CHỜ XỬ') || rawStatus.includes('HOÀN TRẢ') || eff === 'HÀNG HOÀN' || eff.includes('HOÀN CHỜ XỬ')) {
+                    eff = 'HÀNG HOÀN CHỜ XỬ LÝ';
+                } else if (rawStatus.includes('HUỶ') || rawStatus.includes('HỦY') || rawStatus.includes('CANCEL') || rawStatus.includes('ยกเลิก') || eff.includes('HUỶ') || eff.includes('HỦY') || eff.includes('CANCEL')) {
+                    eff = 'ĐƠN HUỶ';
                 }
                 return { ...o, status: o.status && o.status !== '0' ? o.status : 'Chờ Sản Xuất', _effectiveStatus: eff };
             }).filter(o => {
@@ -819,8 +929,14 @@
                     dateToFilter = o.returnedAt || o.updatedAt || o.date || o.createdAt;
                 }
 
-                // Đơn hàng đang vận hành (chưa đóng) luôn luôn được hiển thị ở chế độ 'Tháng Này' để không bao giờ bị trôi mất đơn
-                const isClosed = (o._effectiveStatus === 'HOÀN THÀNH' || o._effectiveStatus === 'ĐÃ BÀN GIAO' || o._effectiveStatus === 'ĐƠN HUỶ' || o._effectiveStatus === 'ĐÃ NHẬP KHO');
+                // Đơn hàng đã đóng (Hoàn thành, Bàn giao, Đơn huỷ, Hàng hoàn) thì so ngày theo tháng lọc
+                const isClosed = (
+                    o._effectiveStatus === 'HOÀN THÀNH' || 
+                    o._effectiveStatus === 'ĐÃ BÀN GIAO' || 
+                    o._effectiveStatus === 'ĐƠN HUỶ' || 
+                    o._effectiveStatus === 'ĐÃ NHẬP KHO' ||
+                    o._effectiveStatus === 'HÀNG HOÀN CHỜ XỬ LÝ'
+                );
                 let dateMatch = true;
                 if (filterTime === 'Tất Cả') {
                     dateMatch = true;
@@ -857,33 +973,57 @@
                 // TẦNG 1: LỌC KÊNH BÁN TOÀN CỤC (GLOBAL CHANNEL FILTER)
                 if (filterChannel !== 'ALL') {
                     const channel = String(o.channel || '').toUpperCase();
-                    if (filterChannel === 'SHOPEE' && !(channel.includes('SHOPEE') || channel.includes('SHP') || channel.includes('SPX'))) return false;
-                    if (filterChannel === 'BÁN LẺ' && !(channel.includes('BÁN LẺ') || channel.includes('BAN LE') || channel.includes('ZALO') || channel.includes('FACEBOOK') || channel.includes('MESSENGER'))) return false;
-                    if (filterChannel === 'CTV' && !(channel.includes('CỘNG TÁC VIÊN') || channel === 'CTV')) return false;
-                    if (filterChannel === 'TIKTOK' && !(channel.includes('TIKTOK') || channel.includes('TT') || channel.includes('TIK TOK'))) return false;
+                    const isInter = channel.includes('XUẤT KHẨU') || channel.includes('EXPORT') || channel.includes('QUỐC TẾ') ||
+                        channel.includes('SHOPEE SG') || channel.includes('SHOPEE TH') || channel.includes('SHOPEE TW') ||
+                        channel.includes('SHOPEE PH') || channel.includes('SHOPEE MA') || channel.includes('SHOPEE MY') ||
+                        channel.includes('SINGAPORE') || channel.includes('MALAYSIA') || channel.includes('THAILAND') || channel.includes('PHILIPPINES') ||
+                        /\b(SHOPEE_SG|SHOPEE_MY|SHOPEE_TH|SHOPEE_PH|SHOPEE_MA|SHOPEE_TW)\b/i.test(channel);
+
+                    if (filterChannel === 'EXPORT') {
+                        if (!isInter) return false;
+                    } else if (filterChannel === 'SHOPEE') {
+                        if (isInter || !(channel.includes('SHOPEE') || channel.includes('SHP') || channel.includes('SPX'))) return false;
+                    } else if (filterChannel === 'BÁN LẺ') {
+                        if (!(channel.includes('BÁN LẺ') || channel.includes('BAN LE') || channel.includes('ZALO') || channel.includes('FACEBOOK') || channel.includes('MESSENGER'))) return false;
+                    } else if (filterChannel === 'CTV') {
+                        if (!(channel.includes('CỘNG TÁC VIÊN') || channel === 'CTV')) return false;
+                    } else if (filterChannel === 'TIKTOK') {
+                        if (!(channel.includes('TIKTOK') || channel.includes('TT') || channel.includes('TIK TOK'))) return false;
+                    }
                 }
 
                 let effectiveStatus = String(o._effectiveStatus || o.status || '').toUpperCase().trim();
 
-                if (effectiveStatus === 'CHỜ SẢN XUẤT' || effectiveStatus === 'QUÉT TỰ ĐỘNG' || effectiveStatus === 'ĐANG SẢN XUẤT' || effectiveStatus === 'SẴN SÀNG ĐÓNG GÓI') {
-                    const orderPacks = (erpData?.Packings || []).filter(p => p.orderId === String(o.id).trim());
-                    const hasDonePack = orderPacks.some(p => String(p.status).toUpperCase() === 'DONE' && (!p.note || !p.note.includes('kho')));
+                if (effectiveStatus === 'CHỜ SẢN XUẤT' || effectiveStatus === 'QUÉT TỰ ĐỘNG' || effectiveStatus === 'ĐANG SẢN XUẤT' || effectiveStatus === 'SẴN SÀNG ĐÓNG GÓI' || effectiveStatus === 'CHỜ PHỤ KIỆN' || effectiveStatus === 'CHỜ MÃ VẬN ĐƠN' || effectiveStatus === 'CHỜ BÀN GIAO') {
+                    const allPackings = packings || erpData?.Packings || [];
+                    const oIdStr = String(o.id || '').trim();
+                    const oCodeStr = String(o.orderCode || '').trim();
+                    const baseCodeStr = oCodeStr.split(' | ')[0].trim();
+                    const orderPacks = allPackings.filter(p => {
+                        const pOrd = String(p.orderId || '').trim();
+                        return pOrd && (pOrd === oIdStr || pOrd === oCodeStr || pOrd === baseCodeStr);
+                    });
+                    const hasDonePack = orderPacks.some(p => {
+                        const ps = String(p.status || '').toUpperCase().trim();
+                        return (ps === 'DONE' || ps === 'ĐÃ ĐÓNG GÓI' || ps === 'HOÀN THÀNH' || ps === 'ĐÃ XONG') && (!p.note || !p.note.includes('kho'));
+                    });
+                    const isGHNShipping = String(o.shippingMethod || '').trim() === 'Gửi GHN' || String(o.shippingMethod || '').toLowerCase().includes('ghn');
+                    const isGuiXeShipping = String(o.shippingMethod || '').trim() === 'Gửi Xe';
+                    const isTMDT = String(o.channel || '').toUpperCase().includes('SHOPEE') || String(o.channel || '').toUpperCase().includes('TIKTOK') || String(o.channel || '').toUpperCase().includes('LAZADA');
+
+                    let pureShippingCode = String(o.shippingCode || '').trim();
+                    if (!pureShippingCode && String(o.orderCode || '').includes('MVĐ:')) {
+                        pureShippingCode = String(o.orderCode).split('MVĐ:')[1].trim();
+                    }
+                    const hasShippingCode = Boolean(pureShippingCode && pureShippingCode.length >= 3);
+                    const requiresShippingCode = isTMDT || isGHNShipping || isGuiXeShipping;
+                    const isMissingMVD = requiresShippingCode && !hasShippingCode;
+
                     if (hasDonePack) {
-                        effectiveStatus = 'CHỜ BÀN GIAO';
+                        effectiveStatus = isMissingMVD ? 'CHỜ MÃ VẬN ĐƠN' : 'CHỜ BÀN GIAO';
                     } else {
-                        const isGHNShipping = String(o.shippingMethod || '').trim() === 'Gửi GHN' || String(o.shippingMethod || '').toLowerCase().includes('ghn');
-                        const isGuiXeShipping = String(o.shippingMethod || '').trim() === 'Gửi Xe';
-                        const isTMDT = String(o.channel || '').toUpperCase().includes('SHOPEE') || String(o.channel || '').toUpperCase().includes('TIKTOK') || String(o.channel || '').toUpperCase().includes('LAZADA');
 
-                        let pureShippingCode = String(o.shippingCode || '').trim();
-                        if (!pureShippingCode && String(o.orderCode || '').includes('MVĐ:')) {
-                            pureShippingCode = String(o.orderCode).split('MVĐ:')[1].trim();
-                        }
-                        const hasShippingCode = Boolean(pureShippingCode && pureShippingCode.length >= 3);
-                        const requiresShippingCode = isTMDT || isGHNShipping || isGuiXeShipping;
-                        const isMissingMVD = requiresShippingCode && !hasShippingCode;
-
-                        const related = prodMapByOrderId[String(o.id).trim()] || [];
+                        const related = getMatchedProds(o);
                         let allProdDone = true;
                         if (related.length > 0) {
                             allProdDone = related.every(p => checkItemReady(p));
@@ -900,19 +1040,20 @@
                                         const aName = String(a.name || a.Name || '').trim();
                                         if (!aName) continue;
 
+                                        const cleanAName = aName.toLowerCase().replace(/\s+/g, ' ');
                                         // Bỏ qua nếu là mặt hàng Sản xuất (Layout / Bể kính)
-                                        const matchProd = (erpProducts || erpData?.Products || []).find(p => String(p.name).trim().toLowerCase() === aName.toLowerCase());
+                                        const matchProd = (erpProducts || erpData?.Products || []).find(p => String(p.name || '').trim().toLowerCase().replace(/\s+/g, ' ') === cleanAName);
                                         if (matchProd) {
                                             const cat = String(matchProd.category || '').toUpperCase().trim();
                                             const subCat = String(matchProd.sub_category || '').toUpperCase().trim();
                                             if (cat === 'LAYOUT' || cat === 'BỂ KÍNH' || subCat === 'LAYOUT' || subCat === 'BỂ KÍNH') continue;
-                                        }
 
-                                        const required = Number(a.quantity || a.qty || 1);
-                                        const stock = productStockMap[aName] !== undefined ? productStockMap[aName] : (matchProd ? Number(matchProd.quantity || 0) : 0);
-                                        if (stock < required) {
-                                            isMissingAccessories = true;
-                                            break;
+                                            const required = Number(a.quantity || a.qty || 1);
+                                            const stock = Number(matchProd.quantity || 0);
+                                            if (stock < required) {
+                                                isMissingAccessories = true;
+                                                break;
+                                            }
                                         }
                                     }
                                 }
@@ -922,7 +1063,7 @@
                         if (!allProdDone) {
                             effectiveStatus = 'CHỜ SẢN XUẤT';
                         } else if (isMissingMVD) {
-                            effectiveStatus = 'CHỜ SẢN XUẤT';
+                            effectiveStatus = 'CHỜ MÃ VẬN ĐƠN';
                         } else if (isMissingAccessories) {
                             effectiveStatus = 'CHỜ PHỤ KIỆN';
                         } else {
@@ -936,6 +1077,7 @@
                 if (targetStatus === 'CHỜ SẢN XUẤT') {
                     return effectiveStatus === 'CHỜ SẢN XUẤT' || effectiveStatus === 'QUÉT TỰ ĐỘNG' || effectiveStatus === 'ĐANG SẢN XUẤT';
                 }
+                if (targetStatus === 'CHỜ MÃ VẬN ĐƠN') return effectiveStatus === 'CHỜ MÃ VẬN ĐƠN';
                 if (targetStatus === 'CHỜ PHỤ KIỆN') return effectiveStatus === 'CHỜ PHỤ KIỆN';
                 if (targetStatus === 'SẴN SÀNG ĐÓNG GÓI') return effectiveStatus === 'SẴN SÀNG ĐÓNG GÓI';
                 if (targetStatus === 'CHỜ BÀN GIAO') return effectiveStatus === 'CHỜ BÀN GIAO';
@@ -945,7 +1087,7 @@
                 if (targetStatus === 'HOÀN THÀNH') return effectiveStatus === 'HOÀN THÀNH' || effectiveStatus === 'ĐỐI SOÁT THÀNH CÔNG';
                 return true;
             });
-        }, [baseFiltered, filterStatus, filterChannel, prodMapByOrderId, productStockMap, erpProducts, erpData?.Products, erpData?.Packings]);
+        }, [baseFiltered, filterStatus, filterChannel, prodMapByOrderId, productStockMap, erpProducts, erpData?.Products, erpData?.Packings, packings]);
 
         const sortedFiltered = React.useMemo(() => {
             return [...filtered].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
@@ -956,34 +1098,49 @@
             const list = packings || erpData?.Packings || [];
             if (!list || list.length === 0) return map;
             const sortedPackings = [...list].sort((a, b) => new Date(b.end || b.start || 0) - new Date(a.end || a.start || 0));
-            sortedPackings.forEach(p => { if (p.orderId && !map[p.orderId]) { map[p.orderId] = p; } });
+            sortedPackings.forEach(p => {
+                if (p.orderId) {
+                    const pOrd = String(p.orderId).trim();
+                    if (!map[pOrd]) map[pOrd] = p;
+                }
+            });
             return map;
         }, [packings, erpData?.Packings]);
 
         const stats = React.useMemo(() => {
-            let pending = 0; let waitAcc = 0; let ready = 0; let shipping = 0; let done = 0; let cancel = 0; let returns = 0; let completed = 0;
+            let pending = 0; let waitMVD = 0; let waitAcc = 0; let ready = 0; let shipping = 0; let done = 0; let cancel = 0; let returns = 0; let completed = 0;
             (baseFiltered || []).forEach(o => {
                 let finalStatus = String(o._effectiveStatus || o.status || '').toUpperCase().trim();
 
-                if (finalStatus === 'CHỜ SẢN XUẤT' || finalStatus === 'QUÉT TỰ ĐỘNG' || finalStatus === 'ĐANG SẢN XUẤT' || finalStatus === 'SẴN SÀNG ĐÓNG GÓI') {
-                    const orderPacks = (erpData?.Packings || []).filter(p => p.orderId === String(o.id).trim());
-                    const hasDonePack = orderPacks.some(p => String(p.status).toUpperCase() === 'DONE' && (!p.note || !p.note.includes('kho')));
+                if (finalStatus === 'CHỜ SẢN XUẤT' || finalStatus === 'QUÉT TỰ ĐỘNG' || finalStatus === 'ĐANG SẢN XUẤT' || finalStatus === 'SẴN SÀNG ĐÓNG GÓI' || finalStatus === 'CHỜ PHỤ KIỆN' || finalStatus === 'CHỜ MÃ VẬN ĐƠN' || finalStatus === 'CHỜ BÀN GIAO') {
+                    const allPackings = packings || erpData?.Packings || [];
+                    const oIdStr = String(o.id || '').trim();
+                    const oCodeStr = String(o.orderCode || '').trim();
+                    const baseCodeStr = oCodeStr.split(' | ')[0].trim();
+                    const orderPacks = allPackings.filter(p => {
+                        const pOrd = String(p.orderId || '').trim();
+                        return pOrd && (pOrd === oIdStr || pOrd === oCodeStr || pOrd === baseCodeStr);
+                    });
+                    const hasDonePack = orderPacks.some(p => {
+                        const ps = String(p.status || '').toUpperCase().trim();
+                        return (ps === 'DONE' || ps === 'ĐÃ ĐÓNG GÓI' || ps === 'HOÀN THÀNH' || ps === 'ĐÃ XONG') && (!p.note || !p.note.includes('kho'));
+                    });
+                    const isGHNShipping = String(o.shippingMethod || '').trim() === 'Gửi GHN' || String(o.shippingMethod || '').toLowerCase().includes('ghn');
+                    const isGuiXeShipping = String(o.shippingMethod || '').trim() === 'Gửi Xe';
+                    const isTMDT = String(o.channel || '').toUpperCase().includes('SHOPEE') || String(o.channel || '').toUpperCase().includes('TIKTOK') || String(o.channel || '').toUpperCase().includes('LAZADA');
+
+                    let pureShippingCode = String(o.shippingCode || '').trim();
+                    if (!pureShippingCode && String(o.orderCode || '').includes('MVĐ:')) {
+                        pureShippingCode = String(o.orderCode).split('MVĐ:')[1].trim();
+                    }
+                    const hasShippingCode = Boolean(pureShippingCode && pureShippingCode.length >= 3);
+                    const requiresShippingCode = isTMDT || isGHNShipping || isGuiXeShipping;
+                    const isMissingMVD = requiresShippingCode && !hasShippingCode;
+
                     if (hasDonePack) {
-                        finalStatus = 'CHỜ BÀN GIAO';
+                        finalStatus = isMissingMVD ? 'CHỜ MÃ VẬN ĐƠN' : 'CHỜ BÀN GIAO';
                     } else {
-                        const isGHNShipping = String(o.shippingMethod || '').trim() === 'Gửi GHN' || String(o.shippingMethod || '').toLowerCase().includes('ghn');
-                        const isGuiXeShipping = String(o.shippingMethod || '').trim() === 'Gửi Xe';
-                        const isTMDT = String(o.channel || '').toUpperCase().includes('SHOPEE') || String(o.channel || '').toUpperCase().includes('TIKTOK') || String(o.channel || '').toUpperCase().includes('LAZADA');
-
-                        let pureShippingCode = String(o.shippingCode || '').trim();
-                        if (!pureShippingCode && String(o.orderCode || '').includes('MVĐ:')) {
-                            pureShippingCode = String(o.orderCode).split('MVĐ:')[1].trim();
-                        }
-                        const hasShippingCode = Boolean(pureShippingCode && pureShippingCode.length >= 3);
-                        const requiresShippingCode = isTMDT || isGHNShipping || isGuiXeShipping;
-                        const isMissingMVD = requiresShippingCode && !hasShippingCode;
-
-                        const related = prodMapByOrderId[String(o.id).trim()] || [];
+                        const related = getMatchedProds(o);
                         let allProdDone = true;
                         if (related.length > 0) {
                             allProdDone = related.every(p => checkItemReady(p));
@@ -1000,19 +1157,20 @@
                                         const aName = String(a.name || a.Name || '').trim();
                                         if (!aName) continue;
 
+                                        const cleanAName = aName.toLowerCase().replace(/\s+/g, ' ');
                                         // Bỏ qua nếu là mặt hàng Sản xuất (Layout / Bể kính)
-                                        const matchProd = (erpProducts || erpData?.Products || []).find(p => String(p.name).trim().toLowerCase() === aName.toLowerCase());
+                                        const matchProd = (erpProducts || erpData?.Products || []).find(p => String(p.name || '').trim().toLowerCase().replace(/\s+/g, ' ') === cleanAName);
                                         if (matchProd) {
                                             const cat = String(matchProd.category || '').toUpperCase().trim();
                                             const subCat = String(matchProd.sub_category || '').toUpperCase().trim();
                                             if (cat === 'LAYOUT' || cat === 'BỂ KÍNH' || subCat === 'LAYOUT' || subCat === 'BỂ KÍNH') continue;
-                                        }
 
-                                        const required = Number(a.quantity || a.qty || 1);
-                                        const stock = productStockMap[aName] !== undefined ? productStockMap[aName] : (matchProd ? Number(matchProd.quantity || 0) : 0);
-                                        if (stock < required) {
-                                            isMissingAccessories = true;
-                                            break;
+                                            const required = Number(a.quantity || a.qty || 1);
+                                            const stock = Number(matchProd.quantity || 0);
+                                            if (stock < required) {
+                                                isMissingAccessories = true;
+                                                break;
+                                            }
                                         }
                                     }
                                 }
@@ -1022,7 +1180,7 @@
                         if (!allProdDone) {
                             finalStatus = 'CHỜ SẢN XUẤT';
                         } else if (isMissingMVD) {
-                            finalStatus = 'CHỜ SẢN XUẤT';
+                            finalStatus = 'CHỜ MÃ VẬN ĐƠN';
                         } else if (isMissingAccessories) {
                             finalStatus = 'CHỜ PHỤ KIỆN';
                         } else {
@@ -1032,16 +1190,17 @@
                 }
 
                 if (finalStatus === 'CHỜ SẢN XUẤT' || finalStatus === 'QUÉT TỰ ĐỘNG' || finalStatus === 'ĐANG SẢN XUẤT') pending++;
+                else if (finalStatus === 'CHỜ MÃ VẬN ĐƠN') waitMVD++;
                 else if (finalStatus === 'CHỜ PHỤ KIỆN') waitAcc++;
                 else if (finalStatus === 'SẴN SÀNG ĐÓNG GÓI') ready++;
                 else if (finalStatus === 'CHỜ BÀN GIAO') shipping++;
                 else if (finalStatus === 'ĐÃ BÀN GIAO') done++;
-                else if (finalStatus === 'ĐƠN HUỶ' || finalStatus === 'HUỶ' || finalStatus === 'ĐƠN HỦY' || finalStatus === 'HỦY') cancel++;
+                else if (finalStatus === 'ĐƠN HUỶ' || finalStatus === 'HUỶ' || finalStatus === 'ĐƠN HỦY' || finalStatus === 'HỦY' || finalStatus.includes('HUỶ') || finalStatus.includes('HỦY') || finalStatus.includes('CANCEL') || finalStatus.includes('ยกเลิก')) cancel++;
                 else if (finalStatus === 'HÀNG HOÀN' || finalStatus.includes('HOÀN TRẢ') || finalStatus.includes('HOÀN CHỜ XỬ')) returns++;
                 else completed++;
             });
-            return { pending, waitAcc, ready, shipping, done, cancel, returns, completed };
-        }, [baseFiltered, prodMapByOrderId, productStockMap, erpProducts, erpData?.Products, erpData?.Packings]);
+            return { pending, waitMVD, waitAcc, ready, shipping, done, cancel, returns, completed };
+        }, [baseFiltered, prodMapByOrderId, productStockMap, erpProducts, erpData?.Products, erpData?.Packings, packings]);
 
         const tabs = React.useMemo(() => [
             {
@@ -1052,6 +1211,16 @@
                 activeClass: 'bg-[#d4af37]/15 text-[#d4af37] border-[#d4af37]/30 shadow-[0_0_10px_rgba(212,175,55,0.15)] font-bold',
                 inactiveClass: 'bg-[#121214] text-zinc-400 border-white/[0.06] hover:border-white/[0.12] hover:text-zinc-200 hover:bg-white/[0.02]',
                 activeBadgeClass: 'bg-[#d4af37] text-black font-black',
+                inactiveBadgeClass: 'bg-zinc-800 text-zinc-400 border border-white/[0.06]'
+            },
+            {
+                id: 'Chờ Mã Vận Đơn',
+                label: 'Chờ Mã Vận Đơn',
+                count: stats.waitMVD || 0,
+                icon: 'fa-barcode',
+                activeClass: 'bg-[#f97316]/15 text-[#fb923c] border-[#f97316]/30 shadow-[0_0_10px_rgba(249,115,22,0.15)] font-bold',
+                inactiveClass: 'bg-[#121214] text-zinc-400 border-white/[0.06] hover:border-white/[0.12] hover:text-zinc-200 hover:bg-white/[0.02]',
+                activeBadgeClass: 'bg-[#f97316] text-white font-black',
                 inactiveBadgeClass: 'bg-zinc-800 text-zinc-400 border border-white/[0.06]'
             },
             {
@@ -1140,49 +1309,104 @@
             return { urgentAlerts };
         }, [orders]);
 
-        const parseRevenue = (raw) => {
+        const parseRevenue = (raw, channel) => {
             if (raw === null || raw === undefined || raw === '') return 0;
-            if (typeof raw === 'number') {
-                if (isNaN(raw) || !isFinite(raw) || raw < 0 || raw >= 200000000) return 0;
-                return Math.round(raw);
-            }
-            let s = String(raw).trim().replace(/[đĐ\s]/g, '');
+            let s = String(raw).trim();
             if (!s) return 0;
-            if (/[a-zA-Z]/.test(s)) return 0;
-            
-            // Xử lý dấu chấm phẩy phân cách hàng nghìn / thập phân
-            if (/^\d{1,3}(\.\d{3})+$/.test(s)) {
-                s = s.replace(/\./g, '');
-            } else if (/^\d{1,3}(,\d{3})+$/.test(s)) {
-                s = s.replace(/,/g, '');
+
+            let num = 0;
+            if (typeof raw === 'number') {
+                num = raw;
             } else {
-                s = s.replace(/,/g, '.');
+                // Xoá ký tự tiền tệ, chữ cái và khoảng trắng thừa
+                s = s.replace(/[đĐ\sVNDvnd$฿₱RM]/g, '').trim();
+                if (!s) return 0;
+
+                // Xử lý các định dạng số:
+                if (s.includes('.') && s.includes(',')) {
+                    if (s.lastIndexOf('.') > s.lastIndexOf(',')) {
+                        // Định dạng US: 1,250,000.50 -> bỏ phẩy, giữ chấm
+                        s = s.replace(/,/g, '');
+                    } else {
+                        // Định dạng VN/EU: 1.250.000,50 -> bỏ chấm, phẩy thành chấm
+                        s = s.replace(/\./g, '').replace(/,/g, '.');
+                    }
+                } else if (s.includes(',')) {
+                    // Chỉ có dấu phẩy: kiểm tra xem là phân cách nghìn hay thập phân
+                    if (/\,\d{3}($|\D)/.test(s) || /^\d{1,3}(,\d{3})+$/.test(s)) {
+                        s = s.replace(/,/g, '');
+                    } else {
+                        s = s.replace(/,/g, '.');
+                    }
+                } else if (s.includes('.')) {
+                    // Chỉ có dấu chấm: nếu có nhiều chấm (1.250.000) hoặc có 3 chữ số sau chấm (250.000)
+                    const parts = s.split('.');
+                    if (parts.length > 2 || (parts.length === 2 && parts[1].length === 3 && parseInt(parts[0]) > 0)) {
+                        s = s.replace(/\./g, '');
+                    }
+                }
+                num = parseFloat(s);
             }
-            const num = Math.round(parseFloat(s));
-            if (isNaN(num) || !isFinite(num) || num < 0 || num >= 200000000) return 0;
-            return num;
+
+            if (isNaN(num) || !isFinite(num) || num <= 0) return 0;
+
+            // Failsafe chống rác dữ liệu: Mã vận đơn / Số điện thoại / ID đơn (> 100 triệu dạng nguyên 10-15 số) dán nhầm vào cột Doanh thu
+            if (num > 100000000 && Number.isInteger(num)) {
+                return 0;
+            }
+
+            let ch = String(channel || '').toUpperCase().trim();
+            let rate = 1;
+            if (ch.includes('USD') || (ch.includes('XUẤT KHẨU') && num < 10000)) {
+                rate = 25500; // 1 USD ≈ 25,500 VNĐ
+            }
+
+            if (rate > 1) {
+                return Math.round(num * rate);
+            }
+
+            return Math.round(num);
         };
 
         const summaryStats = React.useMemo(() => {
             let totalRevenue = 0;
+            let totalSoldOrders = 0;
             let totalReturnedValue = 0;
+            let totalReturnOrders = 0;
             let totalRetail = 0;
             let totalCtv = 0;
 
-            baseFiltered.forEach(o => {
-                const val = parseRevenue(o.revenue);
+            (baseFiltered || []).forEach(o => {
+                const val = parseRevenue(o.revenue, o.channel);
                 const st = String(o._effectiveStatus || o.status || '').toUpperCase().trim();
+                const rawStatus = String(o.status || '').toUpperCase().trim();
+                const note = String(o.note || '').toLowerCase();
                 const ch = String(o.channel || '').toUpperCase().trim();
 
-                const isCancelled = st === 'ĐƠN HUỶ' || st === 'HUỶ' || st === 'ĐƠN HỦY' || st === 'HỦY' || st.includes('HUỶ') || st.includes('HỦY');
-                const isReturned = st === 'HÀNG HOÀN' || (st.includes('HOÀN') && !st.includes('HOÀN THÀNH') && !st.includes('HOÀN TẤT'));
+                // Nhận diện đơn trả hàng (bao gồm cả hàng hoàn đang chờ xử lý và hàng hoàn đã xử lý / đối soát xong nhảy sang Hoàn Thành)
+                const isReturned = st === 'HÀNG HOÀN' || st === 'KIỂM HÀNG HOÀN' || st === 'HÀNG HOÀN CHỜ XỬ LÝ' || st.includes('HOÀN CHỜ XỬ') || 
+                    rawStatus === 'HÀNG HOÀN' || rawStatus.includes('HOÀN TRẢ') || 
+                    Boolean(o.returnedAt) || 
+                    note.includes('[kn-thang]') || note.includes('[kn-thua]') || note.includes('hàng hoàn') || note.includes('trả hàng');
+
+                // Nhận diện đơn huỷ triệt để (Không tính vào doanh thu và không tính vào số đơn bán)
+                const isCancelled = !isReturned && (
+                    st === 'ĐƠN HUỶ' || st === 'HUỶ' || st === 'ĐƠN HỦY' || st === 'HỦY' || 
+                    st.includes('HUỶ') || st.includes('HỦY') || st.includes('CANCEL') ||
+                    rawStatus.includes('HUỶ') || rawStatus.includes('HỦY') || rawStatus.includes('CANCEL') ||
+                    rawStatus.includes('ยกเลิก') ||
+                    note.includes('[đã hủy]') || note.includes('[đơn huỷ]') || note.includes('[đơn hủy]') || 
+                    note.includes('[huỷ]') || note.includes('[hủy]') || note.includes('hủy đơn') || note.includes('huỷ đơn') ||
+                    Boolean(o.isCancelled)
+                );
 
                 if (isReturned) {
                     totalReturnedValue += val;
-                }
-
-                if (!isCancelled && !isReturned) {
+                    totalReturnOrders++;
+                } else if (!isCancelled) {
+                    // CHỈ CỘNG DOANH THU VÀ ĐƠN BÁN CHO ĐƠN HỢP LỆ (ĐÃ LOẠI BỎ ĐƠN HỦY & ĐƠN HOÀN)
                     totalRevenue += val;
+                    totalSoldOrders++;
 
                     if (ch.includes('BÁN LẺ') || ch.includes('BAN LE') || ch.includes('ZALO') || ch.includes('FACEBOOK') || ch.includes('MESSENGER')) {
                         totalRetail += val;
@@ -1194,7 +1418,7 @@
                 }
             });
 
-            return { totalReturnedValue, totalRevenue, totalRetail, totalCtv };
+            return { totalRevenue, totalSoldOrders, totalReturnedValue, totalReturnOrders, totalRetail, totalCtv };
         }, [baseFiltered]);
 
         const formatMoney = (n) => Math.round(Number(n) || 0).toLocaleString('vi-VN');
@@ -1249,7 +1473,7 @@
             }
         };
 
-        const handleCancelOrder = async (order) => {
+        const handleCancelOrder = React.useCallback(async (order) => {
             const isLayoutOrGlass = (pName) => {
                 const match = (erpProducts || []).find(x => String(x.name).trim() === String(pName).trim());
                 const cat = String(match?.category || '').toUpperCase();
@@ -1285,7 +1509,7 @@
                 try {
                     const TOKEN = "5c588da0-1d0a-11ef-b3d7-824e1db0c320";
                     let shopId = "";
-                    const shopRes = await fetch("https:\/\/online-gateway.ghn.vn/shiip/public-api/v2/shop/all", { headers: { "Content-Type": "application/json", "Token": TOKEN } }).then(r => r.json()).catch(() => ({}));
+                    const shopRes = await window.safeFetchJSON("https:\/\/online-gateway.ghn.vn/shiip/public-api/v2/shop/all", { headers: { "Content-Type": "application/json", "Token": TOKEN } }).catch(() => ({}));
                     if (shopRes.code === 200 && shopRes.data?.shops?.length > 0) shopId = shopRes.data.shops[0]._id;
                     const h = { "Content-Type": "application/json", "Token": TOKEN };
                     if (shopId) h["ShopId"] = shopId;
@@ -1313,45 +1537,36 @@
                 // ==========================================
                 let relatedProds = [];
                 try {
-                    const currentOrderId = order.id;
-                    const currentOrderCode = order.orderCode;
+                    const currentOrderId = String(order.id || '').trim();
+                    const currentOrderCode = String(order.orderCode || '').trim();
+                    const currentBaseCode = currentOrderCode.split(' | ')[0].trim();
 
                     // Lọc ra các lệnh sản xuất liên quan đến đơn hàng gốc này
-                    relatedProds = (prodItems || []).filter(p =>
-                        String(p.orderId).trim() === String(currentOrderId).trim() ||
-                        String(p.orderId).trim() === String(currentOrderCode).trim()
-                    );
+                    relatedProds = (prodItems || []).filter(p => {
+                        if (!p || !p.orderId) return false;
+                        const pOrd = String(p.orderId).trim();
+                        return (
+                            (currentOrderId && pOrd === currentOrderId) ||
+                            (currentOrderCode && pOrd === currentOrderCode) ||
+                            (currentBaseCode && (pOrd === currentBaseCode || pOrd.includes(currentBaseCode) || currentBaseCode.includes(pOrd))) ||
+                            (pOrd.includes(currentOrderId))
+                        );
+                    });
 
                     if (relatedProds.length > 0) {
                         let prodsToUpdate = [];
-                        let idsToDelete = [];
-                        const timestamp = Date.now();
-
                         relatedProds.forEach(p => {
-                            const p1Status = String(p.p1_status || '').toUpperCase().trim();
-                            const p2Status = String(p.p2_status || '').toUpperCase().trim();
-
-                            // Lệnh sản xuất đã bắt đầu (Thợ đã bấm làm/xong Khâu 1 hoặc Khâu 2)
-                            if (p1Status === 'DONE' || p1Status === 'IN PROGRESS' || p2Status === 'IN PROGRESS') {
+                            const pStatus = String(p.status || '').toUpperCase().trim();
+                            if (pStatus !== 'DONE' && pStatus !== 'ĐÃ XONG') {
                                 prodsToUpdate.push({
                                     ...p,
-                                    orderId: 'STOCK_' + timestamp + '_' + Math.floor(Math.random() * 1000),
-                                    note: String(p.note || '') + ` [Lệnh chuyển tồn kho độc lập do đơn gốc ${currentOrderCode || currentOrderId} bị hủy]`
+                                    status: 'Đã Huỷ'
                                 });
-                            }
-                            // Lệnh sản xuất chưa bắt đầu (Đang treo Pending) -> Xóa rác khỏi DB
-                            else {
-                                idsToDelete.push(p.id);
                             }
                         });
 
-                        // Gom toàn bộ vào delta payload đồng bộ trong 1 lần gọi API duy nhất
                         if (prodsToUpdate.length > 0) {
                             payload.prodItems = prodsToUpdate;
-                        }
-                        if (idsToDelete.length > 0) {
-                            payload.deletes = payload.deletes || {};
-                            payload.deletes.Production = idsToDelete;
                         }
                     }
                 } catch (cascadeError) {
@@ -1416,9 +1631,9 @@
             } catch (e) {
                 triggerToast('Lỗi khi xử lý hủy/hoàn đơn!', 'fa-times', 'danger');
             }
-        };
+        }, [erpProducts, erpData?.Transactions, erpData?.BonusPenalty, prodItems, pushDeltas, triggerToast]);
 
-        const handleConfirmStockIn = async (order) => {
+        const handleConfirmStockIn = React.useCallback(async (order) => {
             if (!window.confirm(`Xác nhận NHẬP KHO toàn bộ sản phẩm của lệnh ${order.orderCode}?`)) return;
             try {
                 const relatedProds = (prodItems || []).filter(p => p && p.orderId && String(p.orderId).includes(String(order.id)));
@@ -1455,9 +1670,9 @@
                 }
                 await pushDeltas(payload, 'Đã nhập kho thành công!', 'fa-check-circle');
             } catch (e) { triggerToast('Lỗi khi nhập kho!', 'fa-times', 'danger'); }
-        };
+        }, [prodItems, erpProducts, pushDeltas, triggerToast]);
 
-        const openReturnModal = (order, item) => { triggerToast('Chức năng đang phát triển', 'fa-info', 'warning'); };
+        const openReturnModal = React.useCallback((order, item) => { triggerToast('Chức năng đang phát triển', 'fa-info', 'warning'); }, [triggerToast]);
 
         const handleBulkReturnApprove = async () => {
             if (!selectedIds || selectedIds.length === 0) return;
@@ -1542,21 +1757,100 @@
 
         const handleBulkDelete = async () => {
             if (!selectedIds || selectedIds.length === 0) return;
-            const confirmMsg = `⚠️ BẠN CÓ CHẮC CHẮN MUỐN XÓA VĨNH VIỄN ${selectedIds.length} ĐƠN HÀNG ĐÃ CHỌN?\n\nThao tác này sẽ xóa các đơn hàng và các lệnh sản xuất liên quan khỏi hệ thống!`;
+            const confirmMsg = `⚠️ BẠN CÓ CHẮC CHẮN MUỐN XÓA VĨNH VIỄN ${selectedIds.length} ĐƠN HÀNG ĐÃ CHỌN?\n\nThao tác này sẽ xóa toàn bộ đơn hàng, các lệnh sản xuất (Production) và lịch sử đóng gói (Packings) liên quan khỏi hệ thống!`;
             if (!window.confirm(confirmMsg)) return;
 
             setIsBulkDeleting(true);
             try {
-                const deletedOrders = selectedIds.map(id => ({ id: id, _delete: true }));
-                const deletedProds = (prodItems || []).filter(p => selectedIds.includes(p.orderId)).map(p => ({ id: p.id, _delete: true }));
+                const selectedOrders = (orders || []).filter(o => selectedIds.includes(o.id));
+                const selectedCodes = selectedOrders.map(o => String(o.orderCode || '').split(' | ')[0].trim()).filter(Boolean);
+
+                const deletedProdIds = (prodItems || []).filter(p => {
+                    if (!p || !p.orderId) return false;
+                    const pOrd = String(p.orderId).trim();
+                    return selectedIds.includes(pOrd) || 
+                           selectedIds.some(id => pOrd.includes(id)) || 
+                           selectedCodes.some(code => code && (pOrd === code || pOrd.includes(code)));
+                }).map(p => p.id);
+
+                const deletedPackIds = (erpData?.Packings || []).filter(pk => {
+                    if (!pk || !pk.orderId) return false;
+                    const pkOrd = String(pk.orderId).trim();
+                    return selectedIds.includes(pkOrd) || 
+                           selectedIds.some(id => pkOrd.includes(id)) || 
+                           selectedCodes.some(code => code && (pkOrd === code || pkOrd.includes(code)));
+                }).map(pk => pk.id);
 
                 const payload = {
-                    orders: deletedOrders
+                    deletes: {
+                        Orders: selectedIds,
+                        Production: deletedProdIds,
+                        Packings: deletedPackIds
+                    }
                 };
-                if (deletedProds.length > 0) payload.prodItems = deletedProds;
 
-                await pushDeltas(payload, `Đã xóa vĩnh viễn ${selectedIds.length} đơn hàng!`, 'fa-trash');
-                triggerToast(`Đã xóa vĩnh viễn ${selectedIds.length} đơn hàng!`, 'fa-check', 'success');
+                // Lấy tất cả log xuất/nhập kho liên quan đến các đơn này
+                const relatedLogs = (erpData?.ImportExport || []).filter(log => log.note && selectedCodes.some(code => log.note.includes(code)));
+                const logsToDelete = relatedLogs.map(l => l.id);
+
+                let relatedTransactions = (erpData?.Transactions || []).filter(tx => 
+                    selectedCodes.some(code => 
+                        (tx.title && tx.title.includes(code)) || 
+                        (tx.note && tx.note.includes(code))
+                    )
+                );
+
+                if (relatedTransactions.length > 0) {
+                    if (!window.confirm(`Các đơn hàng này có ${relatedTransactions.length} phiếu thu/chi kèm theo.\nBạn có muốn XÓA luôn các phiếu này không?\nChọn OK để Xóa, Cancel để Giữ lại.`)) {
+                        relatedTransactions = [];
+                    }
+                }
+
+                let updatedProducts = [];
+                if (relatedLogs.length > 0) {
+                    let diffMap = new Map();
+                    relatedLogs.forEach(log => {
+                        try {
+                            const items = JSON.parse(log.itemsData || '[]');
+                            items.forEach(item => {
+                                let p = (erpProducts || erpData?.Products || []).find(x => x.name === item.name);
+                                if (p) {
+                                    let currentEntry = diffMap.get(p.id) || { product: p, diff: 0 };
+                                    let change = Number(item.qty) || 0;
+                                    if (log.type === 'Xuất') {
+                                        currentEntry.diff += change;
+                                    } else if (log.type === 'Nhập') {
+                                        currentEntry.diff -= change;
+                                    }
+                                    diffMap.set(p.id, currentEntry);
+                                }
+                            });
+                        } catch(e) {}
+                    });
+                    diffMap.forEach((entry, prodId) => {
+                        if (entry.diff !== 0) {
+                            updatedProducts.push({
+                                id: prodId,
+                                quantity: Math.max(0, Number(entry.product.quantity || 0) + entry.diff),
+                                _diff: entry.diff
+                            });
+                        }
+                    });
+                }
+
+                if (logsToDelete.length > 0) payload.deletes.ImportExport = logsToDelete;
+                if (relatedTransactions.length > 0) payload.deletes.Transactions = relatedTransactions.map(tx => tx.id);
+                if (updatedProducts.length > 0) payload.Products = updatedProducts; 
+
+                const relatedKPIs = (erpData?.BonusPenalty || []).filter(bp => 
+                    selectedCodes.some(code => 
+                        bp.orderCode === code || (bp.note && bp.note.includes(code))
+                    ) || selectedIds.some(id => bp.orderCode === id)
+                );
+                if (relatedKPIs.length > 0) payload.deletes.BonusPenalty = relatedKPIs.map(bp => bp.id);
+
+                await pushDeltas(payload, `Đã xóa vĩnh viễn ${selectedIds.length} đơn hàng cùng ${deletedProdIds.length} lệnh sản xuất!`, 'fa-trash');
+                triggerToast(`Đã xóa vĩnh viễn ${selectedIds.length} đơn hàng và hoàn trả ${updatedProducts.length} mục kho!`, 'fa-check', 'success');
                 setSelectedIds([]);
             } catch (err) {
                 triggerToast('Lỗi khi xóa hàng loạt: ' + err.message, 'fa-times', 'danger');
@@ -1572,6 +1866,7 @@
             const file = e.target.files[0];
             if (!file) return;
             setIsReconciling(true);
+            if (typeof window.ensureXLSXLoaded === 'function') await window.ensureXLSXLoaded();
             triggerToast('Đang quét file báo cáo đối soát...', 'fa-spinner fa-spin', 'info');
 
             try {
@@ -1585,9 +1880,9 @@
                         if (!rows || rows.length < 2) throw new Error('File rỗng');
 
                         let headerIdx = 0;
-                        for (let i = 0; i < Math.min(15, rows.length); i++) {
+                        for (let i = 0; i < Math.min(20, rows.length); i++) {
                             const rowStr = (rows[i] || []).join(' ').toLowerCase();
-                            if (rowStr.includes('mã đơn') || rowStr.includes('mã giao dịch') || rowStr.includes('order id') || rowStr.includes('mã tham chiếu')) {
+                            if (rowStr.includes('mã đơn') || rowStr.includes('mã giao dịch') || rowStr.includes('order id') || rowStr.includes('mã tham chiếu') || rowStr.includes('หมายเลขคำสั่งซื้อ') || rowStr.includes('คำสั่งซื้อ')) {
                                 headerIdx = i; break;
                             }
                         }
@@ -1596,8 +1891,8 @@
 
                         const getCol = (keys) => headers.findIndex(h => keys.some(k => h.includes(k)));
 
-                        const iCode = getCol(['mã đơn', 'mã vận đơn', 'order id', 'mã tham chiếu']);
-                        const iAmt = getCol(['tổng số tiền được thanh toán', 'thực nhận', 'được thanh toán', 'thanh toán', 'số tiền', 'giá trị']);
+                        const iCode = getCol(['mã đơn', 'mã vận đơn', 'order id', 'mã tham chiếu', 'หมายเลขคำสั่งซื้อ', 'หมายเลขติดตามพัสดุ']);
+                        const iAmt = getCol(['tổng số tiền được thanh toán', 'thực nhận', 'được thanh toán', 'thanh toán', 'số tiền', 'giá trị', 'ยอดเงินที่ผู้ซื้อจ่าย', 'total amount']);
 
                         if (iCode === -1) {
                             triggerToast('Không tìm thấy cột chứa Mã đơn hoặc Mã vận đơn!', 'fa-exclamation-triangle', 'danger');
@@ -1605,12 +1900,29 @@
                             return;
                         }
 
-                        const iFeeFixed = getCol(['phí cố định']);
-                        const iFeeService = getCol(['phí dịch vụ']);
-                        const iFeePayment = getCol(['phí thanh toán', 'phí giao dịch']);
-                        const iFeeAffiliate = getCol(['phí tiếp thị', 'affiliate']);
-                        const iShopVoucher = getCol(['mã giảm giá của shopee', 'shopee voucher']);
-                        const iTax = getCol(['thuế']);
+                        const iFeeFixed = getCol(['phí cố định', 'ค่าธรรมเนียมคอมมิชชัน']);
+                        const iFeeService = getCol(['phí dịch vụ', 'ค่าบริการ', 'ค่าธรรมเนียมการขาย']);
+                        const iFeePayment = getCol(['phí thanh toán', 'phí giao dịch', 'ค่าธรรมเนียมการทำธุรกรรม']);
+                        const iFeeAffiliate = getCol(['phí tiếp thị', 'affiliate', 'ค่าคอมมิชชั่นพันธมิตร']);
+                        const iShopVoucher = getCol(['mã giảm giá của shopee', 'shopee voucher', 'voucher của shop', 'โค้ดส่วนลด']);
+                        const iTax = getCol(['thuế', 'ภาษี']);
+
+                        const parseSafeNum = (v) => {
+                            if (v === undefined || v === null || v === '') return 0;
+                            if (typeof v === 'number') return isNaN(v) ? 0 : v;
+                            let s = String(v).trim().replace(/[^\d.,-]/g, '');
+                            if (!s || s === '-') return 0;
+                            if (s.includes(',') && s.includes('.')) {
+                                if (s.lastIndexOf('.') > s.lastIndexOf(',')) s = s.replace(/,/g, '');
+                                else s = s.replace(/\./g, '').replace(/,/g, '.');
+                            } else if (s.includes(',')) {
+                                if (/\,\d{3}$/.test(s) || /\,\d{3}\,/.test(s)) s = s.replace(/,/g, '');
+                                else if (/\,\d{1,2}$/.test(s)) s = s.replace(/,/g, '.');
+                                else s = s.replace(/,/g, '');
+                            }
+                            const n = parseFloat(s);
+                            return isNaN(n) ? 0 : n;
+                        };
 
                         let matchedOrders = [];
                         for (let i = headerIdx + 1; i < rows.length; i++) {
@@ -1689,7 +2001,7 @@
         // 6. RENDER GIAO DIỆN
         // ==========================================
         return (
-            <div className="space-y-4 animate-fade-in relative pb-10">
+            <div className="space-y-4 animate-fade-in relative pb-4">
 
                 <input type="file" accept=".xlsx, .xls" ref={reconciliationInputRef} className="hidden" onChange={handleReconciliationImport} />
 
@@ -1748,40 +2060,67 @@
                         </div>
                     </div>
 
-                    {/* KHUNG THỐNG KÊ DOANH THU (NGAY BÊN DƯỚI HÀNG NÚT THAO TÁC) */}
+                    {/* KHUNG THỐNG KÊ DOANH THU & ĐƠN HÀNG (NGAY BÊN DƯỚI HÀNG NÚT THAO TÁC) */}
                     {!isCTV && showRevenueStats && (
-                        <div className="grid grid-cols-2 gap-3 my-1 animate-fade-in">
-                            <RFCard className="flex items-center justify-between group">
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 my-1 animate-fade-in">
+                            {/* 1. Tổng Doanh Thu */}
+                            <RFCard className="flex items-center justify-between group p-3">
                                 <div className="absolute -right-6 -top-6 w-24 h-24 bg-[#10b981]/5 rounded-full blur-xl group-hover:bg-[#10b981]/15 transition-all"></div>
-                                <div className="relative z-10">
-                                    <div className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Tổng Doanh Thu</div>
-                                    <div className="text-[#10b981] font-black text-2xl drop-shadow-[0_0_10px_rgba(16,185,129,0.3)]">{formatMoney(summaryStats.totalRevenue)}đ</div>
+                                <div className="relative z-10 min-w-0 pr-2">
+                                    <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 truncate">Tổng Doanh Thu</div>
+                                    <div className="text-[#10b981] font-black text-xl sm:text-2xl drop-shadow-[0_0_10px_rgba(16,185,129,0.3)] truncate">{formatMoney(summaryStats.totalRevenue)}đ</div>
                                 </div>
-                                <div className="w-12 h-12 rounded-2xl bg-[#10b981]/10 flex items-center justify-center text-[#10b981] text-xl border border-[#10b981]/20 relative z-10 group-hover:scale-110 transition-transform"><i className="fas fa-coins"></i></div>
+                                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-[#10b981]/10 flex items-center justify-center text-[#10b981] text-lg sm:text-xl border border-[#10b981]/20 relative z-10 group-hover:scale-110 transition-transform shrink-0"><i className="fas fa-coins"></i></div>
                             </RFCard>
-                            <RFCard className="flex items-center justify-between group">
+
+                            {/* 2. Số Đơn Bán */}
+                            <RFCard className="flex items-center justify-between group p-3">
+                                <div className="absolute -right-6 -top-6 w-24 h-24 bg-[#06b6d4]/5 rounded-full blur-xl group-hover:bg-[#06b6d4]/15 transition-all"></div>
+                                <div className="relative z-10 min-w-0 pr-2">
+                                    <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 truncate">Số Đơn Bán</div>
+                                    <div className="text-[#06b6d4] font-black text-xl sm:text-2xl drop-shadow-[0_0_10px_rgba(6,182,212,0.3)] truncate">{formatMoney(summaryStats.totalSoldOrders)} <span className="text-xs text-zinc-400 font-bold">đơn</span></div>
+                                </div>
+                                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-[#06b6d4]/10 flex items-center justify-center text-[#06b6d4] text-lg sm:text-xl border border-[#06b6d4]/20 relative z-10 group-hover:scale-110 transition-transform shrink-0"><i className="fas fa-shopping-bag"></i></div>
+                            </RFCard>
+
+                            {/* 3. Giá Trị Hoàn */}
+                            <RFCard className="flex items-center justify-between group p-3">
                                 <div className="absolute -right-6 -top-6 w-24 h-24 bg-[#f97316]/5 rounded-full blur-xl group-hover:bg-[#f97316]/15 transition-all"></div>
-                                <div className="relative z-10">
-                                    <div className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Hoàn Trả</div>
-                                    <div className="text-[#f97316] font-black text-2xl drop-shadow-[0_0_10px_rgba(249,115,22,0.3)]">{formatMoney(summaryStats.totalReturnedValue)}đ</div>
+                                <div className="relative z-10 min-w-0 pr-2">
+                                    <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 truncate">Giá Trị Hoàn</div>
+                                    <div className="text-[#f97316] font-black text-xl sm:text-2xl drop-shadow-[0_0_10px_rgba(249,115,22,0.3)] truncate">{formatMoney(summaryStats.totalReturnedValue)}đ</div>
                                 </div>
-                                <div className="w-12 h-12 rounded-2xl bg-[#f97316]/10 flex items-center justify-center text-[#f97316] text-xl border border-[#f97316]/20 relative z-10 group-hover:scale-110 transition-transform"><i className="fas fa-undo"></i></div>
+                                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-[#f97316]/10 flex items-center justify-center text-[#f97316] text-lg sm:text-xl border border-[#f97316]/20 relative z-10 group-hover:scale-110 transition-transform shrink-0"><i className="fas fa-undo"></i></div>
                             </RFCard>
-                            <RFCard className="flex items-center justify-between group">
+
+                            {/* 4. Số Đơn Trả Hàng */}
+                            <RFCard className="flex items-center justify-between group p-3">
+                                <div className="absolute -right-6 -top-6 w-24 h-24 bg-[#f43f5e]/5 rounded-full blur-xl group-hover:bg-[#f43f5e]/15 transition-all"></div>
+                                <div className="relative z-10 min-w-0 pr-2">
+                                    <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 truncate">Số Đơn Trả Hàng</div>
+                                    <div className="text-[#f43f5e] font-black text-xl sm:text-2xl drop-shadow-[0_0_10px_rgba(244,63,94,0.3)] truncate">{formatMoney(summaryStats.totalReturnOrders)} <span className="text-xs text-zinc-400 font-bold">đơn</span></div>
+                                </div>
+                                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-[#f43f5e]/10 flex items-center justify-center text-[#f43f5e] text-lg sm:text-xl border border-[#f43f5e]/20 relative z-10 group-hover:scale-110 transition-transform shrink-0"><i className="fas fa-box-tissue"></i></div>
+                            </RFCard>
+
+                            {/* 5. Bán Lẻ */}
+                            <RFCard className="flex items-center justify-between group p-3">
                                 <div className="absolute -right-6 -top-6 w-24 h-24 bg-[#3b82f6]/5 rounded-full blur-xl group-hover:bg-[#3b82f6]/15 transition-all"></div>
-                                <div className="relative z-10">
-                                    <div className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Bán Lẻ</div>
-                                    <div className="text-[#3b82f6] font-black text-2xl drop-shadow-[0_0_10px_rgba(59,130,246,0.3)]">{formatMoney(summaryStats.totalRetail)}đ</div>
+                                <div className="relative z-10 min-w-0 pr-2">
+                                    <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 truncate">Bán Lẻ</div>
+                                    <div className="text-[#3b82f6] font-black text-xl sm:text-2xl drop-shadow-[0_0_10px_rgba(59,130,246,0.3)] truncate">{formatMoney(summaryStats.totalRetail)}đ</div>
                                 </div>
-                                <div className="w-12 h-12 rounded-2xl bg-[#3b82f6]/10 flex items-center justify-center text-[#3b82f6] text-xl border border-[#3b82f6]/20 relative z-10 group-hover:scale-110 transition-transform"><i className="fas fa-store"></i></div>
+                                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-[#3b82f6]/10 flex items-center justify-center text-[#3b82f6] text-lg sm:text-xl border border-[#3b82f6]/20 relative z-10 group-hover:scale-110 transition-transform shrink-0"><i className="fas fa-store"></i></div>
                             </RFCard>
-                            <RFCard className="flex items-center justify-between group">
+
+                            {/* 6. Cộng Tác Viên */}
+                            <RFCard className="flex items-center justify-between group p-3">
                                 <div className="absolute -right-6 -top-6 w-24 h-24 bg-[#d4af37]/5 rounded-full blur-xl group-hover:bg-[#d4af37]/15 transition-all"></div>
-                                <div className="relative z-10">
-                                    <div className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">Cộng Tác Viên</div>
-                                    <div className="text-[#d4af37] font-black text-2xl drop-shadow-[0_0_10px_rgba(212,175,55,0.3)]">{formatMoney(summaryStats.totalCtv)}đ</div>
+                                <div className="relative z-10 min-w-0 pr-2">
+                                    <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 truncate">Cộng Tác Viên</div>
+                                    <div className="text-[#d4af37] font-black text-xl sm:text-2xl drop-shadow-[0_0_10px_rgba(212,175,55,0.3)] truncate">{formatMoney(summaryStats.totalCtv)}đ</div>
                                 </div>
-                                <div className="w-12 h-12 rounded-2xl bg-[#d4af37]/10 flex items-center justify-center text-[#d4af37] text-xl border border-[#d4af37]/20 relative z-10 group-hover:scale-110 transition-transform"><i className="fas fa-handshake"></i></div>
+                                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-[#d4af37]/10 flex items-center justify-center text-[#d4af37] text-lg sm:text-xl border border-[#d4af37]/20 relative z-10 group-hover:scale-110 transition-transform shrink-0"><i className="fas fa-handshake"></i></div>
                             </RFCard>
                         </div>
                     )}
@@ -1861,6 +2200,15 @@
                             activeClass: 'bg-[#ea580c]/15 text-[#f97316] border-[#ea580c]/40 shadow-[0_0_10px_rgba(234,88,12,0.15)] font-bold',
                             inactiveClass: 'bg-[#121214] text-zinc-400 border-white/[0.06] hover:border-white/[0.12] hover:text-[#f97316]',
                             activeIconClass: 'text-[#f97316]',
+                            inactiveIconClass: 'text-zinc-400'
+                        },
+                        {
+                            id: 'EXPORT',
+                            label: 'Xuất Khẩu',
+                            icon: 'fa-globe-asia',
+                            activeClass: 'bg-[#059669]/15 text-[#10b981] border-[#059669]/40 shadow-[0_0_10px_rgba(16,185,129,0.15)] font-bold',
+                            inactiveClass: 'bg-[#121214] text-zinc-400 border-white/[0.06] hover:border-white/[0.12] hover:text-[#10b981]',
+                            activeIconClass: 'text-[#10b981]',
                             inactiveIconClass: 'text-zinc-400'
                         },
                         {
@@ -2007,71 +2355,7 @@
                                     return 'BÁN LẺ';
                                 };
 
-                                const getChannelInlineStyle = (groupKey) => {
-                                    const key = String(groupKey || '').toUpperCase().trim();
-                                    if (key.includes('SHOPEE')) {
-                                        return {
-                                            background: '#f97316',
-                                            color: '#000000',
-                                            border: '2px solid #ea580c',
-                                            boxShadow: '0 4px 14px rgba(249, 115, 22, 0.35)'
-                                        };
-                                    }
-                                    if (key.includes('TIKTOK')) {
-                                        return {
-                                            background: '#06b6d4',
-                                            color: '#000000',
-                                            border: '2px solid #0891b2',
-                                            boxShadow: '0 4px 14px rgba(6, 182, 212, 0.35)'
-                                        };
-                                    }
-                                    if (key.includes('XUẤT KHẨU') || key.includes('EXPORT') || key.includes('QUỐC TẾ')) {
-                                        return {
-                                            background: '#eab308',
-                                            color: '#000000',
-                                            border: '2px solid #ca8a04',
-                                            boxShadow: '0 4px 14px rgba(234, 179, 8, 0.35)'
-                                        };
-                                    }
-                                    if (key.includes('CỘNG TÁC VIÊN') || key.includes('CTV')) {
-                                        return {
-                                            background: '#10b981',
-                                            color: '#000000',
-                                            border: '2px solid #059669',
-                                            boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)'
-                                        };
-                                    }
-                                    if (key.includes('BÁN LẺ') || key.includes('OFFLINE') || key.includes('ZALO') || key.includes('FACEBOOK') || key.includes('MESSENGER')) {
-                                        return {
-                                            background: '#0284c7',
-                                            color: '#ffffff',
-                                            border: '2px solid #0369a1',
-                                            boxShadow: '0 4px 14px rgba(2, 132, 199, 0.35)'
-                                        };
-                                    }
-                                    if (key.includes('SẢN XUẤT TỒN') || key.includes('SẢN XUẤT BÙ KHO') || key.includes('TỒN XƯỞNG')) {
-                                        return {
-                                            background: '#a855f7',
-                                            color: '#ffffff',
-                                            border: '2px solid #9333ea',
-                                            boxShadow: '0 4px 14px rgba(168, 85, 247, 0.35)'
-                                        };
-                                    }
-                                    if (key.includes('BẢO HÀNH') || key.includes('SỬA CHỮA')) {
-                                        return {
-                                            background: '#f43f5e',
-                                            color: '#ffffff',
-                                            border: '2px solid #e11d48',
-                                            boxShadow: '0 4px 14px rgba(244, 63, 94, 0.35)'
-                                        };
-                                    }
-                                    return {
-                                        background: '#14b8a6',
-                                        color: '#000000',
-                                        border: '2px solid #0d9488',
-                                        boxShadow: '0 4px 14px rgba(20, 184, 166, 0.35)'
-                                    };
-                                };
+
 
                                 const orderGroups = [];
                                 sortedFiltered.slice(0, renderLimit).forEach((o, index) => {
@@ -2138,7 +2422,7 @@
                                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-3">
                                                     {groupOrders.map(({ order: o, originalIdx }) => {
                                                         const latestPack = latestPackMap[o.id];
-                                                        const matchedProds = prodMapByOrderId[o.id] || [];
+                                                        const matchedProds = getMatchedProds(o);
                                                         return (
                                                             <RFOrderWrapper
                                                                 key={o.id}
@@ -2146,6 +2430,7 @@
                                                                 order={o}
                                                                 prods={matchedProds}
                                                                 pack={latestPack}
+                                                                packings={packings}
                                                                 erpProducts={erpProducts}
                                                                 erpData={erpData}
                                                                 isAdmin={isAdmin}
@@ -2155,14 +2440,14 @@
                                                                 userConfigs={userConfigs}
                                                                 triggerToast={triggerToast}
                                                                 isSelected={selectedIds.includes(o.id)}
-                                                                onToggleSelect={() => toggleSelect(o.id)}
+                                                                onToggleSelect={toggleSelect}
                                                                 kpiConfig={kpiConfig}
                                                                 idx_num={originalIdx}
                                                                 handleCancelOrder={handleCancelOrder}
                                                                 handleConfirmStockIn={handleConfirmStockIn}
                                                                 openReturnModal={openReturnModal}
                                                                 filterStatus={filterStatus}
-                                                                onEditOrder={() => setEditingOrder({ order: o, prods: matchedProds })}
+                                                                onEditOrder={handleEditOrder}
                                                             />
                                                         );
                                                     })}
