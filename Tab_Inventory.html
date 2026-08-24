@@ -1410,7 +1410,7 @@ function InventoryListView({ data, pushData, isAdmin, triggerToast }) {
                                   className="bg-[#121215] p-3.5 rounded-2xl border border-white/[0.08] cursor-pointer active:scale-[0.98] hover:border-white/[0.2] hover:bg-[#16161c] transition-all duration-200 flex items-center gap-3.5 shadow-sm group select-none relative overflow-hidden"
                               >
                                   {/* Thumbnail or Stylized Category Icon */}
-                                  <div className="w-13 h-13 sm:w-14 sm:h-14 shrink-0 bg-[#09090b] rounded-xl flex items-center justify-center border border-white/[0.08] overflow-hidden shadow-sm group-hover:border-[#d4af37]/30 transition-colors">
+                                  <div className="w-14 h-14 min-w-[56px] min-h-[56px] max-w-[56px] max-h-[56px] shrink-0 bg-[#09090b] rounded-xl flex items-center justify-center border border-white/[0.08] overflow-hidden shadow-sm group-hover:border-[#d4af37]/30 transition-colors relative">
                                       {firstImage ? (
                                           <img 
                                               src={typeof rfOptimizeImageUrl === 'function' ? rfOptimizeImageUrl(firstImage, 'sm') : firstImage} 
