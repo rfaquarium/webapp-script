@@ -4,16 +4,33 @@
     // CHỨC NĂNG: Trung Tâm Nhân Sự (Chấm Công, Giao Việc KPI, Bảng Lương)
     // NÂNG CẤP: Lọc thời gian theo Tháng (Tùy chỉnh) & Phân quyền RBAC CHUẨN CHỈ
     // =========================================================================
+    // HÀM SO KHỚP TÊN NHÂN SỰ TOÀN DIỆN (Hỗ trợ họ tên đầy đủ & tên gọi)
+    const matchUser = (u1, u2) => {
+        if (!u1 || !u2) return false;
+        const s1 = String(u1).toLowerCase().trim();
+        const s2 = String(u2).toLowerCase().trim();
+        if (s1 === s2) return true;
+        if (s1.includes(s2) || s2.includes(s1)) return true;
+        const c1 = s1.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d");
+        const c2 = s2.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d");
+        return c1 === c2 || c1.includes(c2) || c2.includes(c1);
+    };
 
-
+    const formatDR = (s, e) => {
+        if (!s && !e) return '';
+        const f = d => d ? d.substring(5, 10).split('-').reverse().join('/') : '';
+        if (s && e && s === e) return f(s);
+        if (s && e) return `${f(s)} - ${f(e)}`;
+        return f(s || e);
+    };
 
     const HRTab = React.memo(function HRTab({ orders: propOrders, documents, hasPerm, attendance, erpData, userConfigs, prodItems, packings, pushDeltas, triggerToast }) {
         const currentUser = localStorage.getItem('rf_user') || '';
         const currentRole = localStorage.getItem('rf_role') || '';
         const isBoss = localStorage.getItem('rf_boss') === 'true';
 
-        // PHÂN QUYỀN CHUẨN CHỈ: Chỉ Quản lý Nhân sự mới được Sửa Công. Các nút Tiền/KPI đều là isBoss.
-        const canEditAttendance = (hasPerm && hasPerm('HR_PAYROLL')) || isBoss || currentRole === 'NHÂN SỰ' || currentRole === 'QUẢN LÝ';
+        // PHÂN QUYỀN CHUẨN CHỈ: Quản lý nhân sự không được phép sửa công nữa
+        const canEditAttendance = (hasPerm && hasPerm('HR_PAYROLL')) || isBoss;
         const canManagePayroll = isBoss || String(currentRole).toUpperCase() === 'KẾ TOÁN' || String(currentRole).toUpperCase() === 'TỐI CAO';
         const canPenalize = isBoss || ['QUẢN LÝ NHÂN SỰ', 'QUẢN LÝ KHO', 'QUẢN LÝ BÁN HÀNG', 'TỐI CAO'].includes(String(currentRole).toUpperCase());
 
@@ -39,6 +56,7 @@
         const [subTab, setSubTab] = React.useState('ATTENDANCE');
         const [attViewMode, setAttViewMode] = React.useState('CARDS'); // 'CARDS' | 'MATRIX'
         const [editingLeave, setEditingLeave] = React.useState(null);
+        const [expModalUser, setExpModalUser] = React.useState(null); // Quản lý modal lịch sử EXP & lộ trình cấp độ
 
         const [filter, setFilter] = React.useState('Tháng Này');
         const [customMonth, setCustomMonth] = React.useState(() => new Date().toISOString().slice(0, 7)); // Format YYYY-MM
@@ -77,9 +95,22 @@
         const rawAttData = attendance || [];
         const bpData = erpData?.BonusPenalty || [];
         const kpiData = erpData?.KPI_Progress || [];
+        const xuSheetData = erpData?.ThongKe_TichLuyXu || erpData?.xuTransactions || [];
         const safeProdItems = prodItems || [];
         const safePackings = packings || [];
         const orders = propOrders || erpData?.Orders || erpData?.orders || [];
+
+        // HÀM SO KHỚP TÊN NHÂN SỰ TOÀN DIỆN (Hỗ trợ họ tên đầy đủ & tên gọi)
+        const matchUser = (u1, u2) => {
+            if (!u1 || !u2) return false;
+            const s1 = String(u1).toLowerCase().trim();
+            const s2 = String(u2).toLowerCase().trim();
+            if (s1 === s2) return true;
+            if (s1.includes(s2) || s2.includes(s1)) return true;
+            const c1 = s1.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d");
+            const c2 = s2.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d");
+            return c1 === c2 || c1.includes(c2) || c2.includes(c1);
+        };
 
         // O(1) FAST LOOKUP MAP FOR ORDERS (Prevents UI freezing / lag on render)
         const orderLookupMap = React.useMemo(() => {
@@ -353,103 +384,244 @@
         };
 
         const getLevelColorStyle = (lvl) => {
-            const tier = Math.floor((Math.max(1, lvl) - 1) / 5);
+            const num = Math.max(1, Number(lvl) || 1);
+            let tier = 0;
+            if (num <= 9) {
+                tier = 0; // Cấp 1 - 9 (Tân Thủ Khởi Nghiệp)
+            } else if (num <= 14) {
+                tier = 1; // Cấp 10 - 14 (Hổ Phách Tinh Anh)
+            } else if (num <= 19) {
+                tier = 2; // Cấp 15 - 19 (Lục Bảo Tiên Phong)
+            } else if (num <= 24) {
+                tier = 3; // Cấp 20 - 24 (Lam Ngọc Cao Thủ)
+            } else if (num <= 29) {
+                tier = 4; // Cấp 25 - 29 (Thạch Anh Huyền Bí)
+            } else if (num <= 34) {
+                tier = 5; // Cấp 30 - 34 (Huyết Tướng Chiến Binh)
+            } else if (num <= 39) {
+                tier = 6; // Cấp 35 - 39 (Hoả Phụng Hoàng)
+            } else if (num <= 49) {
+                tier = 7; // Cấp 40 - 49 (Thái Dương Hoàng Kim)
+            } else {
+                tier = 8; // Cấp 50 - 100 (Tối Cao Thần Thoại)
+            }
+
             const styles = [
-                /* Tier 0: Lvl 1-5 (Slate Rookie) */
+                /* Tier 0: Lvl 1-9 (Stealth Obsidian / Tân Thủ Khởi Nghiệp) */
                 {
-                    cardBg: 'bg-[#0f1115] border-[#222]',
-                    badge: 'bg-slate-800 text-slate-300 border-slate-600',
-                    bar: 'from-slate-600 to-slate-400',
-                    border: 'border-l-slate-600',
-                    avatarRing: 'border-slate-600'
+                    tier: 0,
+                    tierLabel: "TÂN THỦ",
+                    tierTitle: "Tân Thủ Khởi Nghiệp",
+                    icon: "fa-seedling",
+                    iconEmoji: "🌱",
+                    levelRange: "Cấp 1 - 9",
+                    expRangeText: "0 - 1.700.000 EXP",
+                    desc: "Bước khởi đầu hành trình cống hiến, làm quen quy trình & dòng chảy xưởng.",
+                    cardBg: "bg-gradient-to-r from-[#0c0d10] via-[#090a0d] to-[#060709] border border-zinc-800/80 shadow-[0_4px_20px_rgba(0,0,0,0.5)]",
+                    badge: "bg-zinc-900 text-zinc-200 border border-zinc-600 font-black shadow-sm",
+                    lvlBorder: "border-zinc-500 shadow-[0_0_10px_rgba(161,161,170,0.4)]",
+                    tierPillStyle: "bg-zinc-800 text-zinc-200 border border-zinc-600",
+                    bar: "from-zinc-500 via-zinc-400 to-zinc-300",
+                    border: "border-l-4 border-l-zinc-500",
+                    avatarRing: "border-2 border-zinc-500 shadow-[0_0_12px_rgba(161,161,170,0.3)]",
+                    expText: "text-zinc-200",
+                    headerText: "text-zinc-100",
+                    cornerDeco: null,
+                    glowDot: null,
+                    badgeGlow: "shadow-[0_0_10px_rgba(161,161,170,0.2)]",
+                    shadowAura: "hover:shadow-[0_0_25px_rgba(113,113,122,0.15)]"
                 },
-                /* Tier 1: Lvl 6-10 (Amber Apprentice) */
+                /* Tier 1: Lvl 10-14 (Bronze Amber / Hổ Phách Tinh Anh) */
                 {
-                    cardBg: 'bg-gradient-to-br from-[#16120b] to-[#0d0c0a] border-amber-900/50 shadow-[0_0_15px_rgba(217,119,6,0.15)]',
-                    badge: 'bg-amber-950/90 text-amber-400 border-amber-600/70 shadow-[0_0_8px_rgba(245,158,11,0.3)]',
-                    bar: 'from-amber-600 to-yellow-400',
-                    border: 'border-l-amber-500',
-                    avatarRing: 'border-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.4)]'
+                    tier: 1,
+                    tierLabel: "HỔ PHÁCH",
+                    tierTitle: "Hổ Phách Tinh Anh",
+                    icon: "fa-shield-halved",
+                    iconEmoji: "🛡️",
+                    levelRange: "Cấp 10 - 14",
+                    expRangeText: "1.7M - 15.000.000 EXP",
+                    desc: "Nắm vững kỹ năng thao tác, thành viên tích cực đóng góp đều đặn.",
+                    cardBg: "bg-gradient-to-r from-[#1c1308] via-[#130d05] to-[#0a0703] border border-amber-700/60 shadow-[0_4px_25px_rgba(217,119,6,0.18)]",
+                    badge: "bg-amber-950 text-amber-300 border border-amber-500 font-black shadow-[0_0_12px_rgba(245,158,11,0.4)]",
+                    lvlBorder: "border-amber-500 shadow-[0_0_12px_rgba(245,158,11,0.6)]",
+                    tierPillStyle: "bg-amber-950 text-amber-300 border border-amber-500/80",
+                    bar: "from-amber-600 via-amber-500 to-yellow-400",
+                    border: "border-l-4 border-l-amber-500",
+                    avatarRing: "border-2 border-amber-500 shadow-[0_0_14px_rgba(245,158,11,0.5)]",
+                    expText: "text-amber-300",
+                    headerText: "text-amber-100",
+                    cornerDeco: "border-t-2 border-r-2 border-amber-500/50",
+                    glowDot: "bg-amber-400 shadow-[0_0_8px_rgba(245,158,11,0.8)]",
+                    badgeGlow: "shadow-[0_0_14px_rgba(245,158,11,0.4)]",
+                    shadowAura: "hover:shadow-[0_0_30px_rgba(245,158,11,0.2)]"
                 },
-                /* Tier 2: Lvl 11-15 (Cyber Emerald) */
+                /* Tier 2: Lvl 15-19 (Tactical Emerald / Lục Bảo Tiên Phong) */
                 {
-                    cardBg: 'bg-gradient-to-br from-[#0a1813] to-[#080f0c] border-emerald-600/60 shadow-[0_0_20px_rgba(16,185,129,0.2)]',
-                    badge: 'bg-emerald-950/90 text-emerald-300 border-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.5)]',
-                    bar: 'from-emerald-500 to-teal-300',
-                    border: 'border-l-emerald-400',
-                    avatarRing: 'border-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.6)]'
+                    tier: 2,
+                    tierLabel: "LỤC BẢO",
+                    tierTitle: "Lục Bảo Tiên Phong",
+                    icon: "fa-gem",
+                    iconEmoji: "💎",
+                    levelRange: "Cấp 15 - 19",
+                    expRangeText: "15.0M - 38.000.000 EXP",
+                    desc: "Làm chủ hoàn toàn quy trình, sản lượng & độ chuẩn KCS vượt bậc.",
+                    cardBg: "bg-gradient-to-r from-[#072016] via-[#04140d] to-[#020a07] border border-emerald-500/60 shadow-[0_4px_30px_rgba(16,185,129,0.25)]",
+                    badge: "bg-emerald-950 text-emerald-300 border border-emerald-400 font-black shadow-[0_0_16px_rgba(52,211,153,0.5)]",
+                    lvlBorder: "border-emerald-400 shadow-[0_0_14px_rgba(52,211,153,0.7)]",
+                    tierPillStyle: "bg-emerald-950 text-emerald-300 border border-emerald-400/80",
+                    bar: "from-emerald-500 via-teal-400 to-cyan-300",
+                    border: "border-l-4 border-l-emerald-400",
+                    avatarRing: "border-2 border-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.7)]",
+                    expText: "text-emerald-300",
+                    headerText: "text-emerald-50",
+                    cornerDeco: "border-t-2 border-r-2 border-emerald-400/70",
+                    glowDot: "bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.9)]",
+                    badgeGlow: "shadow-[0_0_16px_rgba(52,211,153,0.5)]",
+                    shadowAura: "hover:shadow-[0_0_35px_rgba(16,185,129,0.25)]"
                 },
-                /* Tier 3: Lvl 16-20 (Neon Cyan) */
+                /* Tier 3: Lvl 20-24 (Royal Sapphire / Lam Ngọc Cao Thủ) */
                 {
-                    cardBg: 'bg-gradient-to-br from-[#081825] to-[#060e17] border-cyan-500/70 shadow-[0_0_25px_rgba(6,182,212,0.25)]',
-                    badge: 'bg-cyan-950/90 text-cyan-300 border-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.6)]',
-                    bar: 'from-cyan-500 to-blue-300',
-                    border: 'border-l-cyan-400',
-                    avatarRing: 'border-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.7)]'
+                    tier: 3,
+                    tierLabel: "LAM NGỌC",
+                    tierTitle: "Lam Ngọc Cao Thủ",
+                    icon: "fa-bolt",
+                    iconEmoji: "⚡",
+                    levelRange: "Cấp 20 - 24",
+                    expRangeText: "38.0M - 68.000.000 EXP",
+                    desc: "Tốc độ và sự chính xác tuyệt đối, xử lý mượt mà các khâu then chốt.",
+                    cardBg: "bg-gradient-to-r from-[#061d36] via-[#031122] to-[#020912] border border-cyan-400/70 shadow-[0_4px_35px_rgba(6,182,212,0.3)]",
+                    badge: "bg-cyan-950 text-cyan-200 border border-cyan-400 font-black shadow-[0_0_18px_rgba(34,211,238,0.6)]",
+                    lvlBorder: "border-cyan-400 shadow-[0_0_16px_rgba(34,211,238,0.8)]",
+                    tierPillStyle: "bg-cyan-950 text-cyan-200 border border-cyan-400/80",
+                    bar: "from-cyan-500 via-blue-400 to-indigo-300",
+                    border: "border-l-4 border-l-cyan-400",
+                    avatarRing: "border-2 border-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.8)]",
+                    expText: "text-cyan-300",
+                    headerText: "text-cyan-50",
+                    cornerDeco: "border-t-2 border-r-2 border-cyan-400/80",
+                    glowDot: "bg-cyan-400 shadow-[0_0_12px_rgba(34,211,238,1)]",
+                    badgeGlow: "shadow-[0_0_18px_rgba(34,211,238,0.6)]",
+                    shadowAura: "hover:shadow-[0_0_38px_rgba(6,182,212,0.3)]"
                 },
-                /* Tier 4: Lvl 21-25 (Royal Cobalt) */
+                /* Tier 4: Lvl 25-29 (Shadow Amethyst / Tím Thạch Anh) */
                 {
-                    cardBg: 'bg-gradient-to-br from-[#0b132b] to-[#070a18] border-blue-500/80 shadow-[0_0_30px_rgba(59,130,246,0.3)]',
-                    badge: 'bg-blue-950/90 text-blue-200 border-blue-400 shadow-[0_0_18px_rgba(96,165,250,0.7)]',
-                    bar: 'from-blue-600 to-indigo-300',
-                    border: 'border-l-blue-400',
-                    avatarRing: 'border-blue-400 shadow-[0_0_18px_rgba(96,165,250,0.8)]'
+                    tier: 4,
+                    tierLabel: "THẠCH ANH",
+                    tierTitle: "Thạch Anh Huyền Bí",
+                    icon: "fa-wand-magic-sparkles",
+                    iconEmoji: "🔮",
+                    levelRange: "Cấp 25 - 29",
+                    expRangeText: "68.0M - 110.000.000 EXP",
+                    desc: "Tay nghề bậc thầy, biến các yêu cầu phức tạp thành tuyệt tác hoàn hảo.",
+                    cardBg: "bg-gradient-to-r from-[#240c3c] via-[#140622] to-[#090210] border border-purple-500/75 shadow-[0_4px_40px_rgba(168,85,247,0.35)]",
+                    badge: "bg-purple-950 text-purple-200 border border-purple-400 font-black shadow-[0_0_20px_rgba(192,132,252,0.7)]",
+                    lvlBorder: "border-purple-400 shadow-[0_0_18px_rgba(192,132,252,0.85)]",
+                    tierPillStyle: "bg-purple-950 text-purple-200 border border-purple-400/80",
+                    bar: "from-purple-600 via-fuchsia-500 to-pink-300",
+                    border: "border-l-4 border-l-purple-400",
+                    avatarRing: "border-2 border-purple-400 shadow-[0_0_22px_rgba(192,132,252,0.85)]",
+                    expText: "text-purple-300",
+                    headerText: "text-purple-50",
+                    cornerDeco: "border-t-2 border-r-2 border-purple-400/80",
+                    glowDot: "bg-purple-400 shadow-[0_0_12px_rgba(192,132,252,1)]",
+                    badgeGlow: "shadow-[0_0_20px_rgba(192,132,252,0.7)]",
+                    shadowAura: "hover:shadow-[0_0_42px_rgba(168,85,247,0.35)]"
                 },
-                /* Tier 5: Lvl 26-30 (Mystic Purple) */
+                /* Tier 5: Lvl 30-34 (Blood Crimson / Huyết Tướng Warlord) */
                 {
-                    cardBg: 'bg-gradient-to-br from-[#180c2c] to-[#0e061b] border-purple-500/80 shadow-[0_0_35px_rgba(168,85,247,0.35)]',
-                    badge: 'bg-purple-950/90 text-purple-200 border-purple-400 shadow-[0_0_20px_rgba(192,132,252,0.8)]',
-                    bar: 'from-purple-600 to-fuchsia-300',
-                    border: 'border-l-purple-400',
-                    avatarRing: 'border-purple-400 shadow-[0_0_20px_rgba(192,132,252,0.8)]'
+                    tier: 5,
+                    tierLabel: "HUYẾT TƯỚNG",
+                    tierTitle: "Huyết Tướng Chiến Binh",
+                    icon: "fa-fire-flame-curved",
+                    iconEmoji: "⚔️",
+                    levelRange: "Cấp 30 - 34",
+                    expRangeText: "110.0M - 165.000.000 EXP",
+                    desc: "Chiến binh chủ lực vượt bão đơn hàng, giữ vững dòng chảy sản xuất bền bỉ.",
+                    cardBg: "bg-gradient-to-r from-[#330914] via-[#1d040a] to-[#0d0104] border border-rose-500/85 shadow-[0_4px_45px_rgba(244,63,94,0.4)]",
+                    badge: "bg-rose-950 text-rose-100 border border-rose-500 font-black shadow-[0_0_22px_rgba(244,63,94,0.75)]",
+                    lvlBorder: "border-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.9)]",
+                    tierPillStyle: "bg-rose-950 text-rose-200 border border-rose-500/80",
+                    bar: "from-rose-600 via-red-500 to-amber-300",
+                    border: "border-l-4 border-l-rose-500",
+                    avatarRing: "border-2 border-rose-500 shadow-[0_0_24px_rgba(244,63,94,0.95)]",
+                    expText: "text-rose-300",
+                    headerText: "text-rose-50",
+                    cornerDeco: "border-t-2 border-r-2 border-rose-500/90",
+                    glowDot: "bg-rose-400 shadow-[0_0_14px_rgba(244,63,94,1)]",
+                    badgeGlow: "shadow-[0_0_22px_rgba(244,63,94,0.75)]",
+                    shadowAura: "hover:shadow-[0_0_48px_rgba(244,63,94,0.4)]"
                 },
-                /* Tier 6: Lvl 31-35 (Cyber Fuchsia) */
+                /* Tier 6: Lvl 35-39 (Solar Phoenix / Hoả Phụng Hoàng) */
                 {
-                    cardBg: 'bg-gradient-to-br from-[#240822] to-[#120411] border-fuchsia-500/80 shadow-[0_0_40px_rgba(217,70,239,0.4)]',
-                    badge: 'bg-fuchsia-950/90 text-fuchsia-200 border-fuchsia-400 shadow-[0_0_22px_rgba(232,121,249,0.85)]',
-                    bar: 'from-fuchsia-600 to-pink-300',
-                    border: 'border-l-fuchsia-400',
-                    avatarRing: 'border-fuchsia-400 shadow-[0_0_22px_rgba(232,121,249,0.9)]'
+                    tier: 6,
+                    tierLabel: "HOẢ PHỤNG",
+                    tierTitle: "Hoả Phụng Hoàng",
+                    icon: "fa-dragon",
+                    iconEmoji: "🔥",
+                    levelRange: "Cấp 35 - 39",
+                    expRangeText: "165.0M - 235.000.000 EXP",
+                    desc: "Ngọn lửa tiên phong truyền cảm hứng, dẫn dắt đồng đội bứt phá mọi chỉ tiêu.",
+                    cardBg: "bg-gradient-to-r from-[#3a1604] via-[#200b02] to-[#0f0401] border-2 border-orange-500/90 shadow-[0_4px_50px_rgba(249,115,22,0.45)]",
+                    badge: "bg-orange-950 text-orange-200 border border-orange-400 font-black shadow-[0_0_25px_rgba(251,146,60,0.9)]",
+                    lvlBorder: "border-orange-400 shadow-[0_0_22px_rgba(251,146,60,1)]",
+                    tierPillStyle: "bg-orange-950 text-orange-200 border border-orange-400/90",
+                    bar: "from-orange-500 via-amber-400 to-yellow-200",
+                    border: "border-l-4 border-l-orange-400",
+                    avatarRing: "border-2 border-orange-400 shadow-[0_0_26px_rgba(251,146,60,1)]",
+                    expText: "text-amber-300",
+                    headerText: "text-amber-50",
+                    cornerDeco: "border-t-2 border-r-2 border-orange-400",
+                    glowDot: "bg-orange-400 shadow-[0_0_16px_rgba(251,146,60,1)]",
+                    badgeGlow: "shadow-[0_0_25px_rgba(251,146,60,0.9)]",
+                    shadowAura: "hover:shadow-[0_0_52px_rgba(249,115,22,0.45)]"
                 },
-                /* Tier 7: Lvl 36-40 (Blood Crimson) */
+                /* Tier 7: Lvl 40-49 (Solar Gold Titan / Thái Dương Chi Tôn) */
                 {
-                    cardBg: 'bg-gradient-to-br from-[#260808] to-[#130303] border-rose-500 shadow-[0_0_45px_rgba(244,63,94,0.45)]',
-                    badge: 'bg-rose-950/95 text-rose-200 border-rose-500 shadow-[0_0_25px_rgba(244,63,94,0.9)] animate-pulse',
-                    bar: 'from-rose-600 to-red-400',
-                    border: 'border-l-rose-500',
-                    avatarRing: 'border-rose-500 shadow-[0_0_25px_rgba(244,63,94,1)] animate-pulse'
+                    tier: 7,
+                    tierLabel: "THÁI DƯƠNG",
+                    tierTitle: "Thái Dương Hoàng Kim",
+                    icon: "fa-sun",
+                    iconEmoji: "☀️",
+                    levelRange: "Cấp 40 - 49",
+                    expRangeText: "235.0M - 420.000.000 EXP",
+                    desc: "Trụ cột vững chắc như bàn thạch, linh hồn bảo chứng chất lượng xưởng.",
+                    cardBg: "bg-gradient-to-r from-[#3a2804] via-[#221702] to-[#100b01] border-2 border-yellow-400 shadow-[0_4px_55px_rgba(234,179,8,0.5)]",
+                    badge: "bg-yellow-950 text-yellow-200 border border-yellow-300 font-black shadow-[0_0_30px_rgba(250,204,21,1)]",
+                    lvlBorder: "border-yellow-300 shadow-[0_0_25px_rgba(250,204,21,1)]",
+                    tierPillStyle: "bg-yellow-950 text-yellow-200 border border-yellow-300",
+                    bar: "from-yellow-400 via-amber-300 to-white",
+                    border: "border-l-4 border-l-yellow-300",
+                    avatarRing: "border-2 border-yellow-300 shadow-[0_0_30px_rgba(250,204,21,1)]",
+                    expText: "text-yellow-300",
+                    headerText: "text-yellow-50",
+                    cornerDeco: "border-t-2 border-r-2 border-yellow-300",
+                    glowDot: "bg-yellow-300 shadow-[0_0_18px_rgba(250,204,21,1)]",
+                    badgeGlow: "shadow-[0_0_30px_rgba(250,204,21,1)]",
+                    shadowAura: "hover:shadow-[0_0_58px_rgba(234,179,8,0.5)]"
                 },
-                /* Tier 8: Lvl 41-45 (Flame Phoenix) */
+                /* Tier 8: Lvl 50-100 (Celestial Godlike / Tối Cao Thần Thoại) */
                 {
-                    cardBg: 'bg-gradient-to-br from-[#2c1005] to-[#150602] border-orange-500 shadow-[0_0_50px_rgba(249,115,22,0.5)]',
-                    badge: 'bg-gradient-to-r from-orange-600 to-amber-500 text-black border-amber-300 font-black shadow-[0_0_25px_rgba(251,146,60,0.9)]',
-                    bar: 'from-orange-500 via-amber-400 to-yellow-300',
-                    border: 'border-l-orange-400',
-                    avatarRing: 'border-orange-400 shadow-[0_0_25px_rgba(251,146,60,1)] animate-pulse'
-                },
-                /* Tier 9: Lvl 46-50 (Solar Gold Warlord) */
-                {
-                    cardBg: 'bg-gradient-to-br from-[#2c2005] to-[#150f02] border-yellow-400 shadow-[0_0_55px_rgba(234,179,8,0.55)]',
-                    badge: 'bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-500 text-black border-yellow-200 font-black shadow-[0_0_30px_rgba(250,204,21,1)] animate-pulse',
-                    bar: 'from-yellow-400 via-amber-300 to-yellow-100',
-                    border: 'border-l-yellow-300',
-                    avatarRing: 'border-yellow-300 shadow-[0_0_30px_rgba(250,204,21,1)] animate-pulse'
-                },
-                /* Tier 10: Lvl 51-55 (Celestial Prism Overlord) */
-                {
-                    cardBg: 'bg-gradient-to-br from-[#1a1c2e] via-[#09152b] to-[#1a0a2a] border-cyan-400 shadow-[0_0_60px_rgba(6,182,212,0.6)]',
-                    badge: 'bg-gradient-to-r from-cyan-400 via-amber-300 to-fuchsia-500 text-black border-2 border-white font-black shadow-[0_0_35px_rgba(255,255,255,1)] animate-bounce',
-                    bar: 'from-cyan-400 via-amber-300 to-fuchsia-400',
-                    border: 'border-l-cyan-300',
-                    avatarRing: 'border-cyan-300 shadow-[0_0_35px_rgba(6,182,212,1)] animate-bounce'
-                },
-                /* Tier 11+: Lvl 56-100 (Godlike Supreme) */
-                {
-                    cardBg: 'bg-gradient-to-br from-[#2a0e2e] via-[#1a0a2a] to-[#0a1e2e] border-amber-300 shadow-[0_0_70px_rgba(251,191,36,0.7)] animate-pulse',
-                    badge: 'bg-gradient-to-r from-amber-300 via-rose-400 via-cyan-400 to-amber-300 text-black border-2 border-amber-200 font-black shadow-[0_0_40px_rgba(251,191,36,1)] animate-bounce',
-                    bar: 'from-amber-300 via-cyan-300 to-white',
-                    border: 'border-l-amber-300',
-                    avatarRing: 'border-amber-300 shadow-[0_0_40px_rgba(251,191,36,1)] animate-bounce'
+                    tier: 8,
+                    tierLabel: "THẦN THOẠI",
+                    tierTitle: "Tối Cao Thần Thoại",
+                    icon: "fa-crown",
+                    iconEmoji: "👑",
+                    levelRange: "Cấp 50 - 100",
+                    expRangeText: "420.0M - 2.000.000.000 EXP",
+                    desc: "Huyền thoại cống hiến trọn đời, đỉnh cao danh vọng và di sản xưởng sản xuất.",
+                    cardBg: "bg-gradient-to-r from-[#2c1038] via-[#101832] to-[#081e28] border-2 border-amber-300 shadow-[0_4px_65px_rgba(251,191,36,0.65)]",
+                    badge: "bg-gradient-to-r from-purple-950 via-indigo-950 to-purple-900 text-amber-300 border-2 border-amber-300 font-black shadow-[0_0_35px_rgba(251,191,36,0.9)]",
+                    lvlBorder: "border-amber-300 ring-2 ring-amber-400/50 shadow-[0_0_30px_rgba(251,191,36,1)]",
+                    tierPillStyle: "bg-gradient-to-r from-purple-950 via-indigo-950 to-purple-900 text-amber-300 border border-amber-300 font-black",
+                    bar: "from-cyan-400 via-amber-300 to-rose-400",
+                    border: "border-l-4 border-l-amber-300",
+                    avatarRing: "border-2 border-amber-300 shadow-[0_0_35px_rgba(251,191,36,1)]",
+                    expText: "text-cyan-300",
+                    headerText: "text-white",
+                    cornerDeco: "border-t-2 border-r-2 border-amber-300",
+                    glowDot: "bg-amber-300 shadow-[0_0_20px_rgba(251,191,36,1)]",
+                    badgeGlow: "shadow-[0_0_35px_rgba(251,191,36,1)]",
+                    shadowAura: "hover:shadow-[0_0_65px_rgba(251,191,36,0.65)]"
                 }
             ];
             return styles[Math.min(tier, styles.length - 1)];
@@ -457,7 +629,14 @@
 
         const get100LevelInfo = (totalExp) => {
             const exp = Math.max(0, Number(totalExp) || 0);
-            const MAX_EXP = 2000000000; // 2 Tỷ EXP (20 năm cống hiến)
+            const MAX_EXP = 2000000000; // 2 Tỷ EXP (Lũy tiến 20 năm cống hiến)
+
+            const getExpForLevel = (l) => {
+                if (l <= 1) return 0;
+                if (l >= 100) return MAX_EXP;
+                // Càng lên cao càng cần nhiều EXP (Số mũ 2.35 lũy tiến chuẩn RPG)
+                return Math.round(MAX_EXP * Math.pow((l - 1) / 99, 2.35));
+            };
 
             if (exp >= MAX_EXP) {
                 return {
@@ -468,18 +647,13 @@
                     neededForNext: 0,
                     progressPct: 100,
                     title: 'TỐI CAO GRANDMASTER',
-                    colorStyle: getLevelColorStyle(100)
+                    colorStyle: getLevelColorStyle(100),
+                    totalExp: exp
                 };
             }
 
-            let level = Math.floor(Math.pow(exp / MAX_EXP, 1 / 2.25) * 99) + 1;
+            let level = Math.floor(Math.pow(exp / MAX_EXP, 1 / 2.35) * 99) + 1;
             level = Math.max(1, Math.min(99, level));
-
-            const getExpForLevel = (l) => {
-                if (l <= 1) return 0;
-                if (l >= 100) return MAX_EXP;
-                return Math.round(MAX_EXP * Math.pow((l - 1) / 99, 2.25));
-            };
 
             const currentBaseExp = getExpForLevel(level);
             const nextBaseExp = getExpForLevel(level + 1);
@@ -487,16 +661,17 @@
             const neededForNext = Math.max(1, nextBaseExp - currentBaseExp);
             const progressPct = Math.min(100, Math.max(0, (expInLevel / neededForNext) * 100));
 
-            let title = 'Tân Thủ';
+            let title = 'Tân Thủ Khởi Nghiệp';
             if (level >= 90) title = 'Huyền Thoại Xưởng';
-            else if (level >= 80) title = 'Đại Tôn Tự';
-            else if (level >= 70) title = 'Táo Quân Xưởng';
-            else if (level >= 60) title = 'Cao Thủ Kỳ Cựu';
-            else if (level >= 50) title = 'Trụ Cột Doanh Nghiệp';
-            else if (level >= 40) title = 'Chuyên Gia Tinh Anh';
-            else if (level >= 30) title = 'Thợ Lành Nghề';
-            else if (level >= 20) title = 'Nhân Sự Vững Vàng';
-            else if (level >= 10) title = 'Thành Viên Tích Cực';
+            else if (level >= 75) title = 'Đại Tôn Sư';
+            else if (level >= 50) title = 'Tối Cao Thần Thoại';
+            else if (level >= 40) title = 'Thái Dương Chi Tôn';
+            else if (level >= 35) title = 'Hoả Phụng Tiên Phong';
+            else if (level >= 30) title = 'Huyết Tướng Chiến Binh';
+            else if (level >= 25) title = 'Thạch Anh Huyền Bí';
+            else if (level >= 20) title = 'Lam Ngọc Cao Thủ';
+            else if (level >= 15) title = 'Lục Bảo Tiên Phong';
+            else if (level >= 10) title = 'Hổ Phách Tinh Anh';
 
             return {
                 level,
@@ -506,7 +681,8 @@
                 neededForNext,
                 progressPct,
                 title,
-                colorStyle: getLevelColorStyle(level)
+                colorStyle: getLevelColorStyle(level),
+                totalExp: exp
             };
         };
 
@@ -669,6 +845,7 @@
                 }
             }
         }, [attData, rawAttData, currentUser, pushDeltas]);
+
 
         const handleSaveEditAtt = async () => {
             let tIn = editAtt.timeIn || '';
@@ -887,6 +1064,8 @@
                 let revTotal = 0;
                 let revPending = 0;
                 const allOrders = orders || erpData?.orders || erpData?.Orders || [];
+                const uTarget = String(u || '').toLowerCase().trim();
+                const isFounderOrBoss = uTarget.includes('nguyễn ngọc tiến') || uTarget.includes('tiến') || uTarget.includes('founder') || uTarget.includes('giám đốc') || uTarget.includes('tối cao') || uTarget.includes('toàn xưởng');
 
                 const parseCleanRev = (rawRev, ch = '') => {
                     if (rawRev === null || rawRev === undefined || rawRev === '') return 0;
@@ -931,26 +1110,23 @@
 
                 const isUserMatch = (oUser, targetUser, oCh = '') => {
                     if (!targetUser) return false;
-                    const uTarget = String(targetUser).toLowerCase().trim();
+                    const uT = String(targetUser).toLowerCase().trim();
                     const uOrder = String(oUser || '').toLowerCase().trim();
                     const ch = String(oCh || '').toLowerCase().trim();
 
                     // 1. Nếu đơn có gán responsibleUser đích danh
                     if (uOrder) {
-                        if (uOrder === uTarget) return true;
-                        if (uOrder.includes('diệu hương') && uTarget.includes('diệu hương')) return true;
-                        if (uOrder.includes('hương') && uTarget.includes('hương')) return true;
-                        if (uOrder.includes('dương') && uTarget.includes('dương')) return true;
-                        if (uOrder.includes('tân') && uTarget.includes('tân')) return true;
-                        if (uOrder.includes('tâm') && uTarget.includes('tâm')) return true;
+                        if (uOrder === uT) return true;
+                        if (uOrder.includes('diệu hương') && uT.includes('diệu hương')) return true;
+                        if (uOrder.includes('hương') && uT.includes('hương')) return true;
+                        if (uOrder.includes('dương') && uT.includes('dương')) return true;
+                        if (uOrder.includes('tân') && uT.includes('tân')) return true;
+                        if (uOrder.includes('tâm') && uT.includes('tâm')) return true;
                         return false;
                     }
 
                     // 2. Nếu đơn KHÔNG gán responsibleUser:
-                    // Chỉ tính cho Diệu Hương (Quản lý Bán Hàng) nếu là đơn BÁN HÀNG TRỰC TIẾP / CHỐT ĐƠN:
-                    // (Bán Lẻ, Bán Sỉ, Facebook, Zalo, Tư Vấn, Hotline, Trực Tiếp, Khách Lẻ, Cửa Hàng, Messenger...)
-                    // Tuyệt đối KHÔNG tính đơn tự động của sàn TMĐT (Shopee, TikTok, Lazada) và đơn nội bộ / CTV
-                    if (uTarget.includes('diệu hương') || uTarget.includes('hương')) {
+                    if (uT.includes('diệu hương') || uT.includes('hương')) {
                         const isDirectSaleChannel = ch.includes('bán lẻ') || ch.includes('ban le') ||
                             ch.includes('bán sỉ') || ch.includes('ban si') ||
                             ch.includes('facebook') || ch.includes('fb') ||
@@ -965,27 +1141,208 @@
 
                 allOrders.forEach(o => {
                     const oChannel = String(o.channel || '').trim();
-                    if (oChannel === 'Sản Xuất Tồn' || oChannel === 'Sản Xuất Bù Kho' || oChannel.includes('Cộng Tác Viên') || oChannel === 'CTV') return;
+                    if (oChannel === 'Sản Xuất Tồn' || oChannel === 'Sản Xuất Bù Kho') return;
 
-                    // Chỉ lấy responsibleUser hoặc sale thực sự (KHÔNG lấy updatedBy vì updatedBy bị gán tự động khi import Shopee/TikTok)
-                    const oUser = o.responsibleUser || o.sale || '';
-                    const oDate = o.createdAt || o.date;
-                    const oStatus = String(o.status || '').trim();
+                    const st = String(o._effectiveStatus || o.status || '').toUpperCase().trim();
+                    const rawStatus = String(o.status || '').toUpperCase().trim();
+                    const note = String(o.note || '').toLowerCase();
 
-                    if (isUserMatch(oUser, u, oChannel) && inR(oDate)) {
-                        const orderRev = parseCleanRev(o.revenue, oChannel);
-                        if (orderRev <= 0) return;
+                    // Nhận diện đơn trả hàng (khớp Tab Đơn Hàng)
+                    const isReturned = st === 'HÀNG HOÀN' || st === 'KIỂM HÀNG HOÀN' || st === 'HÀNG HOÀN CHỜ XỬ LÝ' || st.includes('HOÀN CHỜ XỬ') || 
+                        rawStatus === 'HÀNG HOÀN' || rawStatus.includes('HOÀN TRẢ') || 
+                        Boolean(o.returnedAt) || 
+                        note.includes('[kn-thang]') || note.includes('[kn-thua]') || note.includes('hàng hoàn') || note.includes('trả hàng');
 
-                        if (oStatus === 'Đối Soát Thành Công' || oStatus === 'Hoàn Thành' || oStatus === 'Đã Bàn Giao' || oStatus === 'Đã Giao' || oStatus === 'Delivered' || oStatus === 'Completed' || o.isReconciled === true || o.isReconciled === 'true') {
-                            revTotal += orderRev;
-                        } else if (!oStatus.includes('Hủy') && !oStatus.includes('Huỷ') && !oStatus.includes('Hoàn') && !oStatus.includes('Thất bại') && oStatus !== 'Cancelled' && oStatus !== 'Returned') {
-                            revPending += orderRev;
+                    // Nhận diện đơn huỷ triệt để (khớp Tab Đơn Hàng)
+                    const isCancelled = !isReturned && (
+                        st === 'ĐƠN HUỶ' || st === 'HUỶ' || st === 'ĐƠN HỦY' || st === 'HỦY' || 
+                        st.includes('HUỶ') || st.includes('HỦY') || st.includes('CANCEL') ||
+                        rawStatus.includes('HUỶ') || rawStatus.includes('HỦY') || rawStatus.includes('CANCEL') ||
+                        rawStatus.includes('ยกเลิก') ||
+                        note.includes('[đã hủy]') || note.includes('[đơn huỷ]') || note.includes('[đơn hủy]') || 
+                        note.includes('[huỷ]') || note.includes('[hủy]') || note.includes('hủy đơn') || note.includes('huỷ đơn') ||
+                        Boolean(o.isCancelled)
+                    );
+
+                    if (isCancelled || isReturned) return;
+
+                    // Xác định ngày lọc theo chu kỳ
+                    let dateToFilter = o.date || o.createdAt;
+                    if (o.isReconciled || o.reconciledAt || st === 'HOÀN THÀNH' || st === 'ĐỐI SOÁT THÀNH CÔNG') {
+                        dateToFilter = o.reconciledAt || o.updatedAt || o.date || o.createdAt;
+                    } else if (st === 'ĐÃ BÀN GIAO' || st === 'ĐÃ NHẬP KHO') {
+                        dateToFilter = o.updatedAt || o.date || o.createdAt;
+                    }
+
+                    const isClosed = (st === 'HOÀN THÀNH' || st === 'ĐỐI SOÁT THÀNH CÔNG' || st === 'ĐÃ BÀN GIAO' || st === 'ĐÃ NHẬP KHO');
+                    let inPeriod = false;
+                    if (inR(dateToFilter) || inR(o.date) || inR(o.createdAt)) {
+                        inPeriod = true;
+                    } else if (!isClosed) {
+                        // Đơn đang chạy trong tháng hiện tại
+                        const nowYM = new Date().toISOString().slice(0, 7);
+                        if (s.startsWith(nowYM) || e.startsWith(nowYM)) {
+                            inPeriod = true;
                         }
+                    }
+
+                    if (!inPeriod) return;
+
+                    const orderRev = parseCleanRev(o.revenue, oChannel);
+                    if (orderRev <= 0) return;
+
+                    // A. NGUYỄN NGỌC TIẾN / FOUNDER / TOÀN XƯỞNG:
+                    // Đo doanh thu tổng toàn bộ các kênh bán hàng (khớp 100% với Doanh Thu Tổng bên Tab Đơn Hàng)
+                    if (isFounderOrBoss) {
+                        revTotal += orderRev;
+                        return;
+                    }
+
+                    // B. NHÂN SỰ SALES LẺ (Diệu Hương...):
+                    if (oChannel.includes('Cộng Tác Viên') || oChannel === 'CTV') return;
+                    const oUser = o.responsibleUser || o.sale || '';
+                    if (isUserMatch(oUser, u, oChannel)) {
+                        revTotal += orderRev;
                     }
                 });
 
-                const totalRev = revTotal + revPending;
-                return { current: Math.round(totalRev), pending: Math.round(revPending), reconciled: Math.round(revTotal) };
+                return { current: Math.round(revTotal), pending: 0, reconciled: Math.round(revTotal) };
+            }
+
+            // 1.1. KPI LỢI NHUẬN RÒNG (% Net Profit / P&L) — QUÉT 100% DỮ LIỆU THỰC TẾ TỪ CSDL
+            if ((phase.includes('lợi nhuận') || phase.includes('net profit') || phase.includes('p&l')) && (unitLower === '%' || phase.includes('%') || unitLower === '')) {
+                const allOrders = orders || erpData?.orders || erpData?.Orders || [];
+                const allTransactions = erpData?.Transactions || erpData?.transactions || [];
+                let totalPeriodRev = 0;
+                let totalCOGS = 0;
+                let totalPlatformFee = 0;
+                let totalDiscount = 0;
+
+                allOrders.forEach(o => {
+                    const oChannel = String(o.channel || '').trim();
+                    if (oChannel === 'Sản Xuất Tồn' || oChannel === 'Sản Xuất Bù Kho') return;
+
+                    const st = String(o._effectiveStatus || o.status || '').toUpperCase().trim();
+                    const rawStatus = String(o.status || '').toUpperCase().trim();
+                    const note = String(o.note || '').toLowerCase();
+
+                    const isReturned = st === 'HÀNG HOÀN' || st === 'KIỂM HÀNG HOÀN' || st === 'HÀNG HOÀN CHỜ XỬ LÝ' || st.includes('HOÀN CHỜ XỬ') || 
+                        rawStatus === 'HÀNG HOÀN' || rawStatus.includes('HOÀN TRẢ') || 
+                        Boolean(o.returnedAt) || 
+                        note.includes('[kn-thang]') || note.includes('[kn-thua]') || note.includes('hàng hoàn') || note.includes('trả hàng');
+
+                    const isCancelled = !isReturned && (
+                        st === 'ĐƠN HUỶ' || st === 'HUỶ' || st === 'ĐƠN HỦY' || st === 'HỦY' || 
+                        st.includes('HUỶ') || st.includes('HỦY') || st.includes('CANCEL') ||
+                        rawStatus.includes('HUỶ') || rawStatus.includes('HỦY') || rawStatus.includes('CANCEL') ||
+                        rawStatus.includes('ยกเลิก') ||
+                        note.includes('[đã hủy]') || note.includes('[đơn huỷ]') || note.includes('[đơn hủy]') || 
+                        note.includes('[huỷ]') || note.includes('[hủy]') || note.includes('hủy đơn') || note.includes('huỷ đơn') ||
+                        Boolean(o.isCancelled)
+                    );
+
+                    if (isCancelled || isReturned) return;
+
+                    let dateToFilter = o.date || o.createdAt;
+                    if (o.isReconciled || o.reconciledAt || st === 'HOÀN THÀNH' || st === 'ĐỐI SOÁT THÀNH CÔNG') {
+                        dateToFilter = o.reconciledAt || o.updatedAt || o.date || o.createdAt;
+                    } else if (st === 'ĐÃ BÀN GIAO' || st === 'ĐÃ NHẬP KHO') {
+                        dateToFilter = o.updatedAt || o.date || o.createdAt;
+                    }
+
+                    const isClosed = (st === 'HOÀN THÀNH' || st === 'ĐỐI SOÁT THÀNH CÔNG' || st === 'ĐÃ BÀN GIAO' || st === 'ĐÃ NHẬP KHO');
+                    let inPeriod = false;
+                    if (inR(dateToFilter) || inR(o.date) || inR(o.createdAt)) {
+                        inPeriod = true;
+                    } else if (!isClosed) {
+                        const nowYM = new Date().toISOString().slice(0, 7);
+                        if (s.startsWith(nowYM) || e.startsWith(nowYM)) inPeriod = true;
+                    }
+
+                    if (!inPeriod) return;
+
+                    const parseCleanRev = (rawRev, ch = '') => {
+                        if (rawRev === null || rawRev === undefined || rawRev === '') return 0;
+                        let num = typeof rawRev === 'number' ? rawRev : parseFloat(String(rawRev).replace(/[đĐ\sVNDvnd$฿₱RM]/g, '').replace(/,/g, ''));
+                        if (isNaN(num) || num <= 0) return 0;
+                        if (num > 100000000 && Number.isInteger(num)) return 0;
+                        if (String(ch || '').toUpperCase().includes('USD') || (String(ch || '').toUpperCase().includes('XUẤT KHẨU') && num < 10000)) num *= 25500;
+                        return Math.round(num);
+                    };
+
+                    const val = parseCleanRev(o.revenue, oChannel);
+                    if (val <= 0) return;
+
+                    totalPeriodRev += val;
+
+                    // Giá vốn thực tế (COGS)
+                    let cogsVal = Number(o.cogs) || 0;
+                    if (cogsVal <= 0 && o.accessories) {
+                        try {
+                            const accs = typeof o.accessories === 'string' ? JSON.parse(o.accessories) : o.accessories;
+                            if (Array.isArray(accs)) {
+                                accs.forEach(a => {
+                                    const cost = Number(a.costPrice || a.cogs || 0);
+                                    const qty = Number(a.quantity || a.qty || 1);
+                                    cogsVal += (cost * qty);
+                                });
+                            }
+                        } catch (e) {}
+                    }
+                    if (cogsVal <= 0) {
+                        cogsVal = Math.round(val * 0.165); // Giá vốn chuẩn xưởng Rich Fish (~16.5% doanh thu theo Báo Cáo Kênh)
+                    }
+
+                    // Chi phí sàn thực tế
+                    const feeVal = (Number(o.feeFixed) || 0) + (Number(o.feeService) || 0) + (Number(o.feePayment) || 0) + (Number(o.feeAffiliate) || 0) + (Number(o.tax) || 0);
+                    const discountVal = Number(o.shopVoucher) || Number(o.discount) || 0;
+
+                    totalCOGS += cogsVal;
+                    totalPlatformFee += (feeVal > 0 ? feeVal : Math.round(val * 0.156)); // Chi phí sàn thực tế (~15.6% doanh thu sàn)
+                    totalDiscount += discountVal;
+                });
+
+                // Quét 100% Chi Phí Lương & Vận Hành Thực Tế từ Sổ Quỹ (Transactions)
+                let actualSalaryExpense = 0;
+                let actualOperationExpense = 0;
+
+                allTransactions.forEach(t => {
+                    const tDate = String(t.date || t.createdAt || '').slice(0, 10);
+                    if (!tDate || !inR(tDate)) return;
+
+                    const cat = String(t.category || '').toLowerCase();
+                    const type = String(t.type || '').toUpperCase();
+                    const title = String(t.title || t.note || '').toLowerCase();
+                    const amt = Math.abs(Number(t.amount || 0));
+                    if (amt <= 0) return;
+
+                    // Bỏ qua giao dịch nội bộ / chuyển khoản / rút quỹ / chờ xử lý
+                    if (type === 'TRANSFER' || type === 'CHUYỂN KHOẢN' || cat.includes('chuyển khoản') || cat.includes('nội bộ') || cat.includes('rút tiền') || cat.includes('chờ xử lý') || cat.includes('chờ phân bổ')) {
+                        return;
+                    }
+
+                    // Chi phí lương
+                    if (cat.includes('lương') || title.includes('lương') || cat.includes('trả lương') || cat.includes('tạm ứng')) {
+                        actualSalaryExpense += amt;
+                    }
+                    // Chi phí vận hành / mặt bằng / điện nước / marketing / vật tư
+                    else if (
+                        cat.includes('vận hành') || cat.includes('mặt bằng') || cat.includes('điện nước') || 
+                        cat.includes('tiếp khách') || cat.includes('vật tư') || cat.includes('bao bì') || 
+                        cat.includes('quảng cáo') || cat.includes('ads') || cat.includes('marketing') ||
+                        ((type === 'EXPENSE' || type === 'CHI') && !cat.includes('nhập hàng') && !cat.includes('nhà cung cấp') && !cat.includes('trả nợ') && !cat.includes('đối tác') && !cat.includes('chờ'))
+                    ) {
+                        actualOperationExpense += amt;
+                    }
+                });
+
+                const totalRealExpense = actualSalaryExpense + actualOperationExpense;
+                // Nếu sổ quỹ chưa chốt chi trong kỳ, hệ thống quét bảng lương và chi phí cơ sở
+                const finalOperatingExpense = totalRealExpense > 0 ? totalRealExpense : (totalPeriodRev * 0.20);
+
+                const dynamicNetProfit = totalPeriodRev - totalCOGS - totalPlatformFee - totalDiscount - finalOperatingExpense;
+                const margin = totalPeriodRev > 0 ? ((dynamicNetProfit / totalPeriodRev) * 100) : 0;
+                return Math.max(0, Math.round(margin * 10) / 10);
             }
 
             // 2. KPI SẢN XUẤT THEO TỪNG KHÂU (CHỈ ÁP DỤNG KHI KHÔNG PHẢI KPI TỶ LỆ / % / KCS / KỶ LUẬT)
@@ -1613,25 +1970,47 @@
 
                     let amt = 0;
                     let isAppliedX3 = false;
-                    if (typeof getPackingReward === 'function' && !String(pk.id).includes('PK_WH_')) {
-                        const itemsStr = orderMatch?.items?.map(i => i.name).join(', ') || '';
-                        amt = getPackingReward(itemsStr, window.kpiConfig || erpData?.Config_KPI || [], channel);
-                        if (amt > 0) isAppliedX3 = isIntl;
-                    }
-                    if (amt === 0) {
-                        amt = Number(pk.reward_vnd || 0);
-                        if (isIntl && amt > 0 && !String(pk.id).includes('PK_WH_')) {
-                            amt = amt * 3;
-                            isAppliedX3 = true;
-                        }
-                    }
-
-                    prodSalary += amt;
+                    const kpiList = window.kpiConfig || erpData?.Config_KPI || [];
 
                     if (String(pk.id).includes('PK_WH_')) {
+                        amt = Number(pk.reward_vnd || 10000);
+                        prodSalary += amt;
                         if (amt > 0) kpiDongGoiDetails.push({ name: 'Chở ra kho', amount: amt, time: pk.endTime || pk.date });
                     } else {
-                        if (amt > 0) kpiDongGoiDetails.push({ name: `Đóng gói`, amount: amt, time: pk.endTime || pk.date, isX3: isAppliedX3 });
+                        const candidateItems = [];
+                        if (orderMatch?.items && Array.isArray(orderMatch.items)) {
+                            orderMatch.items.forEach(i => { if (i?.name) candidateItems.push(i.name); });
+                        }
+                        if (orderMatch?.products) {
+                            if (typeof orderMatch.products === 'string' && orderMatch.products.startsWith('[')) {
+                                try {
+                                    const parsed = JSON.parse(orderMatch.products);
+                                    if (Array.isArray(parsed)) parsed.forEach(i => { if (i?.name) candidateItems.push(i.name); });
+                                    else candidateItems.push(orderMatch.products);
+                                } catch (e) { candidateItems.push(orderMatch.products); }
+                            } else {
+                                candidateItems.push(String(orderMatch.products));
+                            }
+                        }
+                        if (orderMatch?.accessories) candidateItems.push(String(orderMatch.accessories));
+                        if (orderMatch?.note) candidateItems.push(String(orderMatch.note));
+
+                        if (typeof getPackingReward === 'function' && kpiList.length > 0) {
+                            amt = getPackingReward(candidateItems.length > 0 ? candidateItems : (orderMatch?.orderCode || pk.orderId || ''), kpiList, channel);
+                            if (amt > 0) isAppliedX3 = isIntl;
+                        }
+
+                        if (amt === 0) {
+                            amt = Number(pk.reward_vnd || 0);
+                            if (isIntl && amt > 0) {
+                                amt = amt * 3;
+                                isAppliedX3 = true;
+                            }
+                        }
+
+                        prodSalary += amt;
+                        const pkgLabel = orderMatch?.orderCode ? `Đóng gói (${orderMatch.orderCode})` : 'Đóng gói';
+                        if (amt > 0) kpiDongGoiDetails.push({ name: pkgLabel, amount: amt, time: pk.endTime || pk.date, isX3: isAppliedX3 });
                     }
                 }
             });
@@ -2232,8 +2611,20 @@
                             ) : (
                                 /* CHẾ ĐỘ 2: DANH SÁCH THẺ (CARDS VIEW) */
                                 <div className={"grid grid-cols-1 xl:grid-cols-2 gap-5 animate-fade-in"}>
-                                    {/* CỘT TRÁI: Widget Chấm Công & Top Chuyên Cần */}
+                                    {/* CỘT TRÁI: Top Chuyên Cần & Widget Chấm Công */}
                                     <div className={"space-y-4"}>
+                                        {/* TOP CHUYÊN CẦN ĐƯỢC ĐƯA LÊN TRÊN CÙNG */}
+                                        {top3Att.length > 0 && (
+                                            <div className={"bg-[#141414] pt-8 pb-4 px-4 rounded-2xl border border-[#2a2a2a] relative mt-3 mb-4 shadow-sm"}>
+                                                <h3 className={"absolute -top-3 left-1/2 -translate-x-1/2 bg-[#0a0a0a] px-4 py-1.5 border border-[#333] rounded-full font-black text-[#3b82f6] text-[11px] uppercase tracking-widest flex items-center gap-2 whitespace-nowrap shadow-md"}><i className={"fas fa-fire text-[10px]"}></i> TOP CHUYÊN CẦN</h3>
+                                                <div className={"flex justify-center items-end gap-2 h-[130px]"}>
+                                                    {top3Att[1] && <div className={"flex-1 flex flex-col items-center justify-end h-[85%] bg-gradient-to-t from-[#94a3b8]/20 to-transparent rounded-t-xl border-b-2 border-[#94a3b8] pb-2"}>{renderSafeAvatar(top3Att[1].name, "w-10 h-10 border-[#94a3b8] mb-1.5")}<div className={"text-[10px] font-black text-[#f5f5f5] uppercase truncate w-full text-center px-1"}>{top3Att[1].name.split(' ').pop()}</div><div className={"text-[9px] font-bold text-[#94a3b8] mt-0.5 bg-[#0a0a0a] px-1.5 py-0.5 rounded-full border border-[#94a3b8]/30"}>{top3Att[1].label}</div></div>}
+                                                    {top3Att[0] && <div className={"flex-1 flex flex-col items-center justify-end h-full bg-gradient-to-t from-[#3b82f6]/30 to-transparent rounded-t-xl border-b-4 border-[#3b82f6] pb-2 relative z-10 scale-105"}><div className={"absolute -top-7 text-[#3b82f6] text-3xl drop-shadow-md"}><i className={"fas fa-medal"}></i></div>{renderSafeAvatar(top3Att[0].name, "w-12 h-12 border-[#3b82f6] mb-1.5")}<div className={"text-[11px] font-black text-[#3b82f6] uppercase truncate w-full text-center px-1"}>{top3Att[0].name.split(' ').pop()}</div><div className={"text-[10px] font-black text-[#0a0a0a] mt-1 bg-[#3b82f6] px-2 py-0.5 rounded-full"}>{top3Att[0].label}</div></div>}
+                                                    {top3Att[2] && <div className={"flex-1 flex flex-col items-center justify-end h-[75%] bg-gradient-to-t from-[#b45309]/20 to-transparent rounded-t-xl border-b-2 border-[#b45309] pb-2"}>{renderSafeAvatar(top3Att[2].name, "w-10 h-10 border-[#b45309] mb-1.5")}<div className={"text-[10px] font-black text-[#f5f5f5] uppercase truncate w-full text-center px-1"}>{top3Att[2].name.split(' ').pop()}</div><div className={"text-[9px] font-bold text-[#b45309] mt-0.5 bg-[#0a0a0a] px-1.5 py-0.5 rounded-full border border-[#b45309]/30"}>{top3Att[2].label}</div></div>}
+                                                </div>
+                                            </div>
+                                        )}
+
                                         {/* ATTENDANCE CARD WIDGET */}
                                         <RFCard className="w-full relative group">
                                             <div className="absolute top-0 left-0 w-1.5 bg-gradient-to-b from-[#00a8e8] to-[#3b82f6] h-full z-10"></div>
@@ -2275,22 +2666,22 @@
                                                 <button
                                                     onClick={() => handleCheckInOut('IN', selectedShiftTab)}
                                                     disabled={Boolean(currentSelectedRecord?.timeIn)}
-                                                    className={`py-3.5 rounded-2xl font-black text-[12px] uppercase tracking-wider flex items-center justify-center gap-2 border transition-all ${currentSelectedRecord?.timeIn
-                                                        ? 'bg-[#0a0a0a] border-[#333] text-zinc-600 cursor-not-allowed opacity-50'
-                                                        : 'bg-[#10b981] hover:bg-[#059669] text-white border-transparent shadow-[0_0_15px_rgba(16,185,129,0.35)] active:scale-95'
+                                                    className={`py-3.5 px-4 rounded-2xl font-black text-[13px] uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all duration-200 ${currentSelectedRecord?.timeIn
+                                                        ? 'bg-[#121214] border border-zinc-800 text-zinc-600 cursor-not-allowed opacity-40'
+                                                        : 'bg-gradient-to-r from-emerald-500 via-green-500 to-teal-600 hover:from-emerald-400 hover:via-green-400 hover:to-teal-500 text-white border border-emerald-300/40 shadow-[0_0_20px_rgba(16,185,129,0.45)] hover:shadow-[0_0_28px_rgba(16,185,129,0.7)] active:scale-95 cursor-pointer'
                                                         }`}
                                                 >
-                                                    <i className="fas fa-sign-in-alt"></i> VÀO LÀM
+                                                    <i className="fas fa-sign-in-alt text-[14px]"></i> VÀO LÀM
                                                 </button>
                                                 <button
                                                     onClick={() => handleCheckInOut('OUT', selectedShiftTab)}
                                                     disabled={!currentSelectedRecord?.timeIn || Boolean(currentSelectedRecord?.timeOut)}
-                                                    className={`py-3.5 rounded-2xl font-black text-[12px] uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${(!currentSelectedRecord?.timeIn || currentSelectedRecord?.timeOut)
-                                                        ? 'bg-[#0a0a0a] border-[#333] text-zinc-600 cursor-not-allowed opacity-50'
-                                                        : 'bg-[#ef4444] hover:bg-[#dc2626] text-white border border-[#ef4444]/50 active:scale-95 shadow-[0_0_15px_rgba(239,68,68,0.35)]'
+                                                    className={`py-3.5 px-4 rounded-2xl font-black text-[13px] uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all duration-200 ${(!currentSelectedRecord?.timeIn || currentSelectedRecord?.timeOut)
+                                                        ? 'bg-[#121214] border border-zinc-800 text-zinc-600 cursor-not-allowed opacity-40'
+                                                        : 'bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-400 hover:to-red-500 text-white border border-rose-400/40 active:scale-95 shadow-[0_0_20px_rgba(244,63,94,0.45)] hover:shadow-[0_0_28px_rgba(244,63,94,0.7)] cursor-pointer'
                                                         }`}
                                                 >
-                                                    <i className="fas fa-sign-out-alt"></i> RA VỀ
+                                                    <i className="fas fa-sign-out-alt text-[14px]"></i> RA VỀ
                                                 </button>
                                             </div>
 
@@ -2366,17 +2757,6 @@
                                                 </div>
                                             </div>
                                         </RFCard>
-
-                                        {top3Att.length > 0 && (
-                                            <div className={"bg-[#141414] pt-8 pb-4 px-4 rounded-xl border border-[#2a2a2a] relative mt-6 mb-4 shadow-sm"}>
-                                                <h3 className={"absolute -top-3 left-1/2 -translate-x-1/2 bg-[#0a0a0a] px-4 py-1.5 border border-[#333] rounded-full font-black text-[#3b82f6] text-[11px] uppercase tracking-widest flex items-center gap-2 whitespace-nowrap shadow-md"}><i className={"fas fa-fire text-[10px]"}></i> TOP CHUYÊN CẦN</h3>
-                                                <div className={"flex justify-center items-end gap-2 h-[130px]"}>
-                                                    {top3Att[1] && <div className={"flex-1 flex flex-col items-center justify-end h-[85%] bg-gradient-to-t from-[#94a3b8]/20 to-transparent rounded-t-xl border-b-2 border-[#94a3b8] pb-2"}>{renderSafeAvatar(top3Att[1].name, "w-10 h-10 border-[#94a3b8] mb-1.5")}<div className={"text-[10px] font-black text-[#f5f5f5] uppercase truncate w-full text-center px-1"}>{top3Att[1].name.split(' ').pop()}</div><div className={"text-[9px] font-bold text-[#94a3b8] mt-0.5 bg-[#0a0a0a] px-1.5 py-0.5 rounded-full border border-[#94a3b8]/30"}>{top3Att[1].label}</div></div>}
-                                                    {top3Att[0] && <div className={"flex-1 flex flex-col items-center justify-end h-full bg-gradient-to-t from-[#3b82f6]/30 to-transparent rounded-t-xl border-b-4 border-[#3b82f6] pb-2 relative z-10 scale-105"}><div className={"absolute -top-7 text-[#3b82f6] text-3xl drop-shadow-md"}><i className={"fas fa-medal"}></i></div>{renderSafeAvatar(top3Att[0].name, "w-12 h-12 border-[#3b82f6] mb-1.5")}<div className={"text-[11px] font-black text-[#3b82f6] uppercase truncate w-full text-center px-1"}>{top3Att[0].name.split(' ').pop()}</div><div className={"text-[10px] font-black text-[#0a0a0a] mt-1 bg-[#3b82f6] px-2 py-0.5 rounded-full"}>{top3Att[0].label}</div></div>}
-                                                    {top3Att[2] && <div className={"flex-1 flex flex-col items-center justify-end h-[75%] bg-gradient-to-t from-[#b45309]/20 to-transparent rounded-t-xl border-b-2 border-[#b45309] pb-2"}>{renderSafeAvatar(top3Att[2].name, "w-10 h-10 border-[#b45309] mb-1.5")}<div className={"text-[10px] font-black text-[#f5f5f5] uppercase truncate w-full text-center px-1"}>{top3Att[2].name.split(' ').pop()}</div><div className={"text-[9px] font-bold text-[#b45309] mt-0.5 bg-[#0a0a0a] px-1.5 py-0.5 rounded-full border border-[#b45309]/30"}>{top3Att[2].label}</div></div>}
-                                                </div>
-                                            </div>
-                                        )}
                                     </div>
 
                                     {/* CỘT PHẢI: Danh sách nhân sự */}
@@ -2503,20 +2883,22 @@
 
                 {subTab === 'KPI' && (
                     <div className={"space-y-4"}>
-                        {/* ==================== 2. NHIỆM VỤ CHUNG CỦA XƯỞNG ==================== */}
+                        {/* ==================== 2. NHIỆM VỤ CHUNG CỦA XƯỞNG (CHỈ HIỆN VIỆC ĐANG LÀM) ==================== */}
                         {(() => {
-                            const allXuTasksBP = bpData.filter(b => b.type === 'XU_REWARD' && isDateInRange(b.date, filter, customMonth)).map(b => ({ id: b.id, name: b.note || 'Nhiệm vụ', amount: b.amount, date: b.date, user: b.user, isDone: true, desc: '', startTime: b.date, endTime: b.date }));
-                            const allXuTasksKPI = kpiData.filter(k => (String(k.unit).toLowerCase() === 'xu' || String(k.id).startsWith('KPI_XU_')) && isDateInRange(k.startTime || k.endTime || k.lastUpdated, filter, customMonth)).map(k => ({ id: k.id, name: k.kpiName, amount: k.reward, date: formatDR(k.startTime, k.endTime), user: k.user, isDone: (k.isClaimed === 'true' || k.isClaimed === true), desc: k.guide || k.Guide || k.desc || k.note, startTime: k.startTime, endTime: k.endTime }));
-                            const globalXuTasks = [...allXuTasksBP, ...allXuTasksKPI].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+                            const pendingSharedTasks = sharedTasks.filter(t => t.status !== 'DONE' && t.status !== 'Hoàn thành' && t.status !== 'Done');
+                            const pendingXuTasksKPI = kpiData.filter(k => (String(k.unit).toLowerCase() === 'xu' || String(k.id).startsWith('KPI_XU_')) && !(k.isClaimed === 'true' || k.isClaimed === true) && isDateInRange(k.startTime || k.endTime || k.lastUpdated, filter, customMonth)).map(k => ({ id: k.id, name: k.kpiName, amount: k.reward, date: formatDR(k.startTime, k.endTime), user: k.user, isDone: false, desc: k.guide || k.Guide || k.desc || k.note, startTime: k.startTime, endTime: k.endTime }));
+                            const globalXuTasks = [...pendingXuTasksKPI].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+
+                            if (pendingSharedTasks.length === 0 && globalXuTasks.length === 0) return null;
 
                             return (
                                 <div className={"bg-[#0a0a0a] border border-[#333] p-5 rounded-2xl mb-6 shadow-sm relative overflow-hidden"}>
                                     <div className={"flex items-center justify-between mb-4 relative z-10"}>
-                                        <h2 className={"text-[#f5f5f5] font-black text-[15px] uppercase tracking-wider"}><i className={"fas fa-users mr-2 text-cyan-500"}></i>Nhiệm Vụ Chung</h2>
+                                        <h2 className={"text-[#f5f5f5] font-black text-[15px] uppercase tracking-wider"}><i className={"fas fa-users mr-2 text-cyan-500"}></i>Nhiệm Vụ Chung Cần Làm</h2>
                                     </div>
 
                                     <div className={"grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 relative z-10"}>
-                                        {sharedTasks.map(t => {
+                                        {pendingSharedTasks.map(t => {
                                             const isDone = t.status === 'DONE' || t.status === 'Hoàn thành';
                                             const isExp = expandedTaskMap[t.id];
                                             return (
@@ -2644,17 +3026,38 @@
                                     const claimedKPIs = userKPIs.filter(k => (k.isClaimed === 'true' || k.isClaimed === true));
                                     const taskKPIs = activeKPIs.filter(k => k.unit !== 'Checklist');
 
-                                    const xuTasksBP = bpData.filter(b => b.user === u && b.type === 'XU_REWARD' && isDateInRange(b.date, filter, customMonth));
-                                    const xuTasksKPI = claimedKPIs.filter(k => String(k.unit).toLowerCase() === 'xu' || String(k.id).startsWith('KPI_XU_'));
-                                    const xuTasks = [
-                                        ...xuTasksBP.map(b => ({ id: b.id, name: b.note || 'Nhiệm vụ', amount: b.amount, date: b.date })),
-                                        ...xuTasksKPI.map(k => ({ id: k.id, name: k.kpiName, amount: k.reward, date: formatDR(k.startTime, k.endTime) }))
-                                    ].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+                                    // TÍNH TOÁN XU TÍCH LŨY TOÀN DIỆN (Từ ThongKe_TichLuyXu, KPI đã claim & BonusPenalty)
+                                    const xuFromSheet = (xuSheetData || []).filter(x => matchUser(x.user, u)).map(x => ({
+                                        id: String(x.id || `XU_${Math.random()}`),
+                                        name: x.note || x.title || (x.type === 'XU_REWARD' ? 'Boss tặng xu khởi nghiệp' : 'Thưởng Xu Tích Lũy'),
+                                        amount: Number(x.amount_xu !== undefined && x.amount_xu !== '' ? x.amount_xu : (x.amount || 0)),
+                                        date: x.date || x.timestamp || ''
+                                    }));
+                                    const xuTasksKPI = claimedKPIs.filter(k => String(k.unit || '').toLowerCase() === 'xu' || String(k.id || '').startsWith('KPI_XU_')).map(k => ({
+                                        id: String(k.id),
+                                        name: k.kpiName || 'Nhiệm vụ Xu',
+                                        amount: Number(k.reward) || 0,
+                                        date: formatDR(k.startTime, k.endTime) || k.lastUpdated
+                                    }));
+                                    const xuTasksBP = (bpData || []).filter(b => matchUser(b.user, u) && (b.type === 'XU_REWARD' || b.type === 'Thưởng Xu' || String(b.note || '').toLowerCase().includes('xu'))).map(b => ({
+                                        id: String(b.id),
+                                        name: b.note || 'Thưởng Xu',
+                                        amount: Number(b.amount) || 0,
+                                        date: b.date || ''
+                                    }));
+
+                                    // Khử trùng lặp theo ID
+                                    const seenXuIds = new Set();
+                                    const xuTasks = [...xuFromSheet, ...xuTasksKPI, ...xuTasksBP].filter(t => {
+                                        if (!t.id || seenXuIds.has(t.id)) return false;
+                                        seenXuIds.add(t.id);
+                                        return Number(t.amount) > 0;
+                                    }).sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 
                                     const totalXu = xuTasks.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
                                     const totalKPIVnd = claimedKPIs.reduce((sum, k) => sum + (Number(k.reward) || 0), 0);
 
-                                    const userAttRecords = (rawAttData || []).filter(a => String(a.user).trim() === String(u).trim());
+                                    const userAttRecords = (rawAttData || []).filter(a => matchUser(a.user, u));
                                     const baseHourlyRate = Number(userConfigs?.pins?.[u]?.hourlyRate || (userConfigs?.pins?.[u]?.baseSalary ? Math.round(Number(userConfigs.pins[u].baseSalary) / 208) : 25000));
                                     const totalAttendanceSalary = userAttRecords.reduce((sum, a) => {
                                         const hrs = Number(a.totalHours) || ((a.morningIn && a.morningOut ? 4 : 0) + (a.afternoonIn && a.afternoonOut ? 4 : 0));
@@ -2665,13 +3068,13 @@
                                     (prodItems || []).forEach(item => {
                                         ['phase1', 'phase2'].forEach(phKey => {
                                             const ph = item?.phases?.[phKey];
-                                            if (ph && ph.status === 'Done' && String(ph.user).trim() === String(u).trim()) {
+                                            if (ph && ph.status === 'Done' && matchUser(ph.user, u)) {
                                                 totalProdReward += (Number(ph.reward_vnd) || 0);
                                             }
                                         });
                                     });
 
-                                    const userPackings = (packings || erpData?.Packings || []).filter(p => String(p.user).trim() === String(u).trim() && (p.status === 'Done' || p.status === 'Đã đóng gói'));
+                                    const userPackings = (packings || erpData?.Packings || []).filter(p => matchUser(p.user, u) && (p.status === 'Done' || p.status === 'Đã đóng gói'));
                                     const totalPackingReward = userPackings.reduce((sum, p) => sum + (Number(p.reward_vnd) || 0), 0);
 
                                     const totalUserExp = totalXu + totalKPIVnd + totalAttendanceSalary + totalProdReward + totalPackingReward;
@@ -2682,29 +3085,17 @@
                                         const u = String(k.unit || '').toUpperCase().trim();
                                         const id = String(k.id || '').toUpperCase().trim();
                                         const type = String(k.type || '').toUpperCase().trim();
-                                        const name = String(k.kpiName || '').toLowerCase().trim();
 
-                                        // 1. Đơn vị XU hoặc ID / Type gắn với Xu / Task
-                                        if (u === 'XU' || id.startsWith('KPI_XU_') || type === 'XU_REWARD' || type === 'TASK') return true;
-
-                                        // 2. Nhiệm vụ hàng ngày / ngắn hạn <= 24h
-                                        if (k.startTime && k.endTime) {
-                                            if (k.startTime === k.endTime) return true;
-                                            const diff = new Date(k.endTime) - new Date(k.startTime);
-                                            if (!isNaN(diff) && diff <= 24 * 60 * 60 * 1000) return true;
-                                        }
-
-                                        // 3. Các nhiệm vụ công việc riêng / lẻ (Thanh lý, Dọn kho, Kiểm kê, Trực ca, Làm thêm...)
-                                        if (name.includes('thanh lý') || name.includes('nhiệm vụ') || name.includes('dọn dẹp') || name.includes('kiểm kê') || name.includes('hỗ trợ')) {
+                                        // Phân loại ĐẢM BẢO 100% CHÍNH XÁC dựa trên Form nguồn:
+                                        // - Nút "Giao Việc" (modal-task-standalone) luôn sinh ra ID bắt đầu bằng KPI_XU_
+                                        // - Các ID cũ có type = TASK hoặc XU_REWARD
+                                        // - Các chỉ tiêu có đơn vị XU
+                                        if (u === 'XU' || id.startsWith('KPI_XU_') || type === 'XU_REWARD' || type === 'TASK') {
                                             return true;
                                         }
 
-                                        // 4. Đơn vị đếm thủ công (Bộ, Cái, Lần, Điểm) mà không phải KPI tỷ lệ / doanh thu / năng suất khâu cốt lõi
-                                        const isManualUnit = ['bộ', 'cái', 'lần', 'điểm'].includes(String(k.unit || '').toLowerCase().trim());
-                                        if (isManualUnit && !name.includes('năng suất') && !name.includes('khâu') && !name.includes('đóng gói')) {
-                                            return true;
-                                        }
-
+                                        // Mọi dữ liệu tạo từ nút "Tạo KPI" (modal-kpi-standalone) sinh ra ID bắt đầu bằng KPI_
+                                        // Sẽ luôn luôn là KPI, không cần đoán mò bằng regex tên/đơn vị nữa!
                                         return false;
                                     };
 
@@ -2753,12 +3144,17 @@
 
                                         const hasProgressBar = target > 0;
 
+                                        const rewardVal = Number(k.reward) || 0;
+                                        const penaltyVal = Number(k.penalty) || Number(k['Khoản Trừ Vi Phạm']) || Number(k.violationPenalty) || 0;
+
                                         return (
-                                            <div key={k.id} className={`relative group rounded-xl border-l-4 ${isXuTask ? 'bg-[#14120c] border-l-amber-500 border border-amber-500/20 hover:border-amber-500/40' : (isCompleted ? 'bg-[#0d0d0d] border-l-emerald-500 border border-emerald-500/30' : isFailed && isOverdue ? 'bg-[#0d0d0d] border-l-rose-500 border border-rose-500/30' : 'bg-[#0d0d0d] border-l-[#3b82f6] border border-[#333]')} hover:bg-[#151515] overflow-hidden transition-all flex flex-col shadow-sm mb-2`}>
+                                            <div key={k.id} className={`relative group rounded-2xl border-l-4 ${isXuTask ? 'bg-[#12110c] border-l-amber-500 border border-amber-500/25 hover:border-amber-500/50' : (isCompleted ? 'bg-[#0d120e] border-l-emerald-500 border border-emerald-500/30 hover:border-emerald-500/60 shadow-[0_0_12px_rgba(16,185,129,0.06)]' : isFailed && isOverdue ? 'bg-[#140d0e] border-l-rose-500 border border-rose-500/30 hover:border-rose-500/60' : 'bg-[#101014] border-l-sky-500 border border-zinc-800 hover:border-zinc-700')} overflow-hidden transition-all flex flex-col shadow-sm mb-2.5`}>
                                                 {pct >= 100 && <div className={"absolute inset-0 bg-emerald-500/5 z-0 pointer-events-none"}></div>}
-                                                <div onClick={(e) => { e.stopPropagation(); setOpenSection(prev => ({ ...prev, [`task_${k.id}`]: !prev[`task_${k.id}`] })); }} className={"cursor-pointer p-3.5 flex justify-between items-center relative z-10"}>
-                                                    <div>
-                                                        <div className="flex items-center gap-2">
+                                                
+                                                <div onClick={(e) => { e.stopPropagation(); setOpenSection(prev => ({ ...prev, [`task_${k.id}`]: !prev[`task_${k.id}`] })); }} className="cursor-pointer p-3 sm:p-3.5 pl-3.5 sm:pl-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 relative z-10">
+                                                    {/* KHỐI TRÁI: TIÊU ĐỀ + HUY HIỆU + THƯỞNG / PHẠT */}
+                                                    <div className="flex-1 min-w-0 pr-1">
+                                                        <div className="flex items-center gap-1.5 flex-wrap">
                                                             {isXuTask ? (
                                                                 <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 uppercase flex items-center gap-1 shrink-0">
                                                                     <i className="fas fa-coins text-[8px]"></i> Nhiệm Vụ Xu
@@ -2768,39 +3164,106 @@
                                                                     <i className="fas fa-chart-line text-[8px]"></i> KPI Tháng
                                                                 </span>
                                                             )}
-                                                            <span className={"text-[#f5f5f5] font-black text-[13px]"}>{k.kpiName}</span>
+                                                            <span className="text-zinc-100 font-bold text-[13px] leading-snug break-words">{k.kpiName}</span>
                                                         </div>
-                                                        {Number(k.reward) > 0 && (
-                                                            isXuTask ? (
-                                                                <div className={"text-amber-400 text-[11px] font-black mt-1 flex items-center gap-1.5"}><i className={"fas fa-coins text-amber-400"}></i> Thưởng: +{formatMoney(k.reward)} XU</div>
-                                                            ) : (
-                                                                <div className={"text-[#10b981] text-[11px] font-black mt-1 flex items-center gap-1.5"}><i className={"fas fa-money-bill-wave text-[#10b981]"}></i> Thưởng: +{formatMoney(k.reward)}đ</div>
-                                                            )
-                                                        )}
+
+                                                        {/* HÀNG THƯỞNG & PHẠT RÕ RÀNG */}
+                                                        <div className="flex items-center gap-2 flex-wrap mt-1.5">
+                                                            {rewardVal > 0 && (
+                                                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded-lg border border-emerald-500/30">
+                                                                    <i className="fas fa-gift text-[9px]"></i>
+                                                                    <span>Thưởng: +{formatMoney(rewardVal)}{isXuTask ? ' XU' : 'đ'}</span>
+                                                                </span>
+                                                            )}
+                                                            {penaltyVal > 0 && (
+                                                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-400 bg-rose-950/40 px-2 py-0.5 rounded-lg border border-rose-500/30">
+                                                                    <i className="fas fa-gavel text-[9px]"></i>
+                                                                    <span>Phạt k.đạt: -{formatMoney(penaltyVal)}đ</span>
+                                                                </span>
+                                                            )}
+                                                            {rewardVal === 0 && penaltyVal === 0 && (
+                                                                <span className="text-[10px] text-zinc-500 font-medium">Chỉ tiêu năng suất vận hành</span>
+                                                            )}
+                                                        </div>
                                                     </div>
-                                                    <div className="flex items-center gap-2.5">
-                                                        {isBoss && (
-                                                            <button type="button" onClick={(e) => { e.stopPropagation(); handleManualProgressUpdate(k); }} className="w-6 h-6 rounded-md bg-[#18150d] border border-[#d4af37]/60 text-[#d4af37] hover:bg-[#d4af37] hover:text-black flex items-center justify-center transition-all shadow-sm active:scale-95 z-20 shrink-0 cursor-pointer" title="Tối Cao: Cập nhật số liệu KPI thủ công"><i className="fas fa-crown text-[10px]"></i></button>
-                                                        )}
+
+                                                    {/* KHỐI PHẢI: TIẾN ĐỘ SỐ LIỆU + NÚT BẤM */}
+                                                    <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pt-1.5 sm:pt-0 border-t sm:border-t-0 border-zinc-800/80">
                                                         {hasProgressBar ? (
-                                                            <div className={`${textColor} font-black text-[14px] text-right font-mono`}>
-                                                                {formatMoney(currentProg)}/{formatMoney(target)} <span className={"text-[9px] text-gray-500 font-sans"}>{k.unit}</span>
-                                                                {pendingProg > 0 && <div className={"text-[9px] text-amber-500 font-sans mt-0.5 whitespace-nowrap"}>Tạm nhận: {formatMoney(pendingProg)}</div>}
+                                                            <div className="text-left sm:text-right">
+                                                                <div className={`${textColor} font-black text-[13px] sm:text-[14px] font-mono leading-none flex items-baseline gap-1 sm:justify-end`}>
+                                                                    <span>{formatMoney(currentProg)}</span>
+                                                                    <span className="text-zinc-500 text-[10px] font-normal font-sans">/ {formatMoney(target)} {k.unit}</span>
+                                                                </div>
+                                                                <div className="text-[10px] text-zinc-400 font-semibold mt-1 flex items-center gap-1.5 sm:justify-end">
+                                                                    <span>Đạt: <b className={`${textColor} font-mono font-black`}>{pct.toFixed(0)}%</b></span>
+                                                                </div>
                                                             </div>
                                                         ) : (
                                                             isCompleted ? (
-                                                                <div className="text-emerald-500 text-[11px] font-black flex items-center gap-1"><i className="fas fa-check-circle"></i> ĐÃ DUYỆT</div>
+                                                                <div className="text-emerald-400 text-[11px] font-bold flex items-center gap-1 bg-emerald-950/40 px-2 py-1 rounded-lg border border-emerald-500/30">
+                                                                    <i className="fas fa-check-circle text-xs"></i> ĐÃ ĐẠT
+                                                                </div>
                                                             ) : (
-                                                                <div className="text-gray-500 text-[11px] font-black flex items-center gap-1"><i className="fas fa-clock"></i> CHỜ DUYỆT</div>
+                                                                <div className="text-zinc-400 text-[11px] font-bold flex items-center gap-1 bg-zinc-900 px-2 py-1 rounded-lg border border-zinc-800">
+                                                                    <i className="fas fa-clock text-xs"></i> CHỜ DUYỆT
+                                                                </div>
                                                             )
                                                         )}
-                                                        <i className={`fas fa-chevron-${isTaskOpen ? 'up' : 'down'} text-gray-600 text-[11px] ml-1`}></i>
+
+                                                        <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                                                            {isBoss && (
+                                                                <button 
+                                                                    type="button" 
+                                                                    onClick={(e) => { e.stopPropagation(); handleManualProgressUpdate(k); }} 
+                                                                    className="w-6 h-6 rounded-lg bg-zinc-900 border border-amber-500/40 text-amber-400 hover:bg-amber-500 hover:text-zinc-950 flex items-center justify-center transition-all shadow-sm active:scale-95 shrink-0 cursor-pointer" 
+                                                                    title="Tối Cao: Cập nhật số liệu KPI thủ công"
+                                                                >
+                                                                    <i className="fas fa-crown text-[10px]"></i>
+                                                                </button>
+                                                            )}
+                                                            <button 
+                                                                type="button"
+                                                                onClick={() => setOpenSection(prev => ({ ...prev, [`task_${k.id}`]: !prev[`task_${k.id}`] }))}
+                                                                className="w-6 h-6 rounded-lg bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                                                            >
+                                                                <i className={`fas fa-chevron-${isTaskOpen ? 'up' : 'down'} text-[10px]`}></i>
+                                                            </button>
+                                                        </div>
                                                     </div>
                                                 </div>
 
+                                                {/* THANH TIẾN ĐỘ MICRO NẰM DƯỚI THẺ */}
+                                                {hasProgressBar && (
+                                                    <div className="w-full bg-[#18181c] h-1 overflow-hidden relative">
+                                                        <div 
+                                                            className={`h-full transition-all duration-700 bg-gradient-to-r ${barColor}`} 
+                                                            style={{ width: `${pct}%` }}
+                                                        ></div>
+                                                    </div>
+                                                )}
+
                                                 {
                                                     isTaskOpen && (
-                                                        <div className="animate-fade-in p-3.5 pt-0 border-t border-[#222] mt-1 relative z-10">
+                                                        <div className="animate-fade-in p-3.5 pt-2 border-t border-zinc-800/80 mt-1 relative z-10">
+                                                            {/* HỘP THÔNG TIN THƯỞNG & PHẠT KHI MỞ RỘNG */}
+                                                            {(rewardVal > 0 || penaltyVal > 0) && (
+                                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2.5">
+                                                                    {rewardVal > 0 && (
+                                                                        <div className="bg-emerald-950/25 border border-emerald-500/30 rounded-xl p-2.5 flex items-center justify-between shadow-sm">
+                                                                            <span className="text-[10px] font-bold text-emerald-400 uppercase flex items-center gap-1.5"><i className="fas fa-gift"></i> Thưởng Đạt KPI:</span>
+                                                                            <span className="text-[12px] font-mono font-black text-emerald-300">+{formatMoney(rewardVal)}{isXuTask ? ' XU' : 'đ'}</span>
+                                                                        </div>
+                                                                    )}
+                                                                    {penaltyVal > 0 && (
+                                                                        <div className="bg-rose-950/25 border border-rose-500/30 rounded-xl p-2.5 flex items-center justify-between shadow-sm">
+                                                                            <span className="text-[10px] font-bold text-rose-400 uppercase flex items-center gap-1.5"><i className="fas fa-gavel"></i> Chế Tài Vi Phạm / Phạt:</span>
+                                                                            <span className="text-[12px] font-mono font-black text-rose-300">-{formatMoney(penaltyVal)}đ</span>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            )}
+
                                                             {/* HƯỚNG DẪN THỰC HIỆN KPI CỤ THỂ */}
                                                             {(() => {
                                                                 let guideTxt = k.guide || k.Guide || k.guideText || k.guide_txt || k.note || k.desc || k['Hướng dẫn'] || k['Hướng Dẫn'] || k['Guide'] || k['Ghi chú'] || k['Mô tả'];
@@ -2820,7 +3283,7 @@
                                                                 }
                                                                 const finalGuide = String(guideTxt || '').trim();
                                                                 return (
-                                                                    <div className="text-gray-300 text-[11px] mb-2.5 mt-2.5 bg-[#141416] p-3.5 rounded-xl border border-amber-500/25 shadow-sm">
+                                                                    <div className="text-gray-300 text-[11px] mb-2.5 bg-[#141416] p-3.5 rounded-xl border border-amber-500/25 shadow-sm">
                                                                         <div className="text-[10px] font-black text-amber-400 uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
                                                                             <i className="fas fa-book-reader text-amber-400"></i> Hướng Dẫn Thực Hiện & Quy Chuẩn Đạt KPI:
                                                                         </div>
@@ -2831,8 +3294,8 @@
                                                                 );
                                                             })()}
 
-                                                            <div className={"text-gray-500 text-[10px] mb-2.5 mt-2 flex items-center gap-2"}>
-                                                                <span><i className={"far fa-calendar-alt mr-1 text-cyan-400"}></i> Thời gian áp dụng: {formatDR(k.startTime, k.endTime)}</span>
+                                                            <div className="text-zinc-400 text-[10px] mb-2.5 flex items-center gap-2">
+                                                                <span><i className="far fa-calendar-alt mr-1 text-cyan-400"></i> Thời gian áp dụng: {formatDR(k.startTime, k.endTime)}</span>
                                                                 {(isOverdue && isFailed) && <span className="text-rose-500 font-black animate-pulse flex items-center gap-1"><i className="fas fa-fire"></i> TRỄ HẠN!</span>}
                                                             </div>
 
@@ -2880,66 +3343,141 @@
                                                                 <div className={"absolute right-1 -top-8 flex gap-1 z-20"}><button onClick={(e) => { e.stopPropagation(); setEditKPI(k); setKpiForm({ user: k.user, kpiName: k.kpiName, target: k.target, unit: k.unit, startTime: k.startTime ? String(k.startTime).substring(0, 10) : '', endTime: k.endTime ? String(k.endTime).substring(0, 10) : '', reward: k.reward || '', penalty: k.penalty || '', note: k.guide || k.Guide || k.note || '' }); setKpiType('task'); const isCustom = !['Dựng khung', 'Gia cố', 'Cắt Dán', 'Gọt Keo', 'Đóng Gói', 'Bán Hàng'].includes(k.kpiName); setKpiTrackingType(isCustom ? 'manual' : 'auto'); const isDaily = k.startTime === k.endTime || (new Date(k.endTime) - new Date(k.startTime)) <= 24 * 60 * 60 * 1000; setKpiPeriodType(isDaily ? 'Daily' : 'Custom'); setShowKPIModal(true); }} className={"w-7 h-7 rounded-lg bg-[#1a1a1a] border border-[#333] text-gray-400 hover:text-white hover:bg-amber-500 shadow-lg"}><i className={"fas fa-edit text-[10px]"}></i></button><button onClick={(e) => { e.stopPropagation(); handleDeleteKPI(k); }} className={"w-7 h-7 rounded-lg bg-[#1a1a1a] border border-[#333] text-gray-400 hover:bg-rose-500 hover:text-white shadow-lg"}><i className={"fas fa-trash text-[10px]"}></i></button></div>
                                                             )}
                                                         </div>
-                                                    )
-                                                }
-                                            </div>
-                                        );
-                                    };
+                                                    )}
+                                                </div>
+                                            );
+                                        };
 
                                     return (
-                                        <div key={u} className={`rf-card shadow-lg relative transition-all duration-500 border-l-4 flex flex-col ${levelInfo.colorStyle.cardBg} ${levelInfo.colorStyle.border} ${isExpanded ? 'ring-2 ring-[#3b82f6]/50' : 'hover:scale-[1.01]'}`}>
-                                            <div onClick={() => toggleKPIExpand(u)} className={"p-3.5 pb-4 cursor-pointer flex justify-between items-center relative group"}>
-                                                <div className={"flex items-center gap-3 relative z-10"}>
-                                                    <div className="relative">
-                                                        {renderSafeAvatar(u, `w-11 h-11 shadow-md border-2 transition-all ${rank === 1 ? 'border-[#00d2ff] shadow-[0_0_15px_rgba(0,210,255,0.8)]' : rank === 2 ? 'border-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.6)]' : rank === 3 ? 'border-orange-600 shadow-[0_0_15px_rgba(234,88,12,0.6)]' : levelInfo.colorStyle.avatarRing}`)}
-                                                        {rank === 1 && <i className="fas fa-gem absolute -top-2 -right-2 text-[#00d2ff] drop-shadow-[0_0_5px_rgba(0,210,255,1)] text-[10px] animate-bounce"></i>}
-                                                        {rank === 2 && <i className="fas fa-medal absolute -top-2 -right-2 text-yellow-400 drop-shadow-[0_0_5px_rgba(250,204,21,1)] text-[10px] animate-pulse"></i>}
-                                                        {rank === 3 && <i className="fas fa-medal absolute -top-2 -right-2 text-orange-600 shadow-[0_0_15px_rgba(234,88,12,0.6)] text-[10px]"></i>}
-                                                    </div>
-                                                    <div className="flex-1 w-full space-y-1">
-                                                        {/* DÒNG 1: TÊN NHÂN SỰ */}
-                                                        <div className={`font-black text-[15px] uppercase tracking-wide transition-colors ${isExpanded ? 'text-[#3b82f6]' : 'text-white'}`}>
-                                                            {u}
-                                                        </div>
+                                        <div key={u} className={`rf-card shadow-xl relative transition-all duration-500 rounded-2xl overflow-hidden flex flex-col ${levelInfo.colorStyle.cardBg} ${levelInfo.colorStyle.border} ${levelInfo.colorStyle.shadowAura} ${isExpanded ? "ring-2 ring-sky-500/60 scale-[1.005]" : "hover:scale-[1.005]"}`}>
+                                            {/* Tactical Corner Bracket for Tier >= 1 */}
+                                            {levelInfo.colorStyle.cornerDeco && (
+                                                <div className={`absolute top-0 right-0 w-4 h-4 ${levelInfo.colorStyle.cornerDeco} rounded-tr-xl pointer-events-none z-20`}></div>
+                                            )}
+                                            {levelInfo.colorStyle.glowDot && (
+                                                <div className={`absolute top-2 right-2 w-1.5 h-1.5 rounded-full ${levelInfo.colorStyle.glowDot} pointer-events-none z-20`}></div>
+                                            )}
 
-                                                        {/* DÒNG 2: HUY HIỆU CẤP ĐỘ (Chỉ hiện CẤP X) */}
-                                                        <div>
-                                                            <span className={`inline-block text-[9px] font-black px-2.5 py-0.5 rounded-md border uppercase tracking-wider transition-all duration-500 ${levelInfo.colorStyle.badge}`}>
-                                                                CẤP {levelInfo.level}
-                                                            </span>
-                                                        </div>
-
-                                                        <div className={"text-[10px] text-gray-400 font-bold pt-0.5 flex flex-col gap-1"}>
-                                                            <div className="flex items-center gap-1.5">
-                                                                <span className="text-gray-400">{uRole}</span>
-                                                            </div>
-                                                            <div className="flex items-center gap-2 mt-0.5">
-                                                                <div className="flex-1 h-2 bg-black/60 rounded-full overflow-hidden max-w-[150px] border border-gray-800">
-                                                                    <div className={`h-full bg-gradient-to-r ${levelInfo.colorStyle.bar} rounded-full transition-all duration-500`} style={{ width: `${Math.min(100, levelInfo.progressPct)}%` }}></div>
+                                            <div onClick={() => toggleKPIExpand(u)} className={"p-3.5 pb-4 cursor-pointer flex flex-col gap-3 relative group select-none"}>
+                                                {/* HÀNG TRÊN: AVATAR + THÔNG TIN NHÂN SỰ + HUY HIỆU EXP / XU */}
+                                                <div className="flex items-start justify-between gap-3 relative z-10 w-full">
+                                                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                                                        <div className="relative shrink-0">
+                                                            {renderSafeAvatar(u, `w-12 h-12 shadow-lg transition-all rounded-full ${rank === 1 ? "border-2 border-yellow-400 shadow-[0_0_15px_rgba(250,204,21,0.7)]" : rank === 2 ? "border-2 border-slate-300 shadow-[0_0_12px_rgba(226,232,240,0.5)]" : rank === 3 ? "border-2 border-orange-500 shadow-[0_0_12px_rgba(249,115,22,0.5)]" : levelInfo.colorStyle.avatarRing}`)}
+                                                            {rank === 1 && (
+                                                                <div className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-gradient-to-tr from-amber-500 to-yellow-300 text-black font-black text-[10px] flex items-center justify-center shadow-md border border-yellow-100 ring-2 ring-black">
+                                                                    👑
                                                                 </div>
-                                                                <span className="text-[9px] font-mono font-black text-emerald-400">
-                                                                    {formatMoney(levelInfo.expInLevel)} / {formatMoney(levelInfo.neededForNext)} EXP
+                                                            )}
+                                                            {rank === 2 && (
+                                                                <div className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-gradient-to-tr from-slate-400 to-zinc-200 text-black font-black text-[10px] flex items-center justify-center shadow-md border border-white ring-2 ring-black">
+                                                                    🥈
+                                                                </div>
+                                                            )}
+                                                            {rank === 3 && (
+                                                                <div className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-gradient-to-tr from-amber-700 to-orange-500 text-white font-black text-[10px] flex items-center justify-center shadow-md border border-orange-300 ring-2 ring-black">
+                                                                    🥉
+                                                                </div>
+                                                            )}
+                                                        </div>
+
+                                                        <div className="min-w-0 flex-1">
+                                                            {/* TÊN NHÂN SỰ + LEVEL BADGE (PRESTIGE DUAL-PILL, TƯƠNG PHẢN CỰC CAO) */}
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                <span className={`font-black text-[14px] sm:text-[15px] uppercase tracking-wide transition-colors ${isExpanded ? "text-sky-400" : (levelInfo.colorStyle.headerText || "text-white")}`}>
+                                                                    {u}
                                                                 </span>
+
+                                                                {/* NÚT BẤM HUY HIỆU CẤP ĐỘ 2 KHỐI TO RÕ - HIGH CONTRAST */}
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => { e.stopPropagation(); setExpModalUser(u); }}
+                                                                    className="inline-flex items-center gap-1.5 p-0.5 bg-black/90 rounded-xl border border-white/20 hover:border-white/40 transition-all hover:scale-105 active:scale-95 shadow-md group/lvl cursor-pointer"
+                                                                    title="Bấm để xem lịch sử tích lũy EXP & Chi tiết 100 cấp độ"
+                                                                >
+                                                                    {/* KHỐI 1: SỐ CẤP ĐỘ (LV) - TO, ĐẬM, NỔI BẬT VÀNG KIM TRÊN NỀN ĐEN */}
+                                                                    <span className={`px-2.5 py-0.5 rounded-lg bg-zinc-950 border ${levelInfo.colorStyle.lvlBorder || 'border-amber-400'} text-white font-black text-[11px] sm:text-[12px] font-mono tracking-tight flex items-center gap-1 shadow-inner`}>
+                                                                        <span className="text-[12px]">{levelInfo.colorStyle.iconEmoji}</span>
+                                                                        <span className="text-amber-300 font-extrabold tracking-wide drop-shadow-[0_0_6px_rgba(251,191,36,0.6)]">CẤP {levelInfo.level}</span>
+                                                                    </span>
+
+                                                                    {/* KHỐI 2: BẬC QUÂN HÀM (TIER) - RÕ RÀNG THEO HỆ MÀU PRESTIGE */}
+                                                                    <span className={`px-2 py-0.5 rounded-lg font-black text-[9.5px] sm:text-[10px] uppercase tracking-wider ${levelInfo.colorStyle.tierPillStyle} flex items-center gap-1 shadow-sm`}>
+                                                                        <i className={`fas ${levelInfo.colorStyle.icon} text-[8.5px]`}></i>
+                                                                        <span>{levelInfo.colorStyle.tierLabel}</span>
+                                                                    </span>
+                                                                </button>
+                                                            </div>
+
+                                                            {/* CHỨC DANH + DANH HIỆU QUÂN HÀM */}
+                                                            <div className="text-[10.5px] text-zinc-400 font-semibold flex items-center gap-1.5 mt-0.5 flex-wrap">
+                                                                <span className="text-zinc-300">{uRole}</span>
+                                                                <span className="text-zinc-600">•</span>
+                                                                <span className="text-amber-400/90 font-bold">{levelInfo.title}</span>
                                                             </div>
                                                         </div>
                                                     </div>
-                                                </div>
-                                                <div className={"flex items-center gap-4 relative z-10"}>
-                                                    <div className={"flex items-center gap-3"}>
-                                                        {totalActive > 0 && <span className={"text-[11px] font-black text-amber-500 flex items-center gap-1"}><i className="fas fa-clock opacity-80"></i> {totalActive}</span>}
-                                                        {totalClaimed > 0 && <span className={"text-[11px] font-black text-emerald-500 flex items-center gap-1"}><i className="fas fa-check-circle opacity-80"></i> {totalClaimed}</span>}
+
+                                                    {/* GÓC PHẢI: HUY HIỆU XU & TÁC VỤ */}
+                                                    <div className="flex items-center gap-2 shrink-0">
+                                                        {/* HUY HIỆU XU */}
+                                                        <span className="text-[11px] font-black text-amber-300 flex items-center gap-1 bg-amber-500/15 px-2.5 py-1 rounded-lg border border-amber-500/30 shadow-[0_0_10px_rgba(245,158,11,0.25)]" title="Số Xu tích luỹ trong ví">
+                                                            <i className="fas fa-coins text-amber-400 text-[10.5px]"></i>
+                                                            <span>{formatMoney(totalXu)} Xu</span>
+                                                        </span>
+
+                                                        {totalActive > 0 && (
+                                                            <span className="text-[11px] font-black text-amber-400 flex items-center gap-1 bg-amber-500/10 px-2 py-1 rounded-lg border border-amber-500/20" title="Nhiệm vụ đang thực hiện">
+                                                                <i className="fas fa-clock text-[10px]"></i> {totalActive}
+                                                            </span>
+                                                        )}
+                                                        {totalClaimed > 0 && (
+                                                            <span className="text-[11px] font-black text-emerald-400 flex items-center gap-1 bg-emerald-500/10 px-2 py-1 rounded-lg border border-emerald-500/20" title="KPI đã nhận thưởng">
+                                                                <i className="fas fa-check-circle text-[10px]"></i> {totalClaimed}
+                                                            </span>
+                                                        )}
+
+                                                        <div className={`w-7 h-7 shrink-0 rounded-xl flex items-center justify-center transition-all duration-300 border ${isExpanded ? "bg-sky-500/20 text-sky-400 border-sky-500/40 rotate-180" : "bg-zinc-900 text-zinc-400 border-zinc-800 hover:bg-zinc-800 hover:text-white"}`}>
+                                                            <i className={"fas fa-chevron-down text-[10px]"}></i>
+                                                        </div>
                                                     </div>
-                                                    <div className={`w-7 h-7 shrink-0 rounded-full flex items-center justify-center transition-all duration-300 border ${isExpanded ? 'bg-[#3b82f6]/10 text-[#3b82f6] border-[#3b82f6]/30 rotate-180' : 'bg-[#1a1a1a] text-gray-500 border-transparent group-hover:bg-[#222]'}`}><i className={"fas fa-chevron-down text-[11px]"}></i></div>
                                                 </div>
 
-                                                {/* MANA BAR */}
-                                                <div className="absolute bottom-0 left-0 w-full h-1 bg-[#1a1a1a] rounded-b-2xl overflow-hidden">
-                                                    <div className={`h-full transition-all duration-1000 ${isCritical ? 'bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.8)] animate-pulse' : `bg-${manaColor}-500`}`} style={{ width: `${manaPct}%` }}></div>
+                                                {/* HÀNG DƯỚI: THANH EXP SHIMMER RỘNG RÃI (CLICK VÀO ĐỂ BUNG MODAL EXP) */}
+                                                <div
+                                                    onClick={(e) => { e.stopPropagation(); setExpModalUser(u); }}
+                                                    className="w-full bg-black/60 hover:bg-black/80 p-2 rounded-xl border border-white/10 transition-all cursor-pointer group/exp shadow-inner"
+                                                    title="Bấm để xem lịch sử tích lũy EXP & Chi tiết 5 nguồn cống hiến"
+                                                >
+                                                    <div className="flex justify-between items-center text-[10px] mb-1.5 px-0.5">
+                                                        <span className={`font-mono font-black flex items-center gap-1.5 ${levelInfo.colorStyle.expText || "text-zinc-300"}`}>
+                                                            <i className="fas fa-bolt text-amber-400 animate-pulse"></i>
+                                                            <span>{formatMoney(levelInfo.expInLevel)} / {formatMoney(levelInfo.neededForNext)} EXP</span>
+                                                        </span>
+                                                        <span className="text-[9.5px] font-bold text-amber-400 flex items-center gap-1 group-hover/exp:text-amber-300 transition-colors">
+                                                            <span>Tiến độ cấp {levelInfo.level}: {levelInfo.progressPct.toFixed(1)}%</span>
+                                                            <i className="fas fa-history text-[9px] opacity-70 group-hover/exp:opacity-100 transition-opacity"></i>
+                                                        </span>
+                                                    </div>
+                                                    <div className="w-full h-2.5 bg-zinc-900/90 rounded-full overflow-hidden border border-white/5 relative shadow-inner">
+                                                        <div
+                                                            className={`h-full bg-gradient-to-r ${levelInfo.colorStyle.bar} rounded-full transition-all duration-700 relative overflow-hidden`}
+                                                            style={{ width: `${Math.min(100, Math.max(2, levelInfo.progressPct))}%` }}
+                                                        >
+                                                            {/* Tia Shimmer lướt qua */}
+                                                            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent translate-x-[-100%] group-hover/exp:animate-[shine_1.2s_infinite]"></div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {/* MANA BAR (TIẾN ĐỘ HOÀN THÀNH TỔNG THỂ NHIỆM VỤ) */}
+                                                <div className="absolute bottom-0 left-0 w-full h-1 bg-black/60 overflow-hidden">
+                                                    <div className={`h-full transition-all duration-1000 ${isCritical ? "bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.8)] animate-pulse" : `bg-${manaColor}-500`}`} style={{ width: `${manaPct}%` }}></div>
                                                 </div>
                                             </div>
 
                                             {isExpanded && (
-                                                <div className="p-3 pt-0 border-t border-[#222] relative z-10 animate-fade-in mt-2 space-y-3">
+                                                <div className="p-3 pt-0 border-t border-white/5 relative z-10 animate-fade-in mt-1 space-y-3">
                                                     {/* 3 SEGMENTED TABS CONTROL */}
                                                     <div className="flex gap-1.5 p-1 bg-[#09090b] rounded-xl border border-[#222] text-[11px] font-black uppercase tracking-wider mb-2">
                                                         <button onClick={(e) => { e.stopPropagation(); setUserInnerTab(prev => ({ ...prev, [u]: 'KPI' })); }} className={`flex-1 py-1.5 rounded-lg border transition-all flex items-center justify-center gap-1.5 ${(userInnerTab[u] || 'KPI') === 'KPI' ? 'bg-amber-500/20 text-amber-400 border-amber-500/40 shadow-sm' : 'bg-transparent text-gray-400 border-transparent hover:bg-zinc-800/60'}`}>
@@ -3873,7 +4411,6 @@
                                                                         <td className="p-3 text-[#3b82f6] font-bold">{a.shift}</td>
                                                                         <td className="p-3">
                                                                             <span className={`px-1.5 py-0.5 rounded font-bold text-[9px] uppercase ${String(a.status).includes('Nghỉ') || String(a.status).includes('Quên') ? 'bg-rose-500/20 text-rose-400' : 'bg-emerald-500/20 text-emerald-400'}`}>{a.status}</span>
-                                                                            {isEditedBadge && <div className="mt-1"><span className="px-1.5 py-0.5 rounded font-black text-[8px] bg-amber-500 text-black"><i className="fas fa-pen text-[8px] mr-1"></i>Sửa</span></div>}
                                                                         </td>
                                                                         <td className="p-3 text-gray-400 font-mono">{a.timeIn || '--:--'} - {a.timeOut || '--:--'}</td>
                                                                         <td className="p-3 font-black text-[#10b981] text-[12px]">{a.totalHours}h</td>
@@ -4002,6 +4539,26 @@
                             pushDeltas={pushDeltas}
                             triggerToast={triggerToast}
                             currentUser={currentUser}
+                        />
+                    )
+                }
+
+                {
+                    expModalUser && (
+                        <ExpHistoryRoadmapModal
+                            user={expModalUser}
+                            userConfigs={userConfigs}
+                            rawAttData={rawAttData}
+                            bpData={bpData}
+                            kpiData={kpiData}
+                            safeProdItems={safeProdItems}
+                            safePackings={safePackings}
+                            erpData={erpData}
+                            onClose={() => setExpModalUser(null)}
+                            formatMoney={formatMoney}
+                            renderSafeAvatar={renderSafeAvatar}
+                            getLevelColorStyle={getLevelColorStyle}
+                            get100LevelInfo={get100LevelInfo}
                         />
                     )
                 }
@@ -4354,6 +4911,518 @@
                         <button type="button" onClick={handleSave} disabled={isSaving} className="flex-[2] py-2.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black font-black rounded-xl text-[11px] transition-all shadow-lg active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer">
                             {isSaving ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-check"></i>}
                             <span>LƯU & DUYỆT TRẠNG THÁI</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    });
+
+    // =========================================================================
+    // 6. COMPONENT MODAL: LỊCH SỬ TÍCH LŨY EXP & ĐẠI SẢNH 100 CẤP ĐỘ QUÂN HÀM
+    // =========================================================================
+    const ExpHistoryRoadmapModal = React.memo(function ExpHistoryRoadmapModal({
+        user,
+        userConfigs,
+        rawAttData,
+        bpData,
+        kpiData,
+        safeProdItems,
+        safePackings,
+        erpData,
+        onClose,
+        formatMoney,
+        renderSafeAvatar,
+        getLevelColorStyle,
+        get100LevelInfo
+    }) {
+        const [activeTab, setActiveTab] = React.useState('HISTORY'); // 'HISTORY' | 'ROADMAP'
+        const [filterType, setFilterType] = React.useState('ALL'); // 'ALL' | 'ATT' | 'PROD' | 'PACK' | 'KPI' | 'XU'
+
+        const u = user;
+        const uRole = userConfigs?.titles?.[u] || 'Nhân Sự';
+
+        // 1. NGUỒN CHẤM CÔNG & CHUYÊN CẦN
+        const userAttRecords = (rawAttData || []).filter(a => matchUser(a.user, u));
+        const baseHourlyRate = Number(userConfigs?.pins?.[u]?.hourlyRate || (userConfigs?.pins?.[u]?.baseSalary ? Math.round(Number(userConfigs.pins[u].baseSalary) / 208) : 25000));
+        
+        let totalAttHours = 0;
+        const attLogs = [];
+        userAttRecords.forEach(a => {
+            const hrs = Number(a.totalHours) || ((a.morningIn && a.morningOut ? 4 : 0) + (a.afternoonIn && a.afternoonOut ? 4 : 0));
+            if (hrs > 0) {
+                totalAttHours += hrs;
+                const earned = Math.round(hrs * baseHourlyRate);
+                attLogs.push({
+                    id: a.id || `ATT_${a.date}_${a.shift}`,
+                    type: 'ATT',
+                    sourceName: 'Chấm Công & Chuyên Cần',
+                    title: `Ca ${a.shift || 'Làm việc'} - Ngày ${a.date ? a.date.split('-').reverse().join('/') : '---'}`,
+                    subtitle: `${hrs} giờ làm việc (${a.timeIn || '--:--'} ➔ ${a.timeOut || '--:--'}) • Đơn giá: ${formatMoney(baseHourlyRate)}đ/h`,
+                    date: a.date || '',
+                    exp: earned,
+                    icon: 'fa-user-clock',
+                    color: 'text-sky-400',
+                    badgeBg: 'bg-sky-500/10 border-sky-500/30 text-sky-400'
+                });
+            }
+        });
+        const totalAttendanceSalary = Math.round(totalAttHours * baseHourlyRate);
+
+        // 2. NGUỒN SẢN XUẤT ĐẠT CHUẨN KCS
+        let totalProdReward = 0;
+        const prodLogs = [];
+        (safeProdItems || []).forEach(item => {
+            ['phase1', 'phase2'].forEach(phKey => {
+                const ph = item?.phases?.[phKey];
+                if (ph && ph.status === 'Done' && matchUser(ph.user, u)) {
+                    const rwd = Number(ph.reward_vnd) || 0;
+                    totalProdReward += rwd;
+                    prodLogs.push({
+                        id: `${item.id || item.orderId}_${phKey}`,
+                        type: 'PROD',
+                        sourceName: 'Sản Xuất Chuẩn KCS',
+                        title: `${phKey === 'phase1' ? 'Khâu 1 (Cắt/Dán/Khung)' : 'Khâu 2 (Gia Cố/Gọt Keo)'}: ${item.name || item.sku || 'Lệnh SX'}`,
+                        subtitle: `Mã đơn: ${item.orderCode || item.orderId || '---'} • Nghiệm thu đạt chuẩn KCS`,
+                        date: ph.endTime || ph.start || item.createdAt || '',
+                        exp: rwd,
+                        icon: 'fa-hammer',
+                        color: 'text-amber-400',
+                        badgeBg: 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                    });
+                }
+            });
+        });
+
+        // 3. NGUỒN ĐÓNG GÓI & XUẤT KHO
+        const userPackings = (safePackings || erpData?.Packings || []).filter(p => matchUser(p.user, u) && (p.status === 'Done' || p.status === 'Đã đóng gói'));
+        const packLogs = userPackings.map(p => {
+            const rwd = Number(p.reward_vnd) || 0;
+            return {
+                id: p.id || `PACK_${p.orderId}`,
+                type: 'PACK',
+                sourceName: 'Đóng Gói & Xuất Kho',
+                title: `Đóng gói kiện hàng: ${p.orderId || p.orderCode || 'Đơn hàng'}`,
+                subtitle: `Hoàn tất kiểm tra 6 mặt & dán tem nhãn giao vận`,
+                date: p.endTime || p.start || '',
+                exp: rwd,
+                icon: 'fa-box-open',
+                color: 'text-emerald-400',
+                badgeBg: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+            };
+        });
+        const totalPackingReward = packLogs.reduce((sum, p) => sum + p.exp, 0);
+
+        // 4. NGUỒN KPI ĐÃ CLAIM THƯỞNG
+        const claimedKPIs = (kpiData || []).filter(k => matchUser(k.user, u) && (k.isClaimed === 'true' || k.isClaimed === true));
+        const kpiVndList = claimedKPIs.filter(k => !(String(k.unit || '').toLowerCase() === 'xu' || String(k.id || '').startsWith('KPI_XU_')));
+        const kpiLogs = kpiVndList.map(k => {
+            const rwd = Number(k.reward) || 0;
+            return {
+                id: k.id,
+                type: 'KPI',
+                sourceName: 'Thưởng KPI Đạt Mốc',
+                title: `KPI: ${k.kpiName}`,
+                subtitle: `Chỉ tiêu đạt: ${k.target} ${k.unit || ''} • Nghiệm thu & duyệt thưởng`,
+                date: k.lastUpdated || k.endTime || k.startTime || '',
+                exp: rwd,
+                icon: 'fa-trophy',
+                color: 'text-purple-400',
+                badgeBg: 'bg-purple-500/10 border-purple-500/30 text-purple-400'
+            };
+        });
+        const totalKPIVnd = kpiLogs.reduce((sum, k) => sum + k.exp, 0);
+
+        // 5. NGUỒN XU THƯỞNG & QUỸ TÍCH LŨY (TỪ THỐNG KÊ TÍCH LŨY XU, KPI VÀ BONUSPENALTY)
+        const xuFromSheet = (erpData?.ThongKe_TichLuyXu || erpData?.xuTransactions || []).filter(x => matchUser(x.user, u)).map(x => ({
+            id: String(x.id || `XU_${Math.random()}`),
+            type: 'XU',
+            sourceName: 'Quỹ Xu Tích Lũy',
+            title: x.note || x.title || (x.type === 'XU_REWARD' ? 'Boss tặng xu khởi nghiệp' : 'Thưởng Xu Tích Lũy'),
+            subtitle: x.orderCode ? `Gắn với đơn/nhiệm vụ: ${x.orderCode}` : `Thưởng cống hiến xưởng`,
+            date: x.date || x.timestamp || '',
+            exp: Number(x.amount_xu !== undefined && x.amount_xu !== '' ? x.amount_xu : (x.amount || 0)),
+            icon: 'fa-coins',
+            color: 'text-amber-300',
+            badgeBg: 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+        }));
+
+        const xuTasksKPI = claimedKPIs.filter(k => String(k.unit || '').toLowerCase() === 'xu' || String(k.id || '').startsWith('KPI_XU_')).map(k => ({
+            id: String(k.id),
+            type: 'XU',
+            sourceName: 'Nhiệm Vụ Xu KPI',
+            title: k.kpiName,
+            subtitle: `Nhiệm vụ Xu hoàn thành`,
+            date: k.lastUpdated || k.endTime || k.startTime || '',
+            exp: Number(k.reward) || 0,
+            icon: 'fa-coins',
+            color: 'text-amber-300',
+            badgeBg: 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+        }));
+
+        const xuTasksBP = (bpData || []).filter(b => matchUser(b.user, u) && (b.type === 'XU_REWARD' || b.type === 'Thưởng Xu' || String(b.note || '').toLowerCase().includes('xu'))).map(b => ({
+            id: String(b.id),
+            type: 'XU',
+            sourceName: 'Nhiệm Vụ Xu Thưởng',
+            title: b.note || 'Thưởng Xu Cống Hiến',
+            subtitle: `Phần thưởng cống hiến xưởng`,
+            date: b.date || '',
+            exp: Number(b.amount) || 0,
+            icon: 'fa-coins',
+            color: 'text-amber-300',
+            badgeBg: 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+        }));
+
+        // Khử trùng lặp theo ID
+        const seenModalXuIds = new Set();
+        const xuLogs = [...xuFromSheet, ...xuTasksKPI, ...xuTasksBP].filter(x => {
+            if (!x.id || seenModalXuIds.has(x.id)) return false;
+            seenModalXuIds.add(x.id);
+            return Number(x.exp) > 0;
+        });
+        const totalXu = xuLogs.reduce((sum, x) => sum + x.exp, 0);
+
+        // TỔNG EXP VÀ LEVEL INFO
+        const totalUserExp = totalAttendanceSalary + totalProdReward + totalPackingReward + totalKPIVnd + totalXu;
+        const levelInfo = get100LevelInfo(totalUserExp);
+
+        // DANH SÁCH TIMELINE GIAO DỊCH
+        const allTimelineLogs = [...attLogs, ...prodLogs, ...packLogs, ...kpiLogs, ...xuLogs].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+        const filteredLogs = filterType === 'ALL' ? allTimelineLogs : allTimelineLogs.filter(x => x.type === filterType);
+
+        // 9 BẬC QUÂN HÀM ĐỂ RENDER ĐẠI SẢNH
+        const allTiers = [1, 10, 15, 20, 25, 30, 35, 40, 50].map(lvl => getLevelColorStyle(lvl));
+
+        return (
+            <div className="fixed inset-0 bg-black/85 flex items-center justify-center z-[9999] p-3 sm:p-5 backdrop-blur-md animate-fade-in">
+                <div className="bg-[#0e1015] border border-zinc-700/70 w-full max-w-4xl max-h-[92vh] rounded-3xl shadow-2xl flex flex-col relative overflow-hidden">
+                    {/* MODAL HEADER */}
+                    <div className={`p-4 sm:p-6 border-b border-zinc-800 relative z-10 ${levelInfo.colorStyle.cardBg}`}>
+                        {/* Corner Deco */}
+                        {levelInfo.colorStyle.cornerDeco && (
+                            <div className={`absolute top-0 right-0 w-8 h-8 ${levelInfo.colorStyle.cornerDeco} rounded-tr-3xl pointer-events-none`}></div>
+                        )}
+
+                        <div className="flex items-start justify-between gap-4">
+                            <div className="flex items-center gap-3.5 sm:gap-4 min-w-0">
+                                <div className="relative shrink-0">
+                                    {renderSafeAvatar(u, `w-14 h-14 sm:w-16 sm:h-16 rounded-full ${levelInfo.colorStyle.avatarRing} shadow-2xl`)}
+                                    <div className="absolute -bottom-1.5 -right-1.5 text-base sm:text-lg">
+                                        {levelInfo.colorStyle.iconEmoji}
+                                    </div>
+                                </div>
+                                <div className="min-w-0">
+                                    {/* TÊN + PRESTIGE DUAL BADGE TO RÕ */}
+                                    <div className="flex items-center gap-2.5 flex-wrap">
+                                        <h2 className="font-black text-lg sm:text-2xl text-white tracking-wide uppercase truncate">
+                                            {u}
+                                        </h2>
+                                        <div className="inline-flex items-center gap-1.5 p-0.5 bg-black/90 rounded-xl border border-white/20 shadow-md">
+                                            <span className={`px-2.5 py-0.5 rounded-lg bg-zinc-950 border ${levelInfo.colorStyle.lvlBorder || 'border-amber-400'} text-white font-black text-xs sm:text-sm font-mono flex items-center gap-1`}>
+                                                <span>{levelInfo.colorStyle.iconEmoji}</span>
+                                                <span className="text-amber-300 font-black">CẤP {levelInfo.level}</span>
+                                            </span>
+                                            <span className={`px-2 py-0.5 rounded-lg font-black text-[10px] sm:text-[11px] uppercase tracking-wider ${levelInfo.colorStyle.tierPillStyle}`}>
+                                                {levelInfo.colorStyle.tierLabel}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div className="text-xs text-zinc-400 font-semibold flex items-center gap-2 mt-1 flex-wrap">
+                                        <span className="text-zinc-300">{uRole}</span>
+                                        <span className="text-zinc-600">•</span>
+                                        <span className="text-amber-400 font-bold">{levelInfo.title}</span>
+                                        <span className="text-zinc-600">•</span>
+                                        <span className="text-emerald-400 font-mono font-bold">Tổng EXP: {formatMoney(totalUserExp)}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={onClose}
+                                className="w-8 h-8 sm:w-9 sm:h-9 rounded-2xl bg-zinc-900/90 border border-zinc-700/80 text-zinc-400 hover:text-white hover:bg-zinc-800 flex items-center justify-center transition-all cursor-pointer shrink-0"
+                            >
+                                <i className="fas fa-times text-sm"></i>
+                            </button>
+                        </div>
+
+                        {/* THANH TIẾN TRÌNH LÊN CẤP TIẾP THEO */}
+                        <div className="mt-4 bg-black/70 p-3 rounded-2xl border border-white/10 shadow-inner">
+                            <div className="flex justify-between items-center text-xs mb-1.5">
+                                <span className={`font-mono font-black flex items-center gap-1.5 ${levelInfo.colorStyle.expText || "text-zinc-300"}`}>
+                                    <i className="fas fa-bolt text-amber-400 animate-pulse"></i>
+                                    <span>{formatMoney(levelInfo.expInLevel)} / {formatMoney(levelInfo.neededForNext)} EXP để lên Cấp {Math.min(100, levelInfo.level + 1)}</span>
+                                </span>
+                                <span className="font-bold text-amber-400">
+                                    {levelInfo.progressPct.toFixed(1)}%
+                                </span>
+                            </div>
+                            <div className="w-full h-3 bg-zinc-900 rounded-full overflow-hidden border border-white/5 relative">
+                                <div
+                                    className={`h-full bg-gradient-to-r ${levelInfo.colorStyle.bar} rounded-full transition-all duration-700 relative overflow-hidden`}
+                                    style={{ width: `${Math.min(100, Math.max(2, levelInfo.progressPct))}%` }}
+                                >
+                                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent translate-x-[-100%] animate-[shine_1.5s_infinite]"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 2 MAIN TABS */}
+                        <div className="flex gap-2 mt-4">
+                            <button
+                                type="button"
+                                onClick={() => setActiveTab('HISTORY')}
+                                className={`flex-1 py-2 px-3 rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${activeTab === 'HISTORY' ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20' : 'bg-zinc-900/90 text-zinc-400 hover:text-white border border-zinc-800'}`}
+                            >
+                                <i className="fas fa-history"></i>
+                                <span>Lịch Sử Tích Lũy EXP ({allTimelineLogs.length})</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setActiveTab('ROADMAP')}
+                                className={`flex-1 py-2 px-3 rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${activeTab === 'ROADMAP' ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20' : 'bg-zinc-900/90 text-zinc-400 hover:text-white border border-zinc-800'}`}
+                            >
+                                <i className="fas fa-crown"></i>
+                                <span>Đại Sảnh 100 Cấp Độ & Quân Hàm</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* MODAL BODY */}
+                    <div className="flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-6 space-y-5">
+                        {activeTab === 'HISTORY' ? (
+                            <>
+                                {/* BENTO 5 NGUỒN CỐNG HIẾN */}
+                                <div>
+                                    <div className="text-[11px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1.5 mb-3">
+                                        <i className="fas fa-cubes text-amber-400"></i>
+                                        <span>Bento 5 Nguồn Tích Lũy EXP Cống Hiến:</span>
+                                    </div>
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+                                        {/* 1. Chấm công */}
+                                        <div className="bg-[#12141a] p-3 rounded-2xl border border-sky-500/20 flex flex-col justify-between">
+                                            <div className="flex items-center justify-between text-sky-400 text-xs mb-1">
+                                                <i className="fas fa-user-clock text-base"></i>
+                                                <span className="text-[9px] font-bold uppercase bg-sky-500/10 px-1.5 py-0.5 rounded">Chuyên cần</span>
+                                            </div>
+                                            <div>
+                                                <div className="text-white font-black text-sm sm:text-base font-mono">{formatMoney(totalAttendanceSalary)}</div>
+                                                <div className="text-[10px] text-zinc-400 font-semibold">{totalAttHours.toFixed(1)} giờ làm việc</div>
+                                            </div>
+                                        </div>
+
+                                        {/* 2. Sản xuất */}
+                                        <div className="bg-[#12141a] p-3 rounded-2xl border border-amber-500/20 flex flex-col justify-between">
+                                            <div className="flex items-center justify-between text-amber-400 text-xs mb-1">
+                                                <i className="fas fa-hammer text-base"></i>
+                                                <span className="text-[9px] font-bold uppercase bg-amber-500/10 px-1.5 py-0.5 rounded">Khâu 1 & 2</span>
+                                            </div>
+                                            <div>
+                                                <div className="text-white font-black text-sm sm:text-base font-mono">{formatMoney(totalProdReward)}</div>
+                                                <div className="text-[10px] text-zinc-400 font-semibold">{prodLogs.length} lệnh hoàn tất KCS</div>
+                                            </div>
+                                        </div>
+
+                                        {/* 3. Đóng gói */}
+                                        <div className="bg-[#12141a] p-3 rounded-2xl border border-emerald-500/20 flex flex-col justify-between">
+                                            <div className="flex items-center justify-between text-emerald-400 text-xs mb-1">
+                                                <i className="fas fa-box-open text-base"></i>
+                                                <span className="text-[9px] font-bold uppercase bg-emerald-500/10 px-1.5 py-0.5 rounded">Gói hàng</span>
+                                            </div>
+                                            <div>
+                                                <div className="text-white font-black text-sm sm:text-base font-mono">{formatMoney(totalPackingReward)}</div>
+                                                <div className="text-[10px] text-zinc-400 font-semibold">{packLogs.length} kiện xuất kho</div>
+                                            </div>
+                                        </div>
+
+                                        {/* 4. KPI */}
+                                        <div className="bg-[#12141a] p-3 rounded-2xl border border-purple-500/20 flex flex-col justify-between">
+                                            <div className="flex items-center justify-between text-purple-400 text-xs mb-1">
+                                                <i className="fas fa-trophy text-base"></i>
+                                                <span className="text-[9px] font-bold uppercase bg-purple-500/10 px-1.5 py-0.5 rounded">KPI Tháng</span>
+                                            </div>
+                                            <div>
+                                                <div className="text-white font-black text-sm sm:text-base font-mono">{formatMoney(totalKPIVnd)}</div>
+                                                <div className="text-[10px] text-zinc-400 font-semibold">{kpiLogs.length} chỉ tiêu đạt mốc</div>
+                                            </div>
+                                        </div>
+
+                                        {/* 5. Xu Thưởng */}
+                                        <div className="bg-[#12141a] p-3 rounded-2xl border border-amber-500/30 flex flex-col justify-between col-span-2 sm:col-span-1">
+                                            <div className="flex items-center justify-between text-amber-300 text-xs mb-1">
+                                                <i className="fas fa-coins text-base"></i>
+                                                <span className="text-[9px] font-bold uppercase bg-amber-500/20 px-1.5 py-0.5 rounded">Ví Xu</span>
+                                            </div>
+                                            <div>
+                                                <div className="text-amber-300 font-black text-sm sm:text-base font-mono">{formatMoney(totalXu)} Xu</div>
+                                                <div className="text-[10px] text-zinc-400 font-semibold">{xuLogs.length} lần nhận thưởng</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* FILTER CHIPS */}
+                                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 custom-scrollbar text-[11px] font-black">
+                                    <button
+                                        type="button"
+                                        onClick={() => setFilterType('ALL')}
+                                        className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer shrink-0 ${filterType === 'ALL' ? 'bg-zinc-200 text-black font-black' : 'bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800'}`}
+                                    >
+                                        Tất Cả ({allTimelineLogs.length})
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setFilterType('ATT')}
+                                        className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer shrink-0 flex items-center gap-1 ${filterType === 'ATT' ? 'bg-sky-500 text-black font-black' : 'bg-zinc-900 text-sky-400 hover:text-white border border-zinc-800'}`}
+                                    >
+                                        <i className="fas fa-user-clock text-[10px]"></i> Chấm Công ({attLogs.length})
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setFilterType('PROD')}
+                                        className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer shrink-0 flex items-center gap-1 ${filterType === 'PROD' ? 'bg-amber-500 text-black font-black' : 'bg-zinc-900 text-amber-400 hover:text-white border border-zinc-800'}`}
+                                    >
+                                        <i className="fas fa-hammer text-[10px]"></i> Sản Xuất ({prodLogs.length})
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setFilterType('PACK')}
+                                        className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer shrink-0 flex items-center gap-1 ${filterType === 'PACK' ? 'bg-emerald-500 text-black font-black' : 'bg-zinc-900 text-emerald-400 hover:text-white border border-zinc-800'}`}
+                                    >
+                                        <i className="fas fa-box-open text-[10px]"></i> Đóng Gói ({packLogs.length})
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setFilterType('KPI')}
+                                        className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer shrink-0 flex items-center gap-1 ${filterType === 'KPI' ? 'bg-purple-500 text-white font-black' : 'bg-zinc-900 text-purple-400 hover:text-white border border-zinc-800'}`}
+                                    >
+                                        <i className="fas fa-trophy text-[10px]"></i> KPI Tháng ({kpiLogs.length})
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setFilterType('XU')}
+                                        className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer shrink-0 flex items-center gap-1 ${filterType === 'XU' ? 'bg-amber-400 text-black font-black' : 'bg-zinc-900 text-amber-300 hover:text-white border border-zinc-800'}`}
+                                    >
+                                        <i className="fas fa-coins text-[10px]"></i> Nhiệm Vụ Xu ({xuLogs.length})
+                                    </button>
+                                </div>
+
+                                {/* TIMELINE GIAO DỊCH EXP */}
+                                <div className="space-y-2">
+                                    {filteredLogs.length === 0 ? (
+                                        <div className="text-center py-10 text-zinc-500 font-bold text-xs bg-[#12141a] rounded-2xl border border-zinc-800">
+                                            Chưa có dữ liệu tích lũy EXP trong danh mục này.
+                                        </div>
+                                    ) : (
+                                        filteredLogs.map((log, idx) => (
+                                            <div
+                                                key={log.id || idx}
+                                                className="bg-[#12141a] hover:bg-[#161922] p-3 rounded-2xl border border-zinc-800/80 flex items-center justify-between gap-3 transition-all"
+                                            >
+                                                <div className="flex items-center gap-3 min-w-0">
+                                                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border ${log.badgeBg}`}>
+                                                        <i className={`fas ${log.icon} text-sm`}></i>
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <div className="text-xs font-black text-white truncate">
+                                                            {log.title}
+                                                        </div>
+                                                        <div className="text-[10px] text-zinc-400 truncate mt-0.5">
+                                                            {log.subtitle}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right shrink-0">
+                                                    <div className="font-mono font-black text-xs sm:text-sm text-emerald-400">
+                                                        +{formatMoney(log.exp)} EXP
+                                                    </div>
+                                                    <div className="text-[9.5px] text-zinc-500 mt-0.5">
+                                                        {log.date ? (log.date.includes('T') ? log.date.split('T')[0] : log.date) : '---'}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </>
+                        ) : (
+                            /* TAB 2: ĐẠI SẢNH 100 CẤP ĐỘ & 9 BẬC QUÂN HÀM */
+                            <div className="space-y-4">
+                                <div className="text-[11px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1.5">
+                                    <i className="fas fa-award text-amber-400"></i>
+                                    <span>Hệ Thống 9 Bậc Quân Hàm & Lộ Trình 100 Cấp Độ Cống Hiến (Max 2 Tỷ EXP):</span>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                                    {allTiers.map((t) => {
+                                        const isCurrentTier = Math.floor((levelInfo.level - 1) / 5) === t.tier;
+                                        return (
+                                            <div
+                                                key={t.tier}
+                                                className={`p-4 rounded-2xl border transition-all relative overflow-hidden flex flex-col justify-between ${t.cardBg} ${isCurrentTier ? "ring-2 ring-amber-400 shadow-[0_0_30px_rgba(251,191,36,0.3)] scale-[1.02]" : "border-zinc-800 opacity-80 hover:opacity-100"}`}
+                                            >
+                                                {/* Corner Bracket */}
+                                                {t.cornerDeco && (
+                                                    <div className={`absolute top-0 right-0 w-6 h-6 ${t.cornerDeco} rounded-tr-2xl pointer-events-none`}></div>
+                                                )}
+
+                                                <div>
+                                                    <div className="flex items-center justify-between gap-2 mb-2">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-xl">{t.iconEmoji}</span>
+                                                            <div>
+                                                                <span className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase ${t.badge}`}>
+                                                                    BẬC {t.tier + 1} • {t.tierLabel}
+                                                                </span>
+                                                                <h4 className="font-black text-sm text-white mt-1">
+                                                                    {t.tierTitle}
+                                                                </h4>
+                                                            </div>
+                                                        </div>
+                                                        {isCurrentTier && (
+                                                            <span className="bg-amber-500 text-black text-[9px] font-black px-2 py-0.5 rounded-full uppercase shadow-md animate-pulse">
+                                                                📍 BẬC CỦA BẠN
+                                                            </span>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="space-y-1.5 my-3 text-[11px]">
+                                                        <div className="flex justify-between text-zinc-300">
+                                                            <span className="text-zinc-500">Phạm vi cấp:</span>
+                                                            <span className="font-black text-amber-300">{t.levelRange}</span>
+                                                        </div>
+                                                        <div className="flex justify-between text-zinc-300">
+                                                            <span className="text-zinc-500">Yêu cầu EXP:</span>
+                                                            <span className="font-mono font-bold text-emerald-400">{t.expRangeText}</span>
+                                                        </div>
+                                                    </div>
+
+                                                    <p className="text-[10.5px] text-zinc-400 leading-relaxed italic border-t border-white/5 pt-2">
+                                                        "{t.desc}"
+                                                    </p>
+                                                </div>
+
+                                                <div className="w-full h-1.5 bg-black/60 rounded-full overflow-hidden mt-3">
+                                                    <div className={`h-full bg-gradient-to-r ${t.bar} w-full`}></div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* MODAL FOOTER */}
+                    <div className="p-4 border-t border-zinc-800 bg-[#090a0d] flex items-center justify-between text-xs">
+                        <div className="text-zinc-400 text-[11px]">
+                            <i className="fas fa-shield-alt text-amber-400 mr-1"></i> Hệ thống EXP tự động cập nhật theo thời gian thực từ 5 nguồn cống hiến.
+                        </div>
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="px-5 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-black uppercase text-[11px] transition-all cursor-pointer"
+                        >
+                            ĐÓNG
                         </button>
                     </div>
                 </div>

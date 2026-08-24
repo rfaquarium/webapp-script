@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>RF Workspace Pro</title>
+  <link rel="apple-touch-icon" href="https://i.postimg.cc/TYD5NncZ/icon.png">
+  <link rel="shortcut icon" href="https://i.postimg.cc/TYD5NncZ/icon.png" type="image/png">
+  <style>
+    /* 1. Reset toàn bộ margin/padding của trang bọc ngoài */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      min-height: 100vh;
+      min-height: 100dvh;
+      overflow: hidden;
+      background-color: #09090b; /* Màu nền Obsidian trùng khớp với app */
+      position: fixed; /* Khóa chặt không cho viewport ngoài nảy (bounce) */
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+    }
+
+    /* 2. Ép iframe full 100% màn hình, triệt tiêu khoảng hở inline */
+    .gas-frame {
+      display: block;
+      width: 100%;
+      height: 100%;
+      min-height: 100dvh;
+      border: none;
+      outline: none;
+      margin: 0;
+      padding: 0;
+      /* Xử lý khoảng trống Safe Area cho iPhone */
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+  </style>
+</head>
+<body>
+  <iframe 
+    class="gas-frame"
+    src="https://script.google.com/macros/s/AKfycbytd9c_FzcqJ_65nqNI-xplYVRD3gstZcIL6PBk34P81XdSqXTNcRWsYt5bbeqjg66N/exec"
+    allow="geolocation; microphone; camera; clipboard-read; clipboard-write"
+    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals">
+  </iframe>
+</body>
+</html>

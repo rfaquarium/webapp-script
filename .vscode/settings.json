@@ -1,3 +1,8 @@
 {
-    "files.autoSave": "off"
+    "files.autoSave": "afterDelay",
+    "files.exclude": {
+        "**/.git": true,
+        "**/.tmp.driveupload": true,
+        "**/scratch": false
+    }
 }

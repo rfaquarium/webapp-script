@@ -260,7 +260,8 @@ function api_getOperationsHealth() {
   var alerts = {
     sla: [],
     bottleneck: [],
-    inventory: []
+    inventory: [],
+    packingEmergency: null
   };
   
   try {
@@ -355,6 +356,63 @@ function api_getOperationsHealth() {
       }
     }
 
+    // 4. BỘ LỌC TỰ ĐỘNG: CẢNH BÁO ĐÓNG GÓI SAU 19:00 & GHI COMBAT LOG (TRỪ CHỦ NHẬT)
+    var currentHour = now.getHours();
+    var isSunday = now.getDay() === 0;
+    var isAfter19 = currentHour >= 19 && !isSunday; // Ngày Chủ Nhật xưởng nghỉ -> Không kích hoạt cảnh báo SLA đóng gói
+    if (isAfter19 && orderSheet) {
+      var unPackedOrders = [];
+      var oData = orderSheet.getDataRange().getValues();
+      var oHeaders2 = oData[0];
+      var oStCol = oHeaders2.indexOf('status');
+      var oCdCol = oHeaders2.indexOf('orderCode');
+      var oChCol = oHeaders2.indexOf('channel');
+
+      for (var m = 1; m < oData.length; m++) {
+        var chUpper = String(oData[m][oChCol] || '').toUpperCase().trim();
+        if (chUpper === 'SẢN XUẤT TỒN' || chUpper === 'SẢN XUẤT BÙ KHO' || chUpper.indexOf('SẢN XUẤT TỒN') !== -1 || chUpper.indexOf('BÙ KHO') !== -1 || chUpper.indexOf('SX TỒN') !== -1) {
+          continue; // Bỏ qua lệnh nội bộ xưởng sản xuất
+        }
+
+        var stUpper = String(oData[m][oStCol] || '').toUpperCase().trim();
+        if (stUpper === 'SẴN SÀNG ĐÓNG GÓI' || stUpper === 'SẴN SÀNG') {
+          unPackedOrders.push({
+            orderCode: oData[m][oCdCol] || ('D-' + m),
+            channel: oData[m][oChCol] || 'Trực tiếp'
+          });
+        }
+      }
+
+      if (unPackedOrders.length > 0) {
+        // Tìm nhân sự phụ trách đóng gói hôm nay
+        var packingStaff = 'Nguyễn Thị Diệu Hương';
+        var attSheet = ss.getSheetByName('Attendance');
+        var todayStr = Utilities.formatDate(now, "GMT+7", "yyyy-MM-dd");
+        if (attSheet) {
+          var attData = attSheet.getDataRange().getValues();
+          for (var a = 1; a < attData.length; a++) {
+            var aDate = String(attData[a][2] || '');
+            var aUser = String(attData[a][1] || '');
+            if (aDate.indexOf(todayStr) !== -1 && (aUser.indexOf('Hương') !== -1 || aUser.indexOf('Đóng Gói') !== -1)) {
+              packingStaff = aUser;
+              break;
+            }
+          }
+        }
+
+        alerts.packingEmergency = {
+          count: unPackedOrders.length,
+          orders: unPackedOrders.slice(0, 10),
+          staff: packingStaff,
+          time: Utilities.formatDate(now, "GMT+7", "HH:mm:ss dd/MM/yyyy"),
+          message: `Sau 19:00 còn ${unPackedOrders.length} đơn hàng Sẵn Sàng Đóng Gói chưa hoàn tất! Vi phạm SLA đóng gói.`
+        };
+
+        // Ghi nhận trực tiếp vào Tracking_Log (Combat Log) & BonusPenalty (Tự động phạt sau 21:00 cho Shopee VN)
+        api_recordPackingViolationLog(packingStaff, unPackedOrders.length, unPackedOrders.map(function(o){ return o.orderCode; }).join(', '), unPackedOrders, ss);
+      }
+    }
+
     return { success: true, data: alerts };
   } catch (error) {
     return { success: false, message: 'Lỗi khi quét vận hành: ' + error.toString() };
@@ -422,3 +480,726 @@ function TOOL_SplitGroupedProductionTasks() {
     lock.releaseLock();
   }
 }
+
+// =========================================================================
+// 🚨 GHI NHẬN VI PHẠM SLA ĐÓNG GÓI SAU 19:00 & TỰ ĐỘNG PHẠT SHOPEE VN LÚC 21:00 (TRỪ CHỦ NHẬT)
+// =========================================================================
+function api_recordPackingViolationLog(staffName, count, orderCodes, unPackedOrders, ss) {
+  try {
+    ss = ss || SpreadsheetApp.getActiveSpreadsheet();
+    var now = new Date();
+    // Chủ nhật xưởng nghỉ -> Tuyệt đối không ghi nhận vi phạm hay phạt SLA đóng gói
+    if (now.getDay() === 0) {
+      return;
+    }
+
+    var currentHour = now.getHours();
+    var todayStr = Utilities.formatDate(now, "GMT+7", "yyyy-MM-dd");
+    var timestamp = Utilities.formatDate(now, "GMT+7", "yyyy-MM-dd HH:mm:ss");
+    var violationId = 'BP_SLA_PACK_' + todayStr;
+
+    // Lọc các đơn Shopee VN chưa hoàn tất
+    var shopeeOrders = (unPackedOrders || []).filter(function(o) {
+      var ch = String(o.channel || '').toUpperCase();
+      return ch.indexOf('SHOPEE') !== -1;
+    });
+    var shopeeCount = shopeeOrders.length;
+    var shopeeCodes = shopeeOrders.map(function(o) { return o.orderCode; }).join(', ');
+
+    // 1. Ghi vào BonusPenalty
+    var bpSheet = ss.getSheetByName('BonusPenalty');
+    if (bpSheet) {
+      var bpData = bpSheet.getDataRange().getValues();
+      
+      // A. Nếu sau 21:00 và có đơn Shopee VN -> TỰ ĐỘNG PHẠT 20.000đ / ĐƠN
+      if (currentHour >= 21 && shopeeCount > 0) {
+        var autoPenaltyId = 'BP_AUTO_SHOPEE_21H_' + todayStr;
+        var hasAutoPenalized = false;
+        for (var p = 1; p < bpData.length; p++) {
+          if (String(bpData[p][0]) === autoPenaltyId) {
+            hasAutoPenalized = true;
+            break;
+          }
+        }
+
+        if (!hasAutoPenalized) {
+          var penaltyAmount = -(shopeeCount * 20000);
+          var bpHeaders = bpData[0];
+          var penRow = bpHeaders.map(function(h) {
+            if (h === 'id') return autoPenaltyId;
+            if (h === 'user') return staffName;
+            if (h === 'amount') return penaltyAmount;
+            if (h === 'type') return 'Phạt Vi Phạm';
+            if (h === 'note') return 'Tự động phạt sau 21:00: Tồn ' + shopeeCount + ' đơn Shopee VN chưa đóng gói. Mã đơn: ' + shopeeCodes;
+            if (h === 'date') return todayStr;
+            if (h === 'orderCode') return String(shopeeCodes).slice(0, 100);
+            return '';
+          });
+          bpSheet.appendRow(penRow);
+        }
+      }
+
+      // B. Ghi nhận cảnh báo vi phạm SLA sau 19:00 nếu chưa ghi hôm nay
+      var isRecordedToday = false;
+      for (var b = 1; b < bpData.length; b++) {
+        if (String(bpData[b][0]).indexOf('BP_SLA_PACK_' + todayStr) !== -1) {
+          isRecordedToday = true;
+          break;
+        }
+      }
+
+      if (!isRecordedToday) {
+        var bpHeaders2 = bpData[0];
+        var newBpRow = bpHeaders2.map(function(h) {
+          if (h === 'id') return violationId;
+          if (h === 'user') return staffName;
+          if (h === 'amount') return 0;
+          if (h === 'type') return 'Cảnh Báo SLA Đóng Gói';
+          if (h === 'note') return 'Sau 19:00 còn tồn ' + count + ' đơn hàng sẵn sàng đóng gói chưa xử lý. Mã đơn: ' + orderCodes;
+          if (h === 'date') return todayStr;
+          if (h === 'orderCode') return String(orderCodes).slice(0, 100);
+          return '';
+        });
+        bpSheet.appendRow(newBpRow);
+      }
+    }
+
+    // 2. Ghi vào Tracking_Log (Combat Log Hệ Thống)
+    var trackSheet = ss.getSheetByName('Tracking_Log');
+    if (trackSheet) {
+      var trackHeaders = trackSheet.getDataRange().getValues()[0];
+      var actionText = currentHour >= 21 && shopeeCount > 0 
+        ? ('Tự động phạt Shopee 21:00 (-' + (shopeeCount * 20000) + 'đ)')
+        : 'Cảnh báo SLA Đóng Gói';
+      var aiText = currentHour >= 21 && shopeeCount > 0
+        ? ('Sau 21:00 tồn ' + shopeeCount + ' đơn Shopee VN. Đã tự động phạt Diệu Hương ' + (shopeeCount * 20000) + 'đ')
+        : ('Sau 19:00 còn ' + count + ' đơn chưa đóng gói');
+
+      var newTrackRow = trackHeaders.map(function(h) {
+        if (h === 'Thời gian') return timestamp;
+        if (h === 'Tên nhân sự') return staffName;
+        if (h === 'Hoàn thành') return actionText;
+        if (h === 'Hỏi AI') return aiText;
+        if (h === 'Ghi chú thêm') return 'Mã đơn: ' + (shopeeCodes || orderCodes);
+        return '';
+      });
+      trackSheet.appendRow(newTrackRow);
+    }
+  } catch (err) {
+    Logger.log('Lỗi khi ghi nhận log vi phạm đóng gói: ' + err.toString());
+  }
+}
+
+/**
+ * Trigger tự động quét sau 19:00 mỗi ngày
+ */
+function api_auditEndOfDayPackingSLA() {
+  return api_getOperationsHealth();
+}
+
+/**
+ * Dọn dẹp an toàn các bản ghi cảnh báo / phạt SLA vô lý tạo vào ngày Chủ Nhật
+ */
+function api_cleanupSundayPackingViolations(dateStr) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var targetDate = dateStr || Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd");
+    var deletedCount = 0;
+    
+    // 1. Dọn dẹp trong bảng BonusPenalty
+    var bpSheet = ss.getSheetByName('BonusPenalty');
+    if (bpSheet) {
+      var bpData = bpSheet.getDataRange().getValues();
+      var bpHeaders = bpData[0];
+      var idCol = bpHeaders.indexOf('id');
+      var dateCol = bpHeaders.indexOf('date');
+      var noteCol = bpHeaders.indexOf('note');
+      
+      for (var i = bpData.length - 1; i >= 1; i--) {
+        var rowId = String(bpData[i][idCol] || '');
+        var rowDate = String(bpData[i][dateCol] || '');
+        var rowNote = String(bpData[i][noteCol] || '');
+        
+        var isSundayViolation = (rowId.indexOf('BP_SLA_PACK_' + targetDate) !== -1 || 
+                                 rowId.indexOf('BP_AUTO_SHOPEE_21H_' + targetDate) !== -1 ||
+                                 (rowDate.indexOf(targetDate) !== -1 && (rowNote.indexOf('SLA Đóng Gói') !== -1 || rowNote.indexOf('Shopee VN chưa đóng gói') !== -1)));
+        if (isSundayViolation) {
+          bpSheet.deleteRow(i + 1);
+          deletedCount++;
+        }
+      }
+    }
+    return { success: true, message: 'Đã dọn dẹp ' + deletedCount + ' bản ghi vi phạm SLA ngày Chủ Nhật (' + targetDate + ')' };
+  } catch (e) {
+    return { success: false, message: 'Lỗi dọn dẹp vi phạm Chủ Nhật: ' + e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// =========================================================================
+// 🚨 TỰ ĐỘNG XỬ LÝ ĐƠN HOÀN QUÁ HẠN 72H (SLA 72H) — XUẤT HUỶ & PHẠT GIÁ VỐN HƯƠNG
+// =========================================================================
+/**
+ * Quét toàn bộ đơn Hàng Hoàn trong bảng Orders:
+ * Nếu quá 72 giờ chưa xử lý / đối soát:
+ * 1. Chuyển status -> 'Hoàn Thành' (Đã đối soát xong)
+ * 2. Đánh dấu isReconciled = true
+ * 3. Ghi nhận Xuất Huỷ trong ImportExport
+ * 4. Phạt đúng 100% Giá Vốn (COGS) vào BonusPenalty cho Nguyễn Thị Diệu Hương
+ * 5. Ghi log vào Tracking_Log
+ */
+function api_auditOverdueReturnOrdersSLA(ss) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(20000);
+    ss = ss || SpreadsheetApp.getActiveSpreadsheet();
+    var now = new Date();
+    var todayStr = Utilities.formatDate(now, "GMT+7", "yyyy-MM-dd");
+    var timestamp = Utilities.formatDate(now, "GMT+7", "yyyy-MM-dd HH:mm:ss");
+
+    var orderSheet = ss.getSheetByName('Orders');
+    if (!orderSheet) return { success: false, message: 'Không tìm thấy bảng Orders' };
+    
+    var oData = orderSheet.getDataRange().getValues();
+    var oHeaders = oData[0];
+    
+    var idCol = oHeaders.indexOf('id');
+    var oCdCol = oHeaders.indexOf('orderCode');
+    var stCol = oHeaders.indexOf('status');
+    var recCol = oHeaders.indexOf('isReconciled');
+    var recAtCol = oHeaders.indexOf('reconciledAt');
+    var dtCol = oHeaders.indexOf('createdAt') !== -1 ? oHeaders.indexOf('createdAt') : oHeaders.indexOf('date');
+    var noteCol = oHeaders.indexOf('note');
+    var cogsCol = oHeaders.indexOf('cogs');
+    var revCol = oHeaders.indexOf('revenue');
+    var costTotCol = oHeaders.indexOf('costTotal');
+
+    var staffName = 'Nguyễn Thị Diệu Hương';
+    var overdueOrders = [];
+    var bpRowsToAppend = [];
+    var ieRowsToAppend = [];
+    var trackRowsToAppend = [];
+
+    // Duyệt qua các đơn hàng
+    for (var i = 1; i < oData.length; i++) {
+      var row = oData[i];
+      var rawStatus = String(row[stCol] || '').toUpperCase().trim();
+      var isReconciled = row[recCol] === true || String(row[recCol]).toUpperCase() === 'TRUE';
+      
+      var isReturn = (rawStatus === 'HÀNG HOÀN' || rawStatus.indexOf('HOÀN CHỜ XỬ') !== -1 || rawStatus.indexOf('KIỂM HÀNG HOÀN') !== -1) && !isReconciled;
+      if (!isReturn) continue;
+
+      // Xác định thời gian nhận hoàn / tạo đơn
+      var returnTimeRaw = row[recAtCol] || row[dtCol];
+      if (!returnTimeRaw) continue;
+
+      var returnDate = new Date(returnTimeRaw);
+      if (isNaN(returnDate.getTime())) continue;
+
+      var hoursPassed = (now.getTime() - returnDate.getTime()) / (1000 * 60 * 60);
+      if (hoursPassed >= 72) {
+        var orderId = String(row[idCol]);
+        var orderCode = String(row[oCdCol] || orderId);
+        
+        // Tính giá vốn COGS
+        var cogs = Number(row[cogsCol]) || Number(row[costTotCol]) || Math.round((Number(row[revCol]) || 0) * 0.5);
+        if (cogs <= 0) cogs = 150000;
+
+        // Cập nhật trạng thái đơn trên Sheet
+        orderSheet.getRange(i + 1, stCol + 1).setValue('Hoàn Thành');
+        if (recCol !== -1) orderSheet.getRange(i + 1, recCol + 1).setValue(true);
+        if (recAtCol !== -1) orderSheet.getRange(i + 1, recAtCol + 1).setValue(timestamp);
+        
+        var oldNote = String(row[noteCol] || '');
+        var newNote = '[XUẤT HUỶ - QUÁ HẠN 72H - TRỪ GIÁ VỐN HƯƠNG: -' + cogs.toLocaleString('vi-VN') + 'đ] ' + oldNote;
+        if (noteCol !== -1) orderSheet.getRange(i + 1, noteCol + 1).setValue(newNote);
+
+        overdueOrders.push({
+          id: orderId,
+          orderCode: orderCode,
+          cogs: cogs,
+          hoursPassed: Math.round(hoursPassed)
+        });
+
+        // Tạo bản ghi phạt BonusPenalty
+        var bpId = 'BP_OVERDUE_72H_' + orderCode + '_' + todayStr;
+        bpRowsToAppend.push([
+          bpId,
+          staffName,
+          -Math.abs(cogs),
+          'Phạt Vi Phạm',
+          '[PHẠT SLA 72H] Quá hạn 72h không khiếu nại/xử lý đơn hoàn #' + orderCode + ' - Trừ 100% Giá Vốn (COGS)',
+          todayStr,
+          orderCode
+        ]);
+
+        // Tạo bản ghi xuất huỷ ImportExport
+        var ieId = 'IE_SCRAP_72H_' + Date.now() + '_' + i;
+        ieRowsToAppend.push([
+          ieId,
+          'Xuất Huỷ',
+          'Xuất Huỷ Hàng Hoàn Quá 72H',
+          cogs,
+          timestamp,
+          'Xuất huỷ do quá hạn khiếu nại 72h - Đơn #' + orderCode + ' - Trách nhiệm: Nguyễn Thị Diệu Hương',
+          JSON.stringify([{ name: 'Hàng hoàn đơn ' + orderCode, qty: 1, price: cogs }])
+        ]);
+
+        // Ghi log Tracking_Log
+        trackRowsToAppend.push([
+          timestamp,
+          staffName,
+          'Tự động xuất huỷ & Phạt Giá Vốn quá hạn 72H (-' + cogs.toLocaleString('vi-VN') + 'đ)',
+          'Đơn #' + orderCode + ' quá 72h chưa xử lý (đã trôi ' + Math.round(hoursPassed) + 'h). Tự động duyệt hoàn thành, xuất huỷ kho và phạt giá vốn Diệu Hương.',
+          'Mã đơn: ' + orderCode + ' | COGS: ' + cogs
+        ]);
+      }
+    }
+
+    // Ghi hàng loạt (Batch append)
+    if (bpRowsToAppend.length > 0) {
+      var bpSheet = ss.getSheetByName('BonusPenalty');
+      if (bpSheet) {
+        var bpHeaders = bpSheet.getDataRange().getValues()[0];
+        var mappedBpRows = bpRowsToAppend.map(function(r) {
+          return bpHeaders.map(function(h) {
+            if (h === 'id') return r[0];
+            if (h === 'user') return r[1];
+            if (h === 'amount') return r[2];
+            if (h === 'type') return r[3];
+            if (h === 'note') return r[4];
+            if (h === 'date') return r[5];
+            if (h === 'orderCode') return r[6];
+            return '';
+          });
+        });
+        bpSheet.getRange(bpSheet.getLastRow() + 1, 1, mappedBpRows.length, bpHeaders.length).setValues(mappedBpRows);
+      }
+    }
+
+    if (ieRowsToAppend.length > 0) {
+      var ieSheet = ss.getSheetByName('ImportExport');
+      if (ieSheet) {
+        var ieHeaders = ieSheet.getDataRange().getValues()[0];
+        var mappedIeRows = ieRowsToAppend.map(function(r) {
+          return ieHeaders.map(function(h) {
+            if (h === 'id') return r[0];
+            if (h === 'type') return r[1];
+            if (h === 'target') return r[2];
+            if (h === 'totalAmount') return r[3];
+            if (h === 'date') return r[4];
+            if (h === 'note') return r[5];
+            if (h === 'itemsData') return r[6];
+            return '';
+          });
+        });
+        ieSheet.getRange(ieSheet.getLastRow() + 1, 1, mappedIeRows.length, ieHeaders.length).setValues(mappedIeRows);
+      }
+    }
+
+    if (trackRowsToAppend.length > 0) {
+      var trackSheet = ss.getSheetByName('Tracking_Log');
+      if (trackSheet) {
+        var trackHeaders = trackSheet.getDataRange().getValues()[0];
+        var mappedTrackRows = trackRowsToAppend.map(function(r) {
+          return trackHeaders.map(function(h) {
+            if (h === 'Thời gian') return r[0];
+            if (h === 'Tên nhân sự') return r[1];
+            if (h === 'Hoàn thành') return r[2];
+            if (h === 'Hỏi AI') return r[3];
+            if (h === 'Ghi chú thêm') return r[4];
+            return '';
+          });
+        });
+        trackSheet.getRange(trackSheet.getLastRow() + 1, 1, mappedTrackRows.length, trackHeaders.length).setValues(mappedTrackRows);
+      }
+    }
+
+    if (overdueOrders.length > 0) {
+      try {
+        var msg = '🚨 Đã tự động xử lý ' + overdueOrders.length + ' đơn hoàn quá hạn 72h khiếu nại sàn:\n' +
+                  overdueOrders.map(function(o, idx) {
+                    return (idx + 1) + '. Đơn ' + o.orderCode + ' (' + o.channel + ') - Giá vốn: ' + (Number(o.cogs) || 0).toLocaleString('vi-VN') + 'đ';
+                  }).join('\n') + '\n👉 Đã xuất huỷ kho & ghi nhận trừ giá vốn nhân sự phụ trách.';
+        sendSystemAlert('CẢNH BÁO HÀNG HOÀN 72H', msg);
+      } catch (notifErr) { console.error('Lỗi bắn thông báo hoàn 72h:', notifErr); }
+    }
+
+    return {
+      success: true,
+      processedCount: overdueOrders.length,
+      orders: overdueOrders,
+      message: 'Đã tự động xử lý ' + overdueOrders.length + ' đơn hoàn quá hạn 72h!'
+    };
+  } catch (err) {
+    return { success: false, message: 'Lỗi kiểm tra đơn hoàn 72h: ' + err.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// =========================================================================
+// MODULE: ZALO GROUP NOTIFICATION WEBHOOK
+// =========================================================================
+
+function api_saveZaloWebhookConfig(cfg) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+    var props = PropertiesService.getScriptProperties();
+    if (cfg && cfg.botToken !== undefined) props.setProperty('ZALO_BOT_TOKEN', String(cfg.botToken).trim());
+    if (cfg && cfg.chatId !== undefined) props.setProperty('ZALO_CHAT_ID', String(cfg.chatId).trim());
+    if (cfg && cfg.webhookUrl !== undefined) props.setProperty('ZALO_WEBHOOK_URL', String(cfg.webhookUrl).trim());
+    if (cfg && cfg.isEnabled !== undefined) props.setProperty('ZALO_NOTIF_ENABLED', String(cfg.isEnabled));
+    if (cfg && cfg.groupName !== undefined) props.setProperty('ZALO_GROUP_NAME', String(cfg.groupName).trim());
+    return { success: true, message: 'Đã lưu cấu hình Zalo Bot thành công!' };
+  } catch (e) {
+    return { success: false, message: 'Lỗi lưu cấu hình: ' + e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function api_getZaloWebhookConfig() {
+  try {
+    var props = PropertiesService.getScriptProperties().getProperties();
+    return {
+      success: true,
+      botToken: props['ZALO_BOT_TOKEN'] || '',
+      chatId: props['ZALO_CHAT_ID'] || '',
+      webhookUrl: props['ZALO_WEBHOOK_URL'] || '',
+      isEnabled: props['ZALO_NOTIF_ENABLED'] !== 'false',
+      groupName: props['ZALO_GROUP_NAME'] || 'Xưởng Rich Fish'
+    };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+function sendZaloNotification(title, message, customChatId) {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var botToken = props.getProperty('ZALO_BOT_TOKEN') || '';
+    var webhookUrl = props.getProperty('ZALO_WEBHOOK_URL') || '';
+    var isEnabled = props.getProperty('ZALO_NOTIF_ENABLED');
+    var defaultChatId = props.getProperty('ZALO_CHAT_ID') || props.getProperty('ZALO_GROUP_ID') || '';
+    var chatId = customChatId || defaultChatId;
+    
+    if (isEnabled === 'false') {
+      return { success: false, reason: 'Đang tắt thông báo Zalo' };
+    }
+    
+    var timeStr = Utilities.formatDate(new Date(), "GMT+7", "HH:mm dd/MM/yyyy");
+    var fullContent = '🔔 【' + (title || 'RF WORKSPACE PRO') + '】\n' +
+                      '⏰ ' + timeStr + '\n' +
+                      '-------------------------\n' +
+                      message;
+    
+    var finalUrl = webhookUrl.trim();
+    if (botToken) {
+      finalUrl = 'https://bot-api.zaloplatforms.com/bot' + botToken.trim() + '/sendMessage';
+    } else if (finalUrl.indexOf('zaloplatforms.com') !== -1) {
+      if (finalUrl.indexOf('/setWebhook') !== -1) {
+        finalUrl = finalUrl.replace('/setWebhook', '/sendMessage');
+      } else if (!finalUrl.endsWith('/sendMessage')) {
+        finalUrl = finalUrl.replace(/\/+$/, '') + '/sendMessage';
+      }
+    }
+    
+    if (!finalUrl) {
+      return { success: false, reason: 'Chưa cấu hình Zalo Bot Token hoặc Webhook URL' };
+    }
+    
+    var payload = {
+      chat_id: chatId,
+      group_id: chatId,
+      text: fullContent,
+      message: fullContent
+    };
+    
+    var options = {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    };
+    
+    var res = UrlFetchApp.fetch(finalUrl, options);
+    var resText = res.getContentText();
+    console.log('Zalo API Response:', resText);
+    return { success: true, response: resText };
+  } catch (e) {
+    console.error('Lỗi sendZaloNotification:', e);
+    return { success: false, error: e.toString() };
+  }
+}
+
+function api_testZaloNotification() {
+  return sendZaloNotification('TEST KẾT NỐI ZALO BOT', '✅ Kết nối thành công! Hệ điều hành RF_Workspace_Pro đã sẵn sàng bắn thông báo tự động vào nhóm Zalo xưởng.');
+}
+
+// =========================================================================
+// MODULE: TELEGRAM BOT NOTIFICATION (MIỄN PHÍ 100% VĨNH VIỄN)
+// =========================================================================
+
+function api_saveTelegramConfig(cfg) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+    var props = PropertiesService.getScriptProperties();
+    if (cfg && cfg.botToken !== undefined) props.setProperty('TELEGRAM_BOT_TOKEN', String(cfg.botToken).trim());
+    if (cfg && cfg.chatId !== undefined) props.setProperty('TELEGRAM_CHAT_ID', String(cfg.chatId).trim());
+    if (cfg && cfg.isEnabled !== undefined) props.setProperty('TELEGRAM_NOTIF_ENABLED', String(cfg.isEnabled));
+    return { success: true, message: 'Đã lưu cấu hình Telegram Bot thành công!' };
+  } catch (e) {
+    return { success: false, message: 'Lỗi lưu cấu hình Telegram: ' + e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function api_getTelegramConfig() {
+  try {
+    var props = PropertiesService.getScriptProperties().getProperties();
+    return {
+      success: true,
+      botToken: props['TELEGRAM_BOT_TOKEN'] || '',
+      chatId: props['TELEGRAM_CHAT_ID'] || '',
+      isEnabled: props['TELEGRAM_NOTIF_ENABLED'] !== 'false'
+    };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+function sendTelegramNotification(title, message, customChatId) {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var botToken = props.getProperty('TELEGRAM_BOT_TOKEN') || '';
+    var defaultChatId = props.getProperty('TELEGRAM_CHAT_ID') || '';
+    var isEnabled = props.getProperty('TELEGRAM_NOTIF_ENABLED');
+    var chatId = customChatId || defaultChatId;
+    
+    if (isEnabled === 'false') {
+      return { success: false, reason: 'Đang tắt thông báo Telegram' };
+    }
+    
+    if (!botToken || !chatId) {
+      return { success: false, reason: 'Chưa cấu hình Telegram Bot Token hoặc Chat ID' };
+    }
+    
+    var timeStr = Utilities.formatDate(new Date(), "GMT+7", "HH:mm dd/MM/yyyy");
+    var fullContent = '🔔 *' + (title || 'RF WORKSPACE PRO') + '*\n' +
+                      '⏰ `' + timeStr + '`\n' +
+                      '━━━━━━━━━━━━━━━━━━━\n' +
+                      message;
+    
+    var url = 'https://api.telegram.org/bot' + botToken.trim() + '/sendMessage';
+    var payload = {
+      chat_id: chatId,
+      text: fullContent,
+      parse_mode: 'Markdown'
+    };
+    
+    var options = {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    };
+    
+    var res = UrlFetchApp.fetch(url, options);
+    var resText = res.getContentText();
+    console.log('Telegram API Response:', resText);
+    return { success: true, response: resText };
+  } catch (e) {
+    console.error('Lỗi sendTelegramNotification:', e);
+    return { success: false, error: e.toString() };
+  }
+}
+
+function api_testTelegramNotification() {
+  return sendTelegramNotification('TEST KẾT NỐI TELEGRAM BOT', '✅ *Kết nối thành công!*\nHệ điều hành `RF_Workspace_Pro` đã sẵn sàng bắn thông báo tự động vào nhóm của bạn.');
+}
+
+// =========================================================================
+// MODULE: GOOGLE CHAT SPACE WEBHOOK (MIỄN PHÍ 100% TRONG GMAIL/GOOGLE CHAT)
+// =========================================================================
+
+function api_saveGoogleChatConfig(cfg) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+    var props = PropertiesService.getScriptProperties();
+    if (cfg && cfg.webhookUrl !== undefined) props.setProperty('GOOGLE_CHAT_WEBHOOK_URL', String(cfg.webhookUrl).trim());
+    if (cfg && cfg.isEnabled !== undefined) props.setProperty('GOOGLE_CHAT_NOTIF_ENABLED', String(cfg.isEnabled));
+    return { success: true, message: 'Đã lưu cấu hình Google Chat Webhook thành công!' };
+  } catch (e) {
+    return { success: false, message: 'Lỗi lưu cấu hình Google Chat: ' + e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function api_getGoogleChatConfig() {
+  try {
+    var props = PropertiesService.getScriptProperties().getProperties();
+    return {
+      success: true,
+      webhookUrl: props['GOOGLE_CHAT_WEBHOOK_URL'] || '',
+      isEnabled: props['GOOGLE_CHAT_NOTIF_ENABLED'] !== 'false'
+    };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+function sendGoogleChatNotification(title, message) {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var webhookUrl = props.getProperty('GOOGLE_CHAT_WEBHOOK_URL') || '';
+    var isEnabled = props.getProperty('GOOGLE_CHAT_NOTIF_ENABLED');
+    
+    if (isEnabled === 'false') {
+      return { success: false, reason: 'Đang tắt thông báo Google Chat' };
+    }
+    
+    if (!webhookUrl) {
+      return { success: false, reason: 'Chưa cấu hình Google Chat Webhook URL' };
+    }
+    
+    var timeStr = Utilities.formatDate(new Date(), "GMT+7", "HH:mm dd/MM/yyyy");
+    var fullContent = '🔔 *【' + (title || 'RF WORKSPACE PRO') + '】*\n' +
+                      '⏰ `' + timeStr + '`\n' +
+                      '━━━━━━━━━━━━━━━━━━━\n' +
+                      message;
+    
+    var payload = {
+      text: fullContent
+    };
+    
+    var options = {
+      method: 'post',
+      contentType: 'application/json; charset=UTF-8',
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    };
+    
+    var res = UrlFetchApp.fetch(webhookUrl, options);
+    var resText = res.getContentText();
+    console.log('Google Chat API Response:', resText);
+    return { success: true, response: resText };
+  } catch (e) {
+    console.error('Lỗi sendGoogleChatNotification:', e);
+    return { success: false, error: e.toString() };
+  }
+}
+
+function api_testGoogleChatNotification() {
+  return sendGoogleChatNotification('TEST KẾT NỐI GOOGLE CHAT', '✅ *Kết nối thành công!*\nHệ điều hành `RF_Workspace_Pro` đã sẵn sàng bắn thông báo tự động vào Không Gian Google Chat của xưởng.');
+}
+
+// =========================================================================
+// MODULE: NTFY.SH PUSH NOTIFICATION (MIỄN PHÍ 100%, KHÔNG CẦN TÀI KHOẢN)
+// =========================================================================
+
+function sendNtfyNotification(title, message, topic) {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var targetTopic = topic || props.getProperty('NTFY_TOPIC') || 'rfworkspace';
+    
+    var timeStr = Utilities.formatDate(new Date(), "GMT+7", "HH:mm dd/MM/yyyy");
+    var fullContent = (title ? '🔔 【' + title + '】\n' : '') + message + '\n⏰ ' + timeStr;
+    
+    var safeTitle = title || 'RF Workspace Pro';
+    var encodedTitle = '=?UTF-8?B?' + Utilities.base64Encode(safeTitle, Utilities.Charset.UTF_8) + '?=';
+    
+    var url = 'https://ntfy.sh/' + encodeURIComponent(targetTopic.trim());
+    var options = {
+      method: 'post',
+      contentType: 'text/plain; charset=UTF-8',
+      payload: fullContent,
+      headers: {
+        'Title': encodedTitle,
+        'Priority': 'high',
+        'Tags': 'bell,package'
+      },
+      muteHttpExceptions: true
+    };
+    
+    var res = UrlFetchApp.fetch(url, options);
+    var resText = res.getContentText();
+    console.log('ntfy.sh API Response:', resText);
+    return { success: true, response: resText };
+  } catch (e) {
+    console.error('Lỗi sendNtfyNotification:', e);
+    return { success: false, error: e.toString() };
+  }
+}
+
+function api_testNtfyNotification(topic) {
+  return sendNtfyNotification('TEST THÔNG BÁO RF WORKSPACE', '✅ Kết nối thành công! Thiết bị của bạn đã sẵn sàng nhận thông báo đơn hàng và sản xuất tức thì.', topic);
+}
+
+// =========================================================================
+// MODULE: DISCORD WEBHOOK (MIỄN PHÍ 100% TRỌN ĐỜI)
+// =========================================================================
+
+function sendDiscordNotification(title, message, customUrl) {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var webhookUrl = customUrl || props.getProperty('DISCORD_WEBHOOK_URL') || '';
+    
+    if (!webhookUrl) {
+      return { success: false, reason: 'Chưa cấu hình Discord Webhook URL' };
+    }
+    
+    var timeStr = Utilities.formatDate(new Date(), "GMT+7", "HH:mm dd/MM/yyyy");
+    var payload = {
+      username: "Rich Fish Workspace",
+      avatar_url: "https://i.postimg.cc/TYD5NncZ/icon.png",
+      embeds: [
+        {
+          title: "🔔 " + (title || "RF WORKSPACE PRO"),
+          description: message,
+          color: 13938487, // Gold #d4af37
+          footer: { text: "Rich Fish Aquarium • " + timeStr }
+        }
+      ]
+    };
+    
+    var options = {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    };
+    
+    var res = UrlFetchApp.fetch(webhookUrl, options);
+    return { success: true, response: res.getContentText() };
+  } catch (e) {
+    console.error('Lỗi sendDiscordNotification:', e);
+    return { success: false, error: e.toString() };
+  }
+}
+
+function api_testDiscordNotification(webhookUrl) {
+  return sendDiscordNotification('TEST KẾT NỐI DISCORD', '✅ **Kết nối thành công!**\nHệ điều hành `RF_Workspace_Pro` đã sẵn sàng bắn thông báo tự động vào Server Discord của xưởng.', webhookUrl);
+}
+
+/**
+ * Hàm bắn thông báo tổng hợp (Đa kênh: ntfy, Discord, Google Chat, Telegram, Zalo)
+ */
+function sendSystemAlert(title, message) {
+  var results = {};
+  try { results.ntfy = sendNtfyNotification(title, message); } catch (e) { results.ntfy = { success: false, error: e.toString() }; }
+  try { results.discord = sendDiscordNotification(title, message); } catch (e) { results.discord = { success: false, error: e.toString() }; }
+  try { results.googleChat = sendGoogleChatNotification(title, message); } catch (e) { results.googleChat = { success: false, error: e.toString() }; }
+  try { results.telegram = sendTelegramNotification(title, message); } catch (e) { results.telegram = { success: false, error: e.toString() }; }
+  try { results.zalo = sendZaloNotification(title, message); } catch (e) { results.zalo = { success: false, error: e.toString() }; }
+  return results;
+}
+

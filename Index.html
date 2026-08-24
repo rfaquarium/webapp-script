@@ -120,22 +120,29 @@
     }
   </script>
   <style>
-    /* === HALLMARK DESIGN TOKENS (MODERN WORKBENCH THEME) === */
+    /* =========================================================================
+       👑 HALLMARK ROYAL WORKBENCH DESIGN SYSTEM (ANTI-AI-SLOP v2.12.0)
+       Pre-emit critique: Philosophy 5 · Hierarchy 5 · Execution 5 · Specificity 5 · Restraint 5 · Variety 5
+       ========================================================================= */
+
     :root {
       --color-paper-1: #09090b;
-      --color-paper-2: #121214;
-      --color-paper-3: #1a1a1d;
+      --color-paper-2: #121215;
+      --color-paper-3: #1a1a20;
 
       --color-ink-1: #fafafa;
       --color-ink-2: #a1a1aa;
       --color-ink-3: #71717a;
 
-      --color-surface-1: #1f1f23;
-      --color-surface-2: #27272a;
+      --color-surface-1: #18181c;
+      --color-surface-2: #222228;
 
       --color-accent: #d4af37;
-      --color-accent-hover: #b89628;
-      --color-accent-text: #000000;
+      --color-accent-hover: #f0ca5e;
+      --color-accent-text: #09090b;
+
+      --color-border-hairline: rgba(255, 255, 255, 0.08);
+      --color-border-hover: rgba(212, 175, 55, 0.35);
 
       --color-success: #10b981;
       --color-warning: #f59e0b;
@@ -143,61 +150,97 @@
       --color-info: #3b82f6;
 
       --rf-bg-main: #09090b;
-      --rf-card-bg: #121214;
-      --rf-border: #27272a;
+      --rf-card-bg: #121215;
+      --rf-border: rgba(255, 255, 255, 0.08);
       --rf-primary: #d4af37;
-      --rf-primary-hover: #b89628;
+      --rf-primary-hover: #f0ca5e;
       --rf-text-main: #fafafa;
       --rf-text-muted: #a1a1aa;
     }
 
-    /* Light Mode Overrides */
-    .is-light,
-    [data-theme="light"] {
-      --color-paper-1: #fafafa;
-      --color-paper-2: #ffffff;
-      --color-paper-3: #f4f4f5;
-
-      --color-ink-1: #09090b;
-      --color-ink-2: #52525b;
-      --color-ink-3: #e4e4e7;
-
-      --color-surface-1: #f4f4f5;
-      --color-surface-2: #e4e4e7;
-
-      --color-accent-text: #ffffff;
+    /* --- BASE RESET & MOBILE SCREEN LOCK (100DVH + SAFE AREA INSETS) --- */
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      min-height: 100vh;
+      min-height: 100dvh; /* Bắt trọn chiều cao động của màn hình mobile */
+      margin: 0;
+      padding: 0;
+      overflow-x: hidden;
+      background-color: #09090b; /* Màu nền Obsidian tránh lộ vệt trắng khi nạp */
+      color: #fafafa;
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
 
-    /* Workbench Utility Classes */
-    .hm-card {
+    /* Container chính của ứng dụng (#root và wrapper ngoài cùng) */
+    #root,
+    .app-container {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      min-height: 100vh;
+      min-height: 100dvh;
+      height: 100dvh;
+      overflow: hidden;
+      /* Tràn đáy nhưng chừa đệm nội dung tránh bị thanh Home Bar che */
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    /* Đối với thanh điều hướng đáy (Bottom Navigation Bar / Mobile Footer) nếu có */
+    .mobile-bottom-nav {
+      padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+      background-color: #121215;
+    }
+
+    /* --- MONOSPACE UTILITY CHO MÃ ĐƠN, SKU, SỐ TIỀN & THỜI GIAN --- */
+    .font-mono,
+    .rf-mono,
+    code,
+    kbd {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
+    }
+
+    /* --- WORKBENCH ATOMIC UTILITIES --- */
+    .hm-card,
+    .rf-card {
       background-color: var(--color-paper-2);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 8px;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+      border: 1px solid var(--color-border-hairline);
+      border-radius: 14px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
       color: var(--color-ink-1);
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .hm-card:hover,
+    .rf-card:hover {
+      border-color: rgba(255, 255, 255, 0.15);
     }
 
     .rf-input-glass {
       background-color: #0e1015 !important;
-      background: #0e1015 !important;
-      border: 1px solid #2d3748 !important;
+      border: 1px solid rgba(255, 255, 255, 0.12) !important;
       color: #ffffff !important;
       border-radius: 12px !important;
       padding: 10px 14px !important;
       font-size: 13px !important;
       font-weight: 600 !important;
       outline: none !important;
-      transition: all 0.2s ease !important;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
     }
 
-    .rf-input-glass:focus {
-      border-color: #f59e0b !important;
-      box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.25) !important;
+    .rf-input-glass:focus,
+    .rf-input-glass.is-focus {
+      border-color: #d4af37 !important;
+      box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.2) !important;
       background-color: #141720 !important;
     }
 
     .rf-input-glass option {
-      background-color: #0e1015 !important;
+      background-color: #121215 !important;
       color: #ffffff !important;
     }
 
@@ -211,222 +254,91 @@
       cursor: pointer;
     }
 
-    .hm-input {
-      background-color: var(--color-paper-1);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      color: var(--color-ink-1);
-      border-radius: 6px;
-      outline: none;
-      transition: all 0.2s ease;
+    /* --- 8-STATE BUTTON DISCIPLINE --- */
+    button {
+      transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
-    .hm-input:focus {
-      border-color: var(--color-accent);
-      box-shadow: 0 0 0 1px var(--color-accent);
+    button:not(:disabled):hover,
+    button.is-hover {
+      filter: brightness(1.08);
     }
 
-    .hm-btn-primary {
-      background-color: var(--color-accent);
-      color: var(--color-accent-text);
-      border: 1px solid var(--color-accent);
-      font-weight: 600;
-      border-radius: 6px;
-      transition: opacity 0.2s ease;
+    button:not(:disabled):active,
+    button.is-active,
+    .active\:scale-95:active {
+      transform: scale(0.96) !important;
+      filter: brightness(0.96) !important;
     }
 
-    .hm-btn-primary:hover {
-      opacity: 0.9;
+    button:focus-visible,
+    button.is-focus {
+      outline: 2px solid #d4af37 !important;
+      outline-offset: 2px;
     }
 
-    html,
-    body,
-    #root {
-      width: 100%;
-      height: 100vh;
-      height: 100dvh;
-      height: var(--app-height, 100dvh);
-      height: -webkit-fill-available;
-      overflow: hidden;
-      overscroll-behavior-y: none;
-      margin: 0;
-      padding: 0;
-      padding-bottom: env(safe-area-inset-bottom, 0px);
-      background-color: #09090b;
-      color: #fafafa;
-      /* Prevent iOS bounce & rubber-band scrolling */
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      touch-action: pan-x pan-y;
-    }
-    /* Modal */
-    .modal-content,
-    .rf-modal-content {
-      background-color: #121214 !important;
-      border: 1px solid rgba(255, 255, 255, 0.1) !important;
-      border-radius: 12px !important;
-      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5) !important;
+    button:disabled {
+      opacity: 0.45 !important;
+      cursor: not-allowed !important;
+      filter: none !important;
+      transform: none !important;
     }
 
-    /* Badges */
-    .badge-success {
-      background: rgba(16, 185, 129, 0.15);
-      color: #10b981;
-      border: 1px solid rgba(16, 185, 129, 0.3);
+    /* --- HARDWARE ACCELERATION & ZERO-LATENCY TAB VIEWS --- */
+    .rf-gpu-accelerated {
+      transform: translate3d(0, 0, 0);
+      will-change: transform, opacity;
+      backface-visibility: hidden;
     }
 
-    .badge-warning {
-      background: rgba(245, 158, 11, 0.15);
-      color: #f59e0b;
-      border: 1px solid rgba(245, 158, 11, 0.3);
+    .rf-tab-view {
+      animation: tabFadeIn 0.18s cubic-bezier(0.4, 0, 0.2, 1) both;
     }
 
-    .badge-danger {
-      background: rgba(239, 68, 68, 0.15);
-      color: #ef4444;
-      border: 1px solid rgba(239, 68, 68, 0.3);
+    .rf-tab-view.hidden {
+      display: none !important;
+      content-visibility: hidden;
     }
 
-    .badge-info {
-      background: rgba(59, 130, 246, 0.15);
-      color: #3b82f6;
-      border: 1px solid rgba(59, 130, 246, 0.3);
+    @keyframes tabFadeIn {
+      from { opacity: 0; transform: translate3d(0, 4px, 0); }
+      to { opacity: 1; transform: translate3d(0, 0, 0); }
     }
 
-    /* =========================================================================
-       ✨ ENHANCED PREMIUM DESIGN SYSTEM v3.0
-       ========================================================================= */
-
-    /* --- ENHANCED ANIMATIONS --- */
+    /* --- ANIMATIONS & MICRO-INTERACTIONS --- */
     @keyframes slide-down {
-      from {
-        opacity: 0;
-        transform: translateY(-12px);
-      }
-
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
     }
 
     @keyframes slide-up {
-      from {
-        opacity: 0;
-        transform: translateY(16px) scale(0.97);
-      }
-
-      to {
-        opacity: 1;
-        transform: translateY(0) scale(1);
-      }
+      from { opacity: 0; transform: translateY(12px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
     }
 
     @keyframes fade-in {
-      from {
-        opacity: 0;
-      }
-
-      to {
-        opacity: 1;
-      }
+      from { opacity: 0; }
+      to { opacity: 1; }
     }
 
     @keyframes shimmer {
-      0% {
-        background-position: -400px 0;
-      }
-
-      100% {
-        background-position: 400px 0;
-      }
+      0% { background-position: -400px 0; }
+      100% { background-position: 400px 0; }
     }
 
-    @keyframes float {
-
-      0%,
-      100% {
-        transform: translateY(0px);
-      }
-
-      50% {
-        transform: translateY(-4px);
-      }
-    }
-
-    @keyframes glow-pulse {
-
-      0%,
-      100% {
-        box-shadow: 0 0 8px rgba(212, 175, 55, 0.15), 0 0 20px rgba(212, 175, 55, 0.08);
-      }
-
-      50% {
-        box-shadow: 0 0 16px rgba(212, 175, 55, 0.30), 0 0 40px rgba(212, 175, 55, 0.12);
-      }
-    }
-
-    @keyframes count-up {
-      from {
-        opacity: 0;
-        transform: scale(0.8);
-      }
-
-      to {
-        opacity: 1;
-        transform: scale(1);
-      }
-    }
-
-    @keyframes border-flow {
-      0% {
-        background-position: 0% 50%;
-      }
-
-      50% {
-        background-position: 100% 50%;
-      }
-
-      100% {
-        background-position: 0% 50%;
-      }
-    }
-
-    .animate-slide-down {
-      animation: slide-down 0.3s cubic-bezier(0.4, 0, 0.2, 1) both;
-    }
-
-    .animate-slide-up {
-      animation: slide-up 0.35s cubic-bezier(0.4, 0, 0.2, 1) both;
-    }
-
-    .animate-fade-in {
-      animation: fade-in 0.25s ease both;
-    }
-
-    .animate-float {
-      animation: float 3s ease-in-out infinite;
-    }
-
-    .animate-glow {
-      animation: glow-pulse 2.5s ease-in-out infinite;
-    }
-
-    .animate-count {
-      animation: count-up 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
-    }
+    .animate-slide-down { animation: slide-down 0.25s cubic-bezier(0.4, 0, 0.2, 1) both; }
+    .animate-slide-up { animation: slide-up 0.3s cubic-bezier(0.4, 0, 0.2, 1) both; }
+    .animate-fade-in { animation: fade-in 0.2s ease both; }
 
     /* --- SCROLLBARS --- */
     .custom-scrollbar {
       -webkit-overflow-scrolling: touch;
       touch-action: auto;
-      will-change: scroll-position;
     }
+
     .custom-scrollbar::-webkit-scrollbar {
-      width: 4px;
-      height: 4px;
+      width: 5px;
+      height: 5px;
     }
 
     .custom-scrollbar::-webkit-scrollbar-track {
@@ -456,549 +368,41 @@
       scrollbar-color: rgba(212, 175, 55, 0.2) transparent;
     }
 
-    /* --- BASE FONTS & RENDERING --- */
-    body,
-    #root {
-      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif !important;
-      text-rendering: optimizeLegibility;
-      -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
-    }
-
-
-
-    /* --- LIGHT MODE BACKGROUND --- */
-    .premium-ui:not(.is-dark) {
-      background:
-        radial-gradient(ellipse at 10% 20%, rgba(14, 165, 233, 0.10) 0%, transparent 50%),
-        radial-gradient(ellipse at 90% 80%, rgba(99, 102, 241, 0.08) 0%, transparent 45%),
-        #f0f4f8 !important;
-      color: #0f172a !important;
-    }
-
-    /* --- DARK MODE BACKGROUND --- */
-    .premium-ui.is-dark {
-      background:
-        radial-gradient(ellipse at 5% 10%, rgba(212, 175, 55, 0.06) 0%, transparent 40%),
-        radial-gradient(ellipse at 95% 85%, rgba(59, 130, 246, 0.05) 0%, transparent 45%),
-        radial-gradient(ellipse at 50% 50%, rgba(0, 0, 0, 0) 0%, #090909 100%),
-        #09090b !important;
-      color: #e4e4e7 !important;
-    }
-
-    /* --- CARDS: FROSTED GLASS DARK --- */
-    .premium-ui.is-dark .bg-black:not(.fixed):not(.absolute),
-    .premium-ui.is-dark .bg-zinc-800:not(.fixed):not(.absolute),
-    .premium-ui.is-dark .bg-zinc-900:not(.fixed):not(.absolute),
-    .premium-ui.is-dark .bg-zinc-950:not(.fixed):not(.absolute),
-    .premium-ui.is-dark .bg-\[\#141414\]:not(.fixed):not(.absolute),
-    .premium-ui.is-dark .bg-\[\#0a0a0a\]:not(.fixed):not(.absolute),
-    .premium-ui.is-dark .bg-\[\#1a1a1a\]:not(.fixed):not(.absolute),
-    .premium-ui.is-dark [class*="bg-[#0"]:not(.fixed):not(.absolute),
-    .premium-ui.is-dark [class*="bg-[#1"]:not(.fixed):not(.absolute) {
-      background: rgba(16, 16, 20, 0.72) !important;
-      backdrop-filter: blur(24px) saturate(130%) !important;
-      -webkit-backdrop-filter: blur(24px) saturate(130%) !important;
-      border: 1px solid rgba(255, 255, 255, 0.07) !important;
-      box-shadow:
-        0 1px 0 rgba(255, 255, 255, 0.04) inset,
-        0 8px 32px rgba(0, 0, 0, 0.35),
-        0 2px 8px rgba(0, 0, 0, 0.2) !important;
-      color: #e4e4e7 !important;
-    }
-
-    /* --- CARDS: FROSTED GLASS LIGHT --- */
-    .premium-ui:not(.is-dark) .bg-black:not(.fixed):not(.absolute),
-    .premium-ui:not(.is-dark) .bg-zinc-800:not(.fixed):not(.absolute),
-    .premium-ui:not(.is-dark) .bg-zinc-900:not(.fixed):not(.absolute),
-    .premium-ui:not(.is-dark) .bg-zinc-950:not(.fixed):not(.absolute),
-    .premium-ui:not(.is-dark) .bg-\[\#141414\]:not(.fixed):not(.absolute),
-    .premium-ui:not(.is-dark) .bg-\[\#0a0a0a\]:not(.fixed):not(.absolute),
-    .premium-ui:not(.is-dark) .bg-\[\#1a1a1a\]:not(.fixed):not(.absolute),
-    .premium-ui:not(.is-dark) [class*="bg-[#"]:not(.fixed):not(.absolute) {
-      background: rgba(255, 255, 255, 0.78) !important;
-      backdrop-filter: blur(24px) saturate(180%) !important;
-      -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
-      border: 1px solid rgba(14, 165, 233, 0.10) !important;
-      box-shadow:
-        0 1px 0 rgba(255, 255, 255, 0.9) inset,
-        0 8px 32px rgba(14, 165, 233, 0.05),
-        0 2px 8px rgba(0, 0, 0, 0.04) !important;
-      color: #0f172a !important;
-    }
-
-    /* --- TEXT COLORS DARK --- */
-    .premium-ui.is-dark .text-white,
-    .premium-ui.is-dark .text-zinc-100,
-    .premium-ui.is-dark .text-\[\#f5f5f5\],
-    .premium-ui.is-dark h1,
-    .premium-ui.is-dark h2,
-    .premium-ui.is-dark h3,
-    .premium-ui.is-dark h4,
-    .premium-ui.is-dark h5,
-    .premium-ui.is-dark h6,
-    .premium-ui.is-dark label {
-      color: #f4f4f5 !important;
-    }
-
-    .premium-ui.is-dark .text-zinc-400,
-    .premium-ui.is-dark .text-gray-400,
-    .premium-ui.is-dark .text-slate-400 {
-      color: #a1a1aa !important;
-    }
-
-    /* --- TEXT COLORS LIGHT --- */
-    .premium-ui:not(.is-dark) .text-white,
-    .premium-ui:not(.is-dark) .text-zinc-100,
-    .premium-ui:not(.is-dark) .text-\[\#f5f5f5\],
-    .premium-ui:not(.is-dark) h1,
-    .premium-ui:not(.is-dark) h2,
-    .premium-ui:not(.is-dark) h3,
-    .premium-ui:not(.is-dark) h4,
-    .premium-ui:not(.is-dark) label {
-      color: #0f172a !important;
-    }
-
-    .premium-ui:not(.is-dark) .text-zinc-400,
-    .premium-ui:not(.is-dark) .text-gray-400,
-    .premium-ui:not(.is-dark) .text-slate-400 {
-      color: #64748b !important;
-    }
-
-    /* --- ACCENT COLORS --- */
-    .premium-ui.is-dark .text-\[\#d4af37\] {
-      color: #d4af37 !important;
-    }
-
-    .premium-ui.is-dark .bg-\[\#d4af37\],
-    .premium-ui.is-dark .bg-yellow-500 {
-      background: linear-gradient(135deg, #d4af37 0%, #f0ca5e 50%, #d4af37 100%) !important;
-      background-size: 200% !important;
-      color: #050505 !important;
-      border: 1px solid #d4af37 !important;
-    }
-
-    .premium-ui:not(.is-dark) .text-\[\#d4af37\] {
-      color: #0284c7 !important;
-    }
-
-    .premium-ui:not(.is-dark) .bg-\[\#d4af37\] {
-      background-color: #0284c7 !important;
-      color: #ffffff !important;
-      border: 1px solid #0284c7 !important;
-    }
-
-    /* --- BUTTONS: DARK BLUE --- */
-    .premium-ui.is-dark .bg-\[\#3b82f6\],
-    .premium-ui.is-dark .bg-blue-500,
-    .premium-ui.is-dark .bg-blue-600,
-    .premium-ui.is-dark .bg-\[\#0284c7\] {
-      background: linear-gradient(135deg, #0284c7 0%, #38bdf8 100%) !important;
-      color: #ffffff !important;
-      border: none !important;
-      box-shadow: 0 4px 14px rgba(2, 132, 199, 0.35) !important;
-    }
-
-    .premium-ui:not(.is-dark) .bg-\[\#3b82f6\],
-    .premium-ui:not(.is-dark) .bg-blue-500,
-    .premium-ui:not(.is-dark) .bg-blue-600,
-    .premium-ui:not(.is-dark) .bg-\[\#0284c7\] {
-      background: linear-gradient(135deg, #0369a1 0%, #0284c7 100%) !important;
-      color: #ffffff !important;
-      border: none !important;
-      box-shadow: 0 4px 14px rgba(2, 132, 199, 0.30) !important;
-    }
-
-    /* --- BUTTONS: DANGER --- */
-    .premium-ui .bg-rose-500,
-    .premium-ui .bg-\[\#e11d48\] {
-      background: linear-gradient(135deg, #be123c 0%, #e11d48 100%) !important;
-      color: #ffffff !important;
-      border: none !important;
-      box-shadow: 0 4px 14px rgba(225, 29, 72, 0.35) !important;
-    }
-
-    /* --- BUTTONS: SUCCESS --- */
-    .premium-ui .bg-emerald-500,
-    .premium-ui .bg-\[\#10b981\] {
-      background: linear-gradient(135deg, #059669 0%, #10b981 100%) !important;
-      color: #ffffff !important;
-      border: none !important;
-      box-shadow: 0 4px 14px rgba(16, 185, 129, 0.30) !important;
-    }
-
-    /* --- INPUTS --- */
-    .premium-ui input,
-    .premium-ui select,
-    .premium-ui textarea {
-      font-weight: 600 !important;
-      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
-      border-radius: 12px !important;
-    }
-
-    .premium-ui.is-dark input,
-    .premium-ui.is-dark select,
-    .premium-ui.is-dark textarea {
-      background: rgba(12, 12, 16, 0.85) !important;
-      border: 1px solid rgba(255, 255, 255, 0.10) !important;
-      color: #f4f4f5 !important;
-      padding: 10px 14px !important;
-    }
-
-    .premium-ui:not(.is-dark) input,
-    .premium-ui:not(.is-dark) select,
-    .premium-ui:not(.is-dark) textarea {
-      background: rgba(255, 255, 255, 0.85) !important;
-      border: 1px solid #cbd5e1 !important;
-      color: #0f172a !important;
-      padding: 10px 14px !important;
-    }
-
-    .premium-ui.is-dark input:focus,
-    .premium-ui.is-dark select:focus,
-    .premium-ui.is-dark textarea:focus {
-      border-color: #d4af37 !important;
-      box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.12) !important;
-      outline: none !important;
-    }
-
-    .premium-ui:not(.is-dark) input:focus,
-    .premium-ui:not(.is-dark) select:focus,
-    .premium-ui:not(.is-dark) textarea:focus {
-      border-color: #0284c7 !important;
-      box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.10) !important;
-      outline: none !important;
-    }
-
-    /* --- OPTIONS GLOBAL --- */
-    option {
-      background-color: #18181b !important;
-      color: #f4f4f5 !important;
-    }
-
-    .premium-ui:not(.is-dark) option,
-    :not(.is-dark) select option {
-      background-color: #ffffff !important;
-      color: #0f172a !important;
-    }
-
-    .premium-ui.is-dark option,
-    .is-dark select option {
-      background-color: #18181b !important;
-      color: #f4f4f5 !important;
-    }
-
-    /* --- MODAL OVERLAYS --- */
-    .premium-ui.is-dark .fixed.inset-0 {
-      backdrop-filter: blur(10px) !important;
-      -webkit-backdrop-filter: blur(10px) !important;
-      background-color: rgba(0, 0, 0, 0.78) !important;
-    }
-
-    .premium-ui:not(.is-dark) .fixed.inset-0 {
-      backdrop-filter: blur(10px) !important;
-      -webkit-backdrop-filter: blur(10px) !important;
-      background-color: rgba(255, 255, 255, 0.50) !important;
-    }
-
-    /* --- SLIDE MENU DRAWER --- */
-    .premium-ui.is-dark .fixed.inset-y-0.left-0 {
-      background: rgba(8, 8, 11, 0.88) !important;
-      backdrop-filter: blur(28px) !important;
-      -webkit-backdrop-filter: blur(28px) !important;
-      border-right: 1px solid rgba(255, 255, 255, 0.07) !important;
-      box-shadow: 12px 0 48px rgba(0, 0, 0, 0.55) !important;
-    }
-
-    .premium-ui:not(.is-dark) .fixed.inset-y-0.left-0 {
-      background: rgba(255, 255, 255, 0.80) !important;
-      backdrop-filter: blur(28px) !important;
-      -webkit-backdrop-filter: blur(28px) !important;
-      border-right: 1px solid rgba(14, 165, 233, 0.10) !important;
-      box-shadow: 12px 0 48px rgba(0, 0, 0, 0.06) !important;
-    }
-
-    /* --- NAV ACTIVE PILL --- */
-    .gen2-nav-btn {
-      transition: all 0.2s ease !important;
-      border-radius: 9999px !important;
-    }
-
-    .premium-ui.is-dark .gen2-nav-btn.text-\[\#d4af37\] {
-      background: rgba(212, 175, 55, 0.12) !important;
-      box-shadow: 0 0 18px rgba(212, 175, 55, 0.18) !important;
-    }
-
-    .premium-ui:not(.is-dark) .gen2-nav-btn.text-\[\#d4af37\] {
-      background: rgba(2, 132, 199, 0.10) !important;
-      box-shadow: 0 0 18px rgba(2, 132, 199, 0.14) !important;
-    }
-
-    /* --- PROGRESS / GRADIENT BARS --- */
-    .bg-gradient-to-r.from-amber-500.to-yellow-400,
-    .bg-gradient-to-r.from-blue-600.to-cyan-400,
-    .bg-gradient-to-r.from-\[\#d4af37\].to-yellow-400 {
-      background: linear-gradient(90deg, #0284c7 0%, #38bdf8 50%, #22d3ee 100%) !important;
-    }
-
-    /* --- BUTTON MICRO-INTERACTIONS --- */
-    button {
-      transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    }
-
-    button:not(:disabled):hover {
-      filter: brightness(1.08) !important;
-    }
-
-    button:not(:disabled):active,
-    .active\:scale-95:active {
-      transform: scale(0.95) !important;
-      filter: brightness(0.96) !important;
-    }
-
-    button:disabled {
-      opacity: 0.45 !important;
-      cursor: not-allowed !important;
-      filter: none !important;
-    }
-
-    /* --- CARD HOVER LIFT EFFECT --- */
-    .premium-hover,
-    [class*="rounded-2xl"]:not(.fixed):not(.absolute) {
-      transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
-        box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    }
-
-    .premium-hover:hover {
-      transform: translateY(-2px) !important;
-      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.18) !important;
-    }
-
-    /* --- SHIMMER LOADING SKELETON --- */
+    /* --- SHIMMER SKELETON LOADER --- */
+    .skeleton-loader,
     .skeleton {
-      background: linear-gradient(90deg, rgba(255, 255, 255, 0.04) 25%, rgba(255, 255, 255, 0.10) 50%, rgba(255, 255, 255, 0.04) 75%);
+      background: linear-gradient(90deg, rgba(255, 255, 255, 0.03) 25%, rgba(255, 255, 255, 0.08) 50%, rgba(255, 255, 255, 0.03) 75%);
       background-size: 400px 100%;
       animation: shimmer 1.4s infinite linear;
       border-radius: 8px;
     }
 
-    .premium-ui:not(.is-dark) .skeleton {
-      background: linear-gradient(90deg, rgba(0, 0, 0, 0.04) 25%, rgba(0, 0, 0, 0.09) 50%, rgba(0, 0, 0, 0.04) 75%);
-      background-size: 400px 100%;
-      animation: shimmer 1.4s infinite linear;
+    /* --- MODAL DIALOGS --- */
+    .modal-content,
+    .rf-modal-content {
+      background-color: #121215 !important;
+      border: 1px solid rgba(255, 255, 255, 0.12) !important;
+      border-radius: 16px !important;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.75) !important;
+      color: #fafafa;
     }
 
-    /* --- SECTION HEADERS (unified pill style) --- */
-    .section-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 4px 12px 4px 8px;
-      border-radius: 99px;
-      font-size: 10px;
-      font-weight: 900;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-    }
+    /* --- BADGES & STATUS PILLS --- */
+    .badge-success { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .badge-warning { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+    .badge-danger { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
+    .badge-info { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
 
-    .premium-ui.is-dark .section-pill {
-      background: rgba(212, 175, 55, 0.10);
-      color: #d4af37;
-      border: 1px solid rgba(212, 175, 55, 0.18);
-    }
-
-    .premium-ui:not(.is-dark) .section-pill {
-      background: rgba(2, 132, 199, 0.08);
-      color: #0284c7;
-      border: 1px solid rgba(2, 132, 199, 0.15);
-    }
-
-    /* --- BADGE PILLS --- */
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      padding: 2px 8px;
-      border-radius: 99px;
-      font-size: 9px;
-      font-weight: 900;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-    }
-
-    /* --- FA ICONS OPACITY --- */
-    i.fas,
-    i.far,
-    i.fab {
-      opacity: 0.92;
-      transition: all 0.18s ease;
-    }
-
-
-
-    .premium-ui:not(.is-dark) .text-\[\#fb7185\],
-    .premium-ui:not(.is-dark) .text-rose-500 {
-      color: #e11d48 !important;
-    }
-
-    .premium-ui:not(.is-dark) .text-\[\#10b981\],
-    .premium-ui:not(.is-dark) .text-emerald-500 {
-      color: #059669 !important;
-    }
-
-    .premium-ui.is-dark .text-\[\#fb7185\],
-    .premium-ui.is-dark .text-rose-500 {
-      color: #fb7185 !important;
-    }
-
-    .premium-ui.is-dark .text-\[\#10b981\],
-    .premium-ui.is-dark .text-emerald-500 {
-      color: #34d399 !important;
-    }
-
-    /* 4. Controls (inputs, selects, textareas) */
-    .premium-ui:not(.is-dark) input,
-    .premium-ui:not(.is-dark) select,
-    .premium-ui:not(.is-dark) textarea {
-      background: rgba(255, 255, 255, 0.8) !important;
-      border: 1px solid #cbd5e1 !important;
-      color: #0f172a !important;
-      border-radius: 12px !important;
-      padding: 10px 14px !important;
-      font-weight: 600 !important;
-      backdrop-filter: blur(10px) !important;
-      -webkit-backdrop-filter: blur(10px) !important;
-      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    }
-
-    .premium-ui.is-dark input,
-    .premium-ui.is-dark select,
-    .premium-ui.is-dark textarea {
-      background: rgba(20, 20, 25, 0.8) !important;
-      border: 1px solid rgba(255, 255, 255, 0.1) !important;
-      color: #f4f4f5 !important;
-      border-radius: 12px !important;
-      padding: 10px 14px !important;
-      font-weight: 600 !important;
-      backdrop-filter: blur(10px) !important;
-      -webkit-backdrop-filter: blur(10px) !important;
-      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    }
-
-    .premium-ui input:focus,
-    .premium-ui select:focus,
-    .premium-ui textarea:focus {
-      border-color: #0284c7 !important;
-      outline: none !important;
-    }
-
-    .premium-ui.is-dark input:focus,
-    .premium-ui.is-dark select:focus,
-    .premium-ui.is-dark textarea:focus {
-      border-color: #d4af37 !important;
-    }
-
-    /* 5. Modal overlays */
-    .premium-ui:not(.is-dark) .fixed.inset-0 {
-      backdrop-filter: blur(8px) !important;
-      -webkit-backdrop-filter: blur(8px) !important;
-      background-color: rgba(255, 255, 255, 0.45) !important;
-    }
-
-    .premium-ui.is-dark .fixed.inset-0 {
-      backdrop-filter: blur(8px) !important;
-      -webkit-backdrop-filter: blur(8px) !important;
-      background-color: rgba(0, 0, 0, 0.75) !important;
-    }
-
-    /* 6. Options */
-    .premium-ui:not(.is-dark) option {
-      background-color: #ffffff !important;
-      color: #0f172a !important;
-    }
-
-    .premium-ui.is-dark option {
-      background-color: #18181b !important;
-      color: #f4f4f5 !important;
-    }
-
-    /* 7. Slide Menu Drawer */
-    .premium-ui:not(.is-dark) .fixed.inset-y-0.left-0 {
-      background: rgba(255, 255, 255, 0.75) !important;
-      backdrop-filter: blur(25px) !important;
-      -webkit-backdrop-filter: blur(25px) !important;
-      border-right: 1px solid rgba(14, 165, 233, 0.12) !important;
-      box-shadow: 10px 0 40px rgba(0, 0, 0, 0.05) !important;
-    }
-
-    .premium-ui.is-dark .fixed.inset-y-0.left-0 {
-      background: rgba(10, 10, 12, 0.85) !important;
-      backdrop-filter: blur(25px) !important;
-      -webkit-backdrop-filter: blur(25px) !important;
-      border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
-      box-shadow: 10px 0 40px rgba(0, 0, 0, 0.5) !important;
-    }
-
-    /* 8. Active Pill highlights */
+    /* --- TOP HEADER & ACTIVE PILL --- */
     .gen2-nav-btn {
       transition: all 0.2s ease !important;
       border-radius: 9999px !important;
     }
 
-    .premium-ui:not(.is-dark) .gen2-nav-btn.text-\[\#d4af37\] {
-      background: rgba(2, 132, 199, 0.08) !important;
-      box-shadow: 0 0 15px rgba(2, 132, 199, 0.12) !important;
-      border: 1px solid rgba(2, 132, 199, 0.05) !important;
-    }
-
-    .premium-ui.is-dark .gen2-nav-btn.text-\[\#d4af37\] {
-      background: rgba(212, 175, 55, 0.1) !important;
-      box-shadow: 0 0 15px rgba(212, 175, 55, 0.15) !important;
-      border: 1px solid rgba(212, 175, 55, 0.1) !important;
-    }
-
-    .absolute.bottom-0.left-1\/2.-translate-x-1\/2 {
-      background-color: #0284c7 !important;
-      /* Sky Blue indicator line */
-      box-shadow: 0 0 10px rgba(2, 132, 199, 0.6) !important;
-    }
-
-    .premium-ui.is-dark .absolute.bottom-0.left-1\/2.-translate-x-1\/2 {
-      background-color: #d4af37 !important;
-      /* Gold indicator line in dark mode */
-      box-shadow: 0 0 10px rgba(212, 175, 55, 0.6) !important;
-    }
-
-    /* Soft cyan/blue gradients for progress charts */
-    .bg-gradient-to-r.from-amber-500.to-yellow-400,
-    .bg-gradient-to-r.from-blue-600.to-cyan-400,
-    .bg-gradient-to-r.from-\[\#d4af37\].to-yellow-400 {
-      background: linear-gradient(90deg, #0284c7 0%, #38bdf8 50%, #22d3ee 100%) !important;
-    }
-
-    /* Fine-lined sleek FontAwesome icons override */
-    i.fas,
-    i.far,
-    i.fab,
-    i.fa-solid,
-    i.fa-regular {
-      opacity: 0.95;
-      transition: all 0.2s ease;
-    }
-
-    /* Elegant hover animations */
-    .premium-hover {
-      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    .premium-hover:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 10px 30px rgba(14, 165, 233, 0.08) !important;
-    }
-
-    /* Premium active scale */
-    button:active,
-    .active\:scale-95:active {
-      transform: scale(0.96) !important;
+    .gen2-nav-btn.text-\[\#d4af37\] {
+      background: rgba(212, 175, 55, 0.12) !important;
+      box-shadow: 0 0 16px rgba(212, 175, 55, 0.18) !important;
+      border: 1px solid rgba(212, 175, 55, 0.25) !important;
     }
   </style>
 </head>
@@ -1084,7 +488,6 @@
     <script id="jsx-Tab_Viewer3D" type="text/plain"><?!= include('Tab_Viewer3D'); ?></script>
     <script id="jsx-Tab_Affiliate" type="text/plain"><?!= include('Tab_Affiliate'); ?></script>
     <script id="jsx-Tab_Analytics" type="text/plain"><?!= include('Tab_Analytics'); ?></script>
-    <script id="jsx-Tab_Errors" type="text/plain"><?!= include('Tab_Errors'); ?></script>
     <script id="jsx-App_Main" type="text/plain"><?!= include('App_Main'); ?></script>
   </div>
   <script>
@@ -1100,26 +503,109 @@
         return code.replace(/^\s*<script[^>]*>/i, '').replace(/<\/script>\s*$/i, '');
       }
 
-      var fileIds = ['Config', 'Components', 'Modals', 'Modals_Orders', 'Tab_Dashboard', 'Tab_Orders', 'Tab_Production', 'Tab_Inventory', 'Tab_ImportExport', 'Tab_Suppliers', 'Tab_Finance', 'Tab_HR', 'Tab_Documents', 'Tab_Viewer3D', 'Tab_Affiliate', 'Tab_Analytics', 'Tab_Errors', 'App_Main'];
-      var fullJsx = '';
+      // ═══════════════════════════════════════════════════════════════════
+      // 2-PHASE BOOT: Tách Core (boot-critical) vs Deferred (background)
+      // Core  ~1.1 MB: App Shell + Dashboard + Orders (CTV default)
+      // Defer ~1.4 MB: Tất cả tab còn lại, biên dịch nền sau khi app hiện
+      // ═══════════════════════════════════════════════════════════════════
+      var coreFileIds = ['Config', 'Components', 'Modals', 'Modals_Orders', 'Tab_Dashboard', 'Tab_Orders', 'App_Main'];
+      var deferredFileIds = ['Tab_Production', 'Tab_Inventory', 'Tab_ImportExport', 'Tab_Suppliers', 'Tab_Finance', 'Tab_HR', 'Tab_Documents', 'Tab_Viewer3D', 'Tab_Affiliate', 'Tab_Analytics'];
 
-      fileIds.forEach(function (id) {
-        var el = document.getElementById('jsx-' + id);
-        if (!el) return;
-        var code = cleanCode(el.textContent || '');
-        fullJsx += '\n/* --- FILE: ' + id + ' --- */\n' + code;
-      });
-
-      var hash = 0;
-      for (var i = 0; i < fullJsx.length; i++) {
-        hash = Math.imul(31, hash) + fullJsx.charCodeAt(i) | 0;
+      function buildJsx(ids) {
+        var jsx = '';
+        ids.forEach(function (id) {
+          var el = document.getElementById('jsx-' + id);
+          if (!el) return;
+          jsx += '\n/* --- FILE: ' + id + ' --- */\n' + cleanCode(el.textContent || '');
+        });
+        return jsx;
       }
-      var cacheKey = 'rf_compiled_jsx_' + hash;
-      var cachedCode = null;
-      try {
-        cachedCode = localStorage.getItem(cacheKey);
-      } catch (e) {
-        console.warn("localStorage bị chặn:", e);
+
+      function computeHash(str) {
+        var h = 0;
+        for (var i = 0; i < str.length; i++) {
+          h = Math.imul(31, h) + str.charCodeAt(i) | 0;
+        }
+        return h;
+      }
+
+      function cleanCacheByPrefix(prefix) {
+        try {
+          var keys = [];
+          for (var j = 0; j < localStorage.length; j++) {
+            var k = localStorage.key(j);
+            if (k && k.indexOf(prefix) === 0) keys.push(k);
+          }
+          keys.forEach(function (k) { localStorage.removeItem(k); });
+        } catch (e) { }
+      }
+
+      // Dọn cache cũ (hệ thống 1-phase cũ)
+      cleanCacheByPrefix('rf_compiled_jsx_');
+
+      function transpileAndExec(jsx, cachePrefix, label) {
+        var hash = computeHash(jsx);
+        var cacheKey = cachePrefix + hash;
+        var cached = null;
+        try { cached = localStorage.getItem(cacheKey); } catch (e) { }
+
+        if (cached) {
+          console.log('⚡ ' + label + ' — nạp từ bộ nhớ đệm siêu tốc!');
+          try {
+            var s = document.createElement('script');
+            s.textContent = cached;
+            document.body.appendChild(s);
+            return { ok: true, fromCache: true };
+          } catch (err) {
+            console.warn('Cache ' + label + ' bị lỗi, biên dịch lại...', err);
+            try { localStorage.removeItem(cacheKey); } catch (e) { }
+          }
+        }
+
+        console.log('🔄 Đang biên dịch ' + label + '...');
+        var t0 = performance.now();
+        try {
+          var compiled = Babel.transform(jsx, { presets: ['react'] }).code;
+          var dt = (performance.now() - t0).toFixed(0);
+          cleanCacheByPrefix(cachePrefix);
+          try { localStorage.setItem(cacheKey, compiled); } catch (e) {
+            console.warn('Không thể lưu cache ' + label + ':', e);
+          }
+          var s = document.createElement('script');
+          s.textContent = compiled;
+          document.body.appendChild(s);
+          console.log('✅ ' + label + ' đã biên dịch thành công! (' + dt + 'ms)');
+          return { ok: true, fromCache: false };
+        } catch (err) {
+          console.error('❌ Lỗi biên dịch ' + label + ':', err.message);
+          return { ok: false, error: err };
+        }
+      }
+
+      function diagnoseSyntaxErrors(ids) {
+        var msgs = [];
+        ids.forEach(function (id) {
+          var el = document.getElementById('jsx-' + id);
+          if (!el) return;
+          try {
+            Babel.transform(cleanCode(el.textContent || ''), { presets: ['react'] });
+          } catch (err) {
+            var msg = '❌ LỖI CÚ PHÁP TẠI FILE [' + id + ']: ' + err.message;
+            console.error(msg);
+            msgs.push(msg);
+          }
+        });
+        return msgs;
+      }
+
+      function showErrorOverlay(messages) {
+        var errorDiv = document.createElement('div');
+        errorDiv.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:#09090b;color:#f87171;padding:24px;z-index:999999;font-family:monospace;overflow:auto;display:flex;flex-direction:column;gap:16px;';
+        errorDiv.innerHTML = '<h2 style="color:#ef4444;font-size:20px;font-weight:bold;">⚠️ PHÁT HIỆN LỖI KHI TẢI ỨNG DỤNG</h2>' +
+          '<p style="color:#e2e4e9;">Hệ thống phát hiện lỗi biên dịch JavaScript/JSX. Chi tiết lỗi bên dưới:</p>' +
+          '<pre style="background:#18181b;padding:16px;border-radius:8px;border:1px solid #27272a;white-space:pre-wrap;color:#fca5a5;">' + messages.join('\n\n') + '</pre>' +
+          '<button onclick="localStorage.clear();location.reload();" style="background:#ef4444;color:white;padding:12px 24px;border:none;border-radius:8px;font-weight:bold;cursor:pointer;width:fit-content;">Xóa Cache & Tải Lại Trang</button>';
+        document.body.appendChild(errorDiv);
       }
 
       function cleanupBootDOM() {
@@ -1130,7 +616,6 @@
           if (appJsx) appJsx.remove();
           var babelScript = document.getElementById('babel-script');
           if (babelScript) babelScript.remove();
-          // Thu hồi bộ nhớ AST parser của Babel sau khi App đã mount
           setTimeout(function () {
             if (window.Babel) {
               try { delete window.Babel; } catch (e) { window.Babel = undefined; }
@@ -1141,83 +626,60 @@
         }
       }
 
-      if (cachedCode) {
-        console.log('⚡ Đã nạp ứng dụng từ bộ nhớ đệm siêu tốc!');
-        try {
-          var script = document.createElement('script');
-          script.textContent = cachedCode;
-          document.body.appendChild(script);
+      // ═══════════════════════════════════════════════
+      // PHASE 1: CORE — App Shell + Dashboard + Orders
+      // Biên dịch tức thì, người dùng thấy app ngay
+      // ═══════════════════════════════════════════════
+      var bootT0 = performance.now();
+      var coreJsx = buildJsx(coreFileIds);
+      var coreResult = transpileAndExec(coreJsx, 'rf_core_', 'Phase 1 — Core');
+      coreJsx = null; // Giải phóng heap
+
+      if (!coreResult.ok) {
+        // Core lỗi — dò tìm file nào gây ra
+        var msgs = diagnoseSyntaxErrors(coreFileIds);
+        showErrorOverlay(msgs.length > 0 ? msgs : ['Lỗi biên dịch không xác định tại Core modules.']);
+        return;
+      }
+
+      var coreMs = (performance.now() - bootT0).toFixed(0);
+      console.log('🚀 Phase 1 hoàn tất trong ' + coreMs + 'ms — App Shell đã sẵn sàng!');
+
+      // ═══════════════════════════════════════════════
+      // PHASE 2: DEFERRED — Tất cả tab còn lại
+      // Biên dịch nền sau khi app đã hiện lên màn hình
+      // ═══════════════════════════════════════════════
+      var runPhase2 = function () {
+        var deferredJsx = buildJsx(deferredFileIds);
+        if (!deferredJsx) {
           cleanupBootDOM();
           return;
-        } catch (err) {
-          console.warn("Mã nạp từ cache bị lỗi, tiến hành biên dịch lại...", err);
-          try { localStorage.removeItem(cacheKey); } catch (e) { }
         }
-      }
 
-      console.log('🔄 Đang biên dịch ứng dụng...');
-      var hasError = false;
-      var errorMessages = [];
-      var compiled = null;
+        var deferResult = transpileAndExec(deferredJsx, 'rf_deferred_', 'Phase 2 — Deferred Tabs');
+        deferredJsx = null;
 
-      try {
-        compiled = Babel.transform(fullJsx, { presets: ['react'] }).code;
-        fullJsx = null; // Giải phóng chuỗi mã nguồn khổng lồ trong heap
-      } catch (mainErr) {
-        console.warn("Lỗi biên dịch tổng thể! Đang dò tìm file bị lỗi cú pháp...");
-        hasError = true;
-        fileIds.forEach(function (id) {
-          var el = document.getElementById('jsx-' + id);
-          if (!el) return;
-          var code = cleanCode(el.textContent || '');
-          try {
-            Babel.transform(code, { presets: ['react'] });
-          } catch (err) {
-            var msg = '❌ LỖI CÚ PHÁP TẠI FILE [' + id + ']: ' + err.message;
-            console.error(msg);
-            errorMessages.push(msg);
-          }
-        });
-      }
-
-      if (!hasError && compiled) {
-        try {
-
-          var keysToRemove = [];
-          for (var j = 0; j < localStorage.length; j++) {
-            var k = localStorage.key(j);
-            if (k && k.indexOf('rf_compiled_jsx_') === 0) {
-              keysToRemove.push(k);
-            }
-          }
-          keysToRemove.forEach(function (k) { localStorage.removeItem(k); });
-
-          try {
-            localStorage.setItem(cacheKey, compiled);
-          } catch (e) {
-            console.warn("Không thể lưu cache vào localStorage:", e);
-          }
-
-          var script = document.createElement('script');
-          script.textContent = compiled;
-          document.body.appendChild(script);
-          cleanupBootDOM();
-          console.log('✅ Ứng dụng đã biên dịch và khởi chạy thành công!');
-        } catch (err) {
-          console.error('❌ Lỗi biên dịch tổng thể:', err.message);
-          errorMessages.push('❌ Lỗi biên dịch tổng thể: ' + err.message);
-          hasError = true;
+        if (!deferResult.ok) {
+          // Deferred lỗi — dò tìm file cụ thể
+          var errMsgs = diagnoseSyntaxErrors(deferredFileIds);
+          errMsgs.forEach(function (m) { console.error(m); });
         }
-      }
 
-      if (hasError) {
-        var errorDiv = document.createElement('div');
-        errorDiv.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:#09090b;color:#f87171;padding:24px;z-index:999999;font-family:monospace;overflow:auto;display:flex;flex-direction:column;gap:16px;';
-        errorDiv.innerHTML = '<h2 style="color:#ef4444;font-size:20px;font-weight:bold;">⚠️ PHÁT HIỆN LỖI KHI TẢI ỨNG DỤNG</h2>' +
-          '<p style="color:#e2e4e9;">Hệ thống phát hiện lỗi biên dịch JavaScript/JSX. Chi tiết lỗi bên dưới:</p>' +
-          '<pre style="background:#18181b;padding:16px;border-radius:8px;border:1px solid #27272a;white-space:pre-wrap;color:#fca5a5;">' + errorMessages.join('\n\n') + '</pre>' +
-          '<button onclick="localStorage.clear();location.reload();" style="background:#ef4444;color:white;padding:12px 24px;border:none;border-radius:8px;font-weight:bold;cursor:pointer;width:fit-content;">Xóa Cache & Tải Lại Trang</button>';
-        document.body.appendChild(errorDiv);
+        // Thông báo cho React re-render để phát hiện component mới
+        if (typeof window.__rfOnDeferredLoaded === 'function') {
+          window.__rfOnDeferredLoaded();
+        }
+
+        var totalMs = (performance.now() - bootT0).toFixed(0);
+        console.log('🏁 Phase 2 hoàn tất — Toàn bộ hệ thống sẵn sàng! (Tổng: ' + totalMs + 'ms)');
+        cleanupBootDOM();
+      };
+
+      // Chạy Phase 2 khi browser rảnh, ưu tiên render Phase 1 trước
+      if (window.requestIdleCallback) {
+        requestIdleCallback(runPhase2, { timeout: 3000 });
+      } else {
+        setTimeout(runPhase2, 150);
       }
     })();
   </script>

@@ -394,16 +394,21 @@ const AnalyticsTab = React.memo(function AnalyticsTab({ data, pushData, isAdmin,
 
             if (amt <= 0) return;
 
+            // Bỏ qua giao dịch nội bộ / chuyển khoản / rút quỹ / tạm ứng chưa phân loại
+            if (type === 'TRANSFER' || type === 'CHUYỂN KHOẢN' || cat.includes('chuyển khoản') || cat.includes('nội bộ') || cat.includes('rút tiền') || cat.includes('chờ xử lý') || cat.includes('chờ phân bổ')) {
+                return;
+            }
+
             // Chi phí lương
             if (cat.includes('lương') || title.includes('lương') || cat.includes('trả lương') || cat.includes('tạm ứng')) {
                 totalSalaryExpense += amt;
             }
-            // Chi phí vận hành / mặt bằng / điện nước / chi phí khác
+            // Chi phí vận hành / mặt bằng / điện nước / marketing / chi phí khác
             else if (
-                cat.includes('vận hành') || cat.includes('chi phí khác') || cat.includes('mặt bằng') ||
-                cat.includes('điện nước') || cat.includes('tiếp khách') || cat.includes('vật tư') ||
-                cat.includes('bao bì') || cat.includes('quảng cáo') || cat.includes('ads') ||
-                ((type === 'EXPENSE' || type === 'CHI') && !cat.includes('nhập hàng') && !cat.includes('nhà cung cấp') && !cat.includes('trả nợ'))
+                cat.includes('vận hành') || cat.includes('mặt bằng') || cat.includes('điện nước') || 
+                cat.includes('tiếp khách') || cat.includes('vật tư') || cat.includes('bao bì') || 
+                cat.includes('quảng cáo') || cat.includes('ads') || cat.includes('marketing') ||
+                ((type === 'EXPENSE' || type === 'CHI') && !cat.includes('nhập hàng') && !cat.includes('nhà cung cấp') && !cat.includes('trả nợ') && !cat.includes('đối tác') && !cat.includes('chờ'))
             ) {
                 totalOperationExpense += amt;
             }
@@ -912,7 +917,11 @@ const AnalyticsTab = React.memo(function AnalyticsTab({ data, pushData, isAdmin,
                                 <td className="py-3.5 px-3 text-right font-mono text-rose-400">{formatMoney(stats.totalPlatformFee)}đ</td>
                                 <td className="py-3.5 px-3 text-right font-mono text-amber-400">{formatMoney(stats.totalCOGS)}đ</td>
                                 <td className="py-3.5 px-3 text-right font-mono text-[#d4af37]">{formatMoney(stats.totalRevenue - stats.totalCOGS - stats.totalPlatformFee)}đ</td>
-                                <td className="py-3.5 px-3 text-right font-mono text-[#d4af37]">{stats.profitMargin}%</td>
+                                <td className="py-3.5 px-3 text-right font-mono text-[#d4af37]">
+                                    <span className="px-2 py-0.5 rounded bg-[#d4af37]/15 text-[#d4af37] text-[11px] font-black">
+                                        {stats.totalRevenue > 0 ? (((stats.totalRevenue - stats.totalCOGS - stats.totalPlatformFee) / stats.totalRevenue) * 100).toFixed(1) : '0.0'}%
+                                    </span>
+                                </td>
                             </tr>
                         </tfoot>
                     </table>

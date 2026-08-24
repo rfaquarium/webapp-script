@@ -14,6 +14,11 @@ node_modules/**
 vercel-wrapper/**
 push_relay_worker.js
 sw.js
+index.html
+vercel_index.html
+manifest.json
+vercel.json
+icon.png
 *.xlsx
 *.csv
 *.log

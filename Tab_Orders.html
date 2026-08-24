@@ -87,7 +87,52 @@
             setIsProcessing(false);
         };
 
-        const handleScanInput = (e) => { if (e.key === 'Enter') processCode(scanVal); };
+        const handleManualReturn = () => {
+            const raw = String(scanVal || '').trim();
+            if (!raw) return;
+
+            const tokens = raw.split(/[\s,;\n\t]+/).map(t => t.trim().toUpperCase()).filter(t => t.length >= 3);
+            if (tokens.length === 0) return;
+
+            if (tokens.length === 1 && !tokens[0].includes(' ') && tokens[0].length <= 20) {
+                processCode(tokens[0]);
+                return;
+            }
+
+            let foundOrders = [];
+            let notFound = [];
+
+            tokens.forEach(tok => {
+                const cleanTok = tok.split(' | ')[0].trim();
+                const match = (orders || []).find(o => {
+                    const dbCode = String(o.orderCode || '').toUpperCase();
+                    const dbShipping = String(o.shippingCode || '').toUpperCase();
+                    const dbId = String(o.id || '').toUpperCase();
+                    const dbPhone = String(o.phone || '').toUpperCase();
+                    return dbCode === cleanTok || dbCode.includes(cleanTok) || 
+                           dbShipping === cleanTok || (cleanTok.length >= 6 && dbShipping.includes(cleanTok)) ||
+                           dbId === cleanTok || (cleanTok.length >= 6 && dbPhone.includes(cleanTok));
+                });
+
+                if (match) {
+                    if (!foundOrders.find(fo => fo.id === match.id)) foundOrders.push(match);
+                } else {
+                    if (!notFound.includes(cleanTok)) notFound.push(cleanTok);
+                }
+            });
+
+            if (foundOrders.length === 0) {
+                triggerToast(`Không tìm thấy đơn hàng nào khớp với danh sách mã đã dán!`, 'fa-exclamation-triangle', 'warning');
+                return;
+            }
+
+            setScannedOrders(foundOrders);
+            setUnmatchedCodes(notFound);
+            setPreview('manual_loaded');
+            setScanVal('');
+        };
+
+        const handleScanInput = (e) => { if (e.key === 'Enter') handleManualReturn(); };
 
         const handleScanEmailReturn = async () => {
             if (isProcessing) return;
@@ -328,10 +373,17 @@
                                 <div className="relative w-full mb-2">
                                     <input
                                         ref={inputRef} type="text" value={scanVal} onChange={e => setScanVal(e.target.value)} onKeyDown={handleScanInput} disabled={isProcessing}
-                                        placeholder="Dùng Súng Tít vào Mã Đơn / MVĐ"
-                                        className="w-full bg-[#0a0a0a] border-2 border-[#333] focus:border-purple-500 rounded-xl pl-10 pr-4 py-3 text-center font-mono text-[13px] font-black text-white outline-none focus:shadow-[0_0_20px_rgba(168,85,247,0.3)] transition-all uppercase placeholder:font-sans placeholder:font-medium placeholder:normal-case placeholder:text-[11px]"
+                                        placeholder="Dán danh sách mã đơn / MVĐ hoặc dùng Súng Tít..."
+                                        className="w-full bg-[#0a0a0a] border-2 border-[#333] focus:border-purple-500 rounded-xl pl-10 pr-24 py-3 text-center font-mono text-[12px] font-black text-white outline-none focus:shadow-[0_0_20px_rgba(168,85,247,0.3)] transition-all uppercase placeholder:font-sans placeholder:font-medium placeholder:normal-case placeholder:text-[11px]"
                                     />
-                                    <i className="fas fa-barcode absolute left-4 top-1/2 -translate-y-1/2 text-purple-400 text-base"></i>
+                                    <i className="fas fa-barcode absolute left-3.5 top-1/2 -translate-y-1/2 text-purple-400 text-base"></i>
+                                    <button
+                                        onClick={handleManualReturn}
+                                        disabled={isProcessing || !scanVal.trim()}
+                                        className="absolute right-1.5 top-1/2 -translate-y-1/2 px-3 py-1.5 rounded-lg font-black text-[11px] bg-purple-600 hover:bg-purple-500 text-white transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed uppercase cursor-pointer"
+                                    >
+                                        QUÉT HOÀN
+                                    </button>
                                 </div>
                             </div>
 
@@ -562,6 +614,20 @@
             setIsProcessing(false);
         };
 
+        const confirmBulkAsReturn = async () => {
+            if (scannedOrders.length === 0) return;
+            setIsProcessing(true);
+            try {
+                const safeDateFull = typeof getLocalISODate === 'function' ? getLocalISODate() : new Date().toISOString();
+                const returnedAt = safeDateFull.replace('T', ' ').slice(0, 19);
+                const updatedOrders = scannedOrders.map(o => ({ ...o, status: 'Hàng Hoàn', returnedAt: returnedAt, reconciledAt: o.reconciledAt || returnedAt }));
+                await pushDeltas({ orders: updatedOrders }, `Đã chuyển ${updatedOrders.length} đơn về Hàng Hoàn!`, 'fa-undo');
+                triggerToast(`Thành công! Đã chuyển ${updatedOrders.length} đơn sang Hàng Hoàn.`, 'fa-check', 'success');
+                onClose();
+            } catch (err) { triggerToast('Lỗi đồng bộ!', 'fa-times', 'danger'); }
+            setIsProcessing(false);
+        };
+
         const resetScan = () => {
             setPreview('');
             setScanVal('');
@@ -590,7 +656,7 @@
 
                             <div className="bg-[#0a0a0a] border border-[#222] rounded-xl p-3">
                                 <div className="text-[10px] font-black text-rose-400 uppercase tracking-widest border-b border-[#333] pb-2 mb-2 flex justify-between">
-                                    <span><i className="fas fa-check-circle mr-1"></i> Khớp {scannedOrders.length} Đơn Hủy</span>
+                                    <span><i className="fas fa-check-circle mr-1"></i> Khớp {scannedOrders.length} Đơn Hàng</span>
                                 </div>
                                 {scannedOrders.length > 0 ? (
                                     <div className="max-h-[140px] overflow-y-auto custom-scrollbar space-y-1.5 pr-1">
@@ -602,7 +668,7 @@
                                         ))}
                                     </div>
                                 ) : (
-                                    <div className="text-gray-500 text-[10px] font-bold py-2 text-center">Không có đơn hủy mới nào khớp!</div>
+                                    <div className="text-gray-500 text-[10px] font-bold py-2 text-center">Không có đơn nào khớp!</div>
                                 )}
                             </div>
 
@@ -619,9 +685,14 @@
                                 </div>
                             )}
 
-                            <button onClick={confirmBulkCancel} disabled={isProcessing || scannedOrders.length === 0} className={`w-full py-3.5 rounded-xl font-black text-[12px] tracking-wide shadow-md flex items-center justify-center gap-2 transition-all active:scale-95 mt-1 ${isProcessing || scannedOrders.length === 0 ? 'bg-[#333] text-gray-500' : 'bg-gradient-to-r from-rose-600 to-red-600 text-white hover:opacity-90 shadow-rose-900/30 cursor-pointer'}`}>
-                                {isProcessing ? <><i className="fas fa-spinner fa-spin"></i> ĐANG CẬP NHẬT TRẠNG THÁI...</> : `XÁC NHẬN ĐƯA ${scannedOrders.length} ĐƠN VỀ ĐƠN HỦY`}
-                            </button>
+                            <div className="flex flex-col gap-2 mt-1">
+                                <button onClick={confirmBulkCancel} disabled={isProcessing || scannedOrders.length === 0} className={`w-full py-3.5 rounded-xl font-black text-[12px] tracking-wide shadow-md flex items-center justify-center gap-2 transition-all active:scale-95 ${isProcessing || scannedOrders.length === 0 ? 'bg-[#333] text-gray-500' : 'bg-gradient-to-r from-rose-600 to-red-600 text-white hover:opacity-90 shadow-rose-900/30 cursor-pointer'}`}>
+                                    {isProcessing ? <><i className="fas fa-spinner fa-spin"></i> ĐANG CẬP NHẬT TRẠNG THÁI...</> : `XÁC NHẬN ĐƯA ${scannedOrders.length} ĐƠN VỀ ĐƠN HỦY`}
+                                </button>
+                                <button onClick={confirmBulkAsReturn} disabled={isProcessing || scannedOrders.length === 0} className="w-full py-2.5 rounded-xl font-black text-[11px] tracking-wide border border-purple-500/50 bg-purple-950/40 text-purple-300 hover:bg-purple-900/60 hover:text-white flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer">
+                                    <i className="fas fa-undo"></i> CHUYỂN {scannedOrders.length} ĐƠN NÀY SANG HÀNG HOÀN
+                                </button>
+                            </div>
                         </div>
                     ) : (
                         <>
@@ -672,6 +743,114 @@
     }
 
     // -------------------------------------------------------------------------
+    // MODAL: LƯU TRỮ ĐƠN HÀNG HÀNG LOẠT (ARCHIVING ENGINE MODAL)
+    // -------------------------------------------------------------------------
+    function ArchiveEngineModal({ onClose, triggerToast }) {
+        const [cutoffDays, setCutoffDays] = React.useState(60);
+        const [isArchiving, setIsArchiving] = React.useState(false);
+
+        const handleRunArchive = async () => {
+            if (!window.confirm(`Bạn có chắc chắn muốn chuyển toàn bộ đơn hàng đã hoàn tất / đối soát cũ hơn ${cutoffDays} ngày sang bảng lưu trữ Orders_Archive? Thao tác này giúp giải phóng bộ nhớ và tăng tốc ứng dụng.`)) {
+                return;
+            }
+            setIsArchiving(true);
+            triggerToast(`Đang chạy nén và chuyển đơn cũ sang Orders_Archive...`, 'fa-spinner fa-spin', 'info');
+            try {
+                if (typeof runGAS === 'function') {
+                    const pin = localStorage.getItem('rf_pin') || '';
+                    const res = await runGAS('archiveReconciledOrders', { cutoffDays: parseInt(cutoffDays, 10), pin: pin });
+                    if (res && res.success) {
+                        triggerToast(res.message || `Đã chuyển ${res.movedCount || 0} đơn sang Orders_Archive!`, 'fa-check-circle', 'success');
+                        window.dispatchEvent(new CustomEvent('triggerReloadData'));
+                        onClose();
+                    } else {
+                        triggerToast(res?.message || 'Lỗi xử lý lưu trữ đơn hàng!', 'fa-times', 'danger');
+                    }
+                } else {
+                    triggerToast('Môi trường Dev: Chưa kết nối máy chủ Google Apps Script', 'fa-info-circle', 'warning');
+                }
+            } catch (err) {
+                triggerToast('Lỗi kết nối khi lưu trữ: ' + (err?.message || err), 'fa-times', 'danger');
+            } finally {
+                setIsArchiving(false);
+            }
+        };
+
+        return (
+            <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
+                <div className="bg-[#121214] border border-[#d4af37]/40 w-full max-w-lg rounded-2xl p-5 shadow-[0_20px_50px_rgba(0,0,0,0.8)] relative space-y-4">
+                    <div className="flex justify-between items-center border-b border-white/[0.08] pb-3">
+                        <div className="flex items-center gap-2.5">
+                            <div className="w-9 h-9 rounded-xl bg-[#d4af37]/15 flex items-center justify-center text-[#d4af37] border border-[#d4af37]/30 shadow-sm">
+                                <i className="fas fa-archive text-base"></i>
+                            </div>
+                            <div>
+                                <h3 className="text-sm font-black text-white uppercase tracking-wider">Lưu Trữ Đơn Cũ (Archiving Engine)</h3>
+                                <p className="text-[10px] text-gray-400 font-medium">Tối ưu dung lượng RAM & Tăng tốc khởi động ứng dụng &lt; 1s</p>
+                            </div>
+                        </div>
+                        <button onClick={onClose} disabled={isArchiving} className="w-8 h-8 rounded-full bg-white/[0.05] hover:bg-rose-500/20 text-gray-400 hover:text-rose-400 flex items-center justify-center transition-colors">
+                            <i className="fas fa-times text-sm"></i>
+                        </button>
+                    </div>
+
+                    <div className="bg-[#09090b] border border-white/[0.06] rounded-xl p-3.5 space-y-2.5 text-[11px] leading-relaxed text-zinc-300">
+                        <div className="flex items-center gap-2 text-amber-400 font-bold">
+                            <i className="fas fa-bolt"></i>
+                            <span>Cơ Chế Bóc Tách Tự Động:</span>
+                        </div>
+                        <p>
+                            Đơn hàng có trạng thái <strong className="text-white">Đối Soát Thành Công</strong>, <strong className="text-white">Đã Bàn Giao</strong> hoặc <strong className="text-white">Đơn Huỷ</strong> cũ hơn mốc thời gian sẽ được di chuyển sang bảng <code className="text-[#d4af37] bg-white/[0.06] px-1 py-0.5 rounded font-mono">Orders_Archive</code>.
+                        </p>
+                        <p className="text-[10px] text-zinc-400">
+                            💡 Khi xem lại các tháng quá khứ hoặc tìm kiếm đơn cũ, ứng dụng sẽ <strong>Lazy-load on-demand</strong> tự động mà không làm nặng phiên làm việc.
+                        </p>
+                    </div>
+
+                    <div className="space-y-2">
+                        <label className="text-[11px] font-bold text-gray-300 uppercase tracking-wider block">Chọn Mốc Thời Gian Lưu Trữ (Cutoff):</label>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                            {[
+                                { days: 45, label: '45 Ngày' },
+                                { days: 60, label: '60 Ngày (Chuẩn)' },
+                                { days: 90, label: '90 Ngày (1 Quý)' },
+                                { days: 180, label: '180 Ngày (6 Tháng)' }
+                            ].map(item => (
+                                <button
+                                    key={item.days}
+                                    type="button"
+                                    onClick={() => setCutoffDays(item.days)}
+                                    className={`py-2.5 px-2 rounded-xl text-[11px] font-bold border transition-all active:scale-95 text-center ${cutoffDays === item.days ? 'bg-[#d4af37]/20 border-[#d4af37] text-[#d4af37] shadow-sm font-black' : 'bg-[#18181b] border-white/[0.08] text-zinc-400 hover:text-white'}`}
+                                >
+                                    {item.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="pt-2 flex gap-2">
+                        <button
+                            onClick={onClose}
+                            disabled={isArchiving}
+                            className="flex-1 py-2.5 rounded-xl border border-white/[0.1] text-zinc-300 hover:bg-white/[0.05] text-[12px] font-bold transition-all active:scale-95 cursor-pointer"
+                        >
+                            Đóng
+                        </button>
+                        <button
+                            onClick={handleRunArchive}
+                            disabled={isArchiving}
+                            className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-black font-black text-[12px] uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
+                        >
+                            <i className={isArchiving ? "fas fa-spinner fa-spin" : "fas fa-box-archive"}></i>
+                            <span>{isArchiving ? "Đang xử lý..." : "Kích Hoạt Lưu Trữ"}</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // -------------------------------------------------------------------------
     // MỤC 1: GIAO DIỆN TAB ĐƠN HÀNG (OrdersTab)
     // -------------------------------------------------------------------------
 
@@ -680,13 +859,24 @@
     // COMPONENT BỌC ĐƠN HÀNG THÊM LOGIC SLA VÀ PHÂN LOẠI
     const RFOrderWrapper = React.memo(({ order, prods, onToggleSelect, onEditOrder, ...props }) => {
         const isEcom = String(order?.channel || '').toUpperCase().includes('SHOPEE') || String(order?.channel || '').toUpperCase().includes('TIKTOK');
-        const createdDate = new Date(order?.createdAt || order?.date || Date.now());
-        let deadline = new Date(createdDate);
-        if (isEcom) {
-            deadline.setDate(deadline.getDate() + 1);
-            deadline.setHours(14, 0, 0, 0); // Deadline 14:00 hôm sau
+        const isCTVOrRetail = String(order?.channel || '').toUpperCase().includes('BÁN LẺ') || String(order?.channel || '').toUpperCase().includes('CỘNG TÁC VIÊN') || String(order?.channel || '').toUpperCase() === 'CTV' || String(order?.channel || '').toUpperCase().includes('BÁN SỈ');
+        
+        let deadline;
+        if (order?.deadline) {
+            deadline = new Date(order.deadline);
         } else {
-            deadline.setDate(deadline.getDate() + 3); // Khách lẻ 3 ngày
+            const createdDate = new Date(order?.createdAt || order?.date || Date.now());
+            deadline = new Date(createdDate);
+            if (isEcom) {
+                deadline.setDate(deadline.getDate() + 1);
+                deadline.setHours(14, 0, 0, 0); // Deadline 14:00 hôm sau
+            } else if (isCTVOrRetail) {
+                deadline.setDate(deadline.getDate() + 6); // Đơn bán lẻ và CTV: đẩy deadline lên trên 5 ngày (6 ngày hoàn thành)
+                deadline.setHours(18, 0, 0, 0);
+            } else {
+                deadline.setDate(deadline.getDate() + 6); // Mặc định trên 5 ngày
+                deadline.setHours(18, 0, 0, 0);
+            }
         }
 
         const now = new Date();
@@ -717,6 +907,7 @@
 
     const OrdersTab = React.memo(function OrdersTab({
         loadArchiveData,
+        fetchArchivedOrders,
         isArchiveLoaded,
         isLoadingArchive,
         attendance,
@@ -751,11 +942,82 @@
         const [isScanningCancel, setIsScanningCancel] = React.useState(false);
         const [isBulkFinanceOpen, setIsBulkFinanceOpen] = React.useState(false);
         const [isBulkHandovering, setIsBulkHandovering] = React.useState(false);
+        const [isSyncingGHN, setIsSyncingGHN] = React.useState(false);
         const [showRules, setShowRules] = React.useState(false);
         const [editingOrder, setEditingOrder] = React.useState(null);
         const [collapsedGroups, setCollapsedGroups] = React.useState({});
-        const isCTV = localStorage.getItem('rf_role') === 'CTV' || localStorage.getItem('rf_role') === 'CỘNG TÁC VIÊN';
+        const currentRole = localStorage.getItem('rf_role') || '';
+        const isBossRole = localStorage.getItem('rf_boss') === 'true';
+        const isBoss = isBossRole || currentRole === 'TỐI CAO' || Boolean(isAdmin);
+        const isCTV = currentRole === 'CTV' || currentRole === 'CỘNG TÁC VIÊN';
         const [showRevenueStats, setShowRevenueStats] = React.useState(false);
+
+        // STATE ARCHIVING ENGINE & LAZY LOADING
+        const [isArchiveEngineOpen, setIsArchiveEngineOpen] = React.useState(false);
+        const [isLazyLoadingArchive, setIsLazyLoadingArchive] = React.useState(false);
+        const [loadedArchiveKeys, setLoadedArchiveKeys] = React.useState({});
+
+        const handleLazyLoadArchive = React.useCallback(async (opts = {}) => {
+            if (isLazyLoadingArchive || typeof fetchArchivedOrders !== 'function') return;
+            const cacheKey = opts.month || opts.quarter || (opts.searchCode ? `search_${opts.searchCode}` : 'all');
+            if (loadedArchiveKeys[cacheKey]) return;
+
+            setIsLazyLoadingArchive(true);
+            if (triggerToast) triggerToast(`Đang tải đơn lưu trữ ${opts.month ? `tháng ${opts.month}` : (opts.searchCode ? `mã "${opts.searchCode}"` : '')}...`, 'fa-spinner fa-spin', 'info');
+            try {
+                const res = await fetchArchivedOrders(opts);
+                setLoadedArchiveKeys(prev => ({ ...prev, [cacheKey]: true }));
+                if (res && res.success) {
+                    if (triggerToast) {
+                        triggerToast(`Đã tải ${res.orders?.length || 0} đơn từ Kho Lưu Trữ (Tổng: ${res.totalCount || 0})`, 'fa-check-circle', 'success');
+                    }
+                }
+            } catch (e) {
+                console.error('Lazy load error:', e);
+            } finally {
+                setIsLazyLoadingArchive(false);
+            }
+        }, [isLazyLoadingArchive, fetchArchivedOrders, loadedArchiveKeys, triggerToast]);
+
+        // Tự động kích hoạt Lazy-load khi người dùng lọc tháng cũ hoặc xem tất cả
+        React.useEffect(() => {
+            if (filterTime === 'Chọn Tháng' && customMonth) {
+                handleLazyLoadArchive({ month: customMonth });
+            } else if (filterTime === 'Tháng Trước') {
+                const today = new Date();
+                const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+                const lmStr = `${lastMonth.getFullYear()}-${String(lastMonth.getMonth() + 1).padStart(2, '0')}`;
+                handleLazyLoadArchive({ month: lmStr });
+            } else if (filterTime === 'Tất Cả') {
+                handleLazyLoadArchive({});
+            }
+        }, [filterTime, customMonth, handleLazyLoadArchive]);
+
+        const handleSyncGHN = React.useCallback(() => {
+            if (isSyncingGHN) return;
+            setIsSyncingGHN(true);
+            if (triggerToast) triggerToast('Đang kết nối API GHN và đồng bộ trạng thái...', 'fa-bolt', 'info');
+
+            if (window.google && google.script && google.script.run) {
+                google.script.run
+                    .withSuccessHandler(res => {
+                        setIsSyncingGHN(false);
+                        if (res && res.success) {
+                            if (triggerToast) triggerToast(res.message || 'Đồng bộ GHN thành công!', 'fa-check-circle', 'success');
+                        } else {
+                            if (triggerToast) triggerToast(res?.message || 'Lỗi đồng bộ GHN', 'fa-times', 'danger');
+                        }
+                    })
+                    .withFailureHandler(err => {
+                        setIsSyncingGHN(false);
+                        if (triggerToast) triggerToast('Lỗi kết nối GHN: ' + (err?.message || err), 'fa-times', 'danger');
+                    })
+                    .syncGHNViaAPI();
+            } else {
+                setIsSyncingGHN(false);
+                if (triggerToast) triggerToast('Môi trường Dev: Chưa kết nối Google Apps Script backend', 'fa-info-circle', 'warning');
+            }
+        }, [isSyncingGHN, triggerToast]);
 
         // Removed buggy handleImportShopeeOrders, use BulkFinanceModal instead
 
@@ -764,7 +1026,26 @@
             setRenderLimit(30);
         }, [filterStatus, filterTime, searchCode]);
 
-
+        // LẮNG NGHE SỰ KIỆN ĐIỀU HƯỚNG NHANH TỪ DASHBOARD
+        React.useEffect(() => {
+            const handleGlobalNav = (e) => {
+                const trigger = e.detail?.trigger || (e.type === 'triggerCreateOrder' ? 'triggerCreateOrder' : (e.type === 'filterReadyPack' ? 'filterReadyPack' : ''));
+                if (trigger === 'triggerCreateOrder' || e.type === 'triggerCreateOrder') {
+                    setDraftData({ channel: e.detail?.channel || 'Bán Lẻ' });
+                    setAddingMode(true);
+                } else if (trigger === 'filterReadyPack' || e.type === 'filterReadyPack') {
+                    setFilterStatus('Sẵn Sàng Đóng Gói');
+                }
+            };
+            window.addEventListener('globalNavigateAndTrigger', handleGlobalNav);
+            window.addEventListener('triggerCreateOrder', handleGlobalNav);
+            window.addEventListener('filterReadyPack', handleGlobalNav);
+            return () => {
+                window.removeEventListener('globalNavigateAndTrigger', handleGlobalNav);
+                window.removeEventListener('triggerCreateOrder', handleGlobalNav);
+                window.removeEventListener('filterReadyPack', handleGlobalNav);
+            };
+        }, []);
 
         const toggleSelect = React.useCallback((orderId) => {
             setSelectedIds(prev => prev.includes(orderId) ? prev.filter(id => id !== orderId) : [...prev, orderId]);
@@ -783,14 +1064,14 @@
             let d = null;
             if (typeof parseDateTimeSafe === 'function') {
                 const parsed = parseDateTimeSafe(dateStr);
-                if (parsed && parsed.timestamp) {
+                if (parsed && parsed.timestamp && parsed.timestamp > 0) {
                     d = new Date(parsed.timestamp);
                 }
             }
             if (!d || isNaN(d.getTime())) {
                 d = new Date(dateStr);
             }
-            if (isNaN(d.getTime())) return true; // Tránh mất đơn nếu chuỗi ngày không chuẩn
+            if (isNaN(d.getTime())) return false; // Không hợp lệ thì không match tháng
 
             const today = new Date();
             if (filterStr === 'Hôm Nay') return d.toDateString() === today.toDateString();
@@ -798,14 +1079,13 @@
             if (filterStr === 'Tuần Này') {
                 const currentDay = today.getDay();
                 const diff = today.getDate() - currentDay + (currentDay === 0 ? -6 : 1);
-                const monday = new Date(today.setDate(diff)); monday.setHours(0, 0, 0, 0);
-                const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6); sunday.setHours(23, 59, 59, 999);
+                const monday = new Date(today.getFullYear(), today.getMonth(), diff, 0, 0, 0, 0);
+                const sunday = new Date(today.getFullYear(), today.getMonth(), diff + 6, 23, 59, 59, 999);
                 return d >= monday && d <= sunday;
             }
             if (filterStr === 'Tháng Này') return d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
             if (filterStr === 'Tháng Trước') {
-                const lastMonth = new Date();
-                lastMonth.setMonth(lastMonth.getMonth() - 1);
+                const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
                 return d.getMonth() === lastMonth.getMonth() && d.getFullYear() === lastMonth.getFullYear();
             }
             if (filterStr === 'Tuỳ Chỉnh' || filterStr === 'Chọn Tháng') {
@@ -860,6 +1140,22 @@
             return map;
         }, [prodItems]);
 
+        const checkItemReady = (p) => {
+            if (!p) return true;
+            const pStatus = String(p.status || '').toUpperCase().trim();
+            if (pStatus === 'DONE' || pStatus === 'ĐÃ XONG' || pStatus === 'HỦY/VỠ' || pStatus === 'HOÀN KHO ĐẠT' || pStatus === 'HOÀN THÀNH') return true;
+
+            const ff = p.fulfilledFromStock;
+            if (ff === true || ff === 1 || ff === '1') return true;
+            const ffStr = String(ff || '').toUpperCase().trim();
+            if (ffStr === 'TRUE' || ffStr.includes('LẤY TỪ TỒN KHO') || ffStr.includes('TỒN KHO') || ffStr.includes('KHO CÓ SẴN') || ffStr.includes('CÓ SẴN')) return true;
+
+            const pNote = String(p.note || '').toUpperCase();
+            if (pNote.includes('LẤY TỪ TỒN KHO') || pNote.includes('KHO CÓ SẴN') || pNote.includes('CÓ SẴN Ở KHO') || pNote.includes('CÓ SẴN') || pNote.includes('BÙ KHO') || pNote.includes('TỰ ĐỘNG TẠO LỆNH BÙ')) return true;
+
+            return false;
+        };
+
         const getMatchedProds = React.useCallback((order) => {
             if (!order) return EMPTY_ARRAY;
             const oId = String(order.id || '').trim();
@@ -884,16 +1180,96 @@
             return unique;
         }, [prodMapByOrderId]);
 
-        const productStockMap = React.useMemo(() => {
-            const map = {};
-            const list = erpProducts || erpData?.Products || [];
-            (list || []).forEach(prd => {
-                if (prd && prd.name) {
-                    map[String(prd.name).trim()] = Number(prd.quantity || 0);
+        // 1. Pre-index done packings into a fast Set (O(M) once)
+        const donePackSet = React.useMemo(() => {
+            const set = new Set();
+            const allPackings = packings || erpData?.Packings || [];
+            allPackings.forEach(p => {
+                if (p && p.orderId) {
+                    const ps = String(p.status || '').toUpperCase().trim();
+                    if ((ps === 'DONE' || ps === 'ĐÃ ĐÓNG GÓI' || ps === 'HOÀN THÀNH' || ps === 'ĐÃ XONG') && (!p.note || !p.note.includes('kho'))) {
+                        const pOrd = String(p.orderId).trim();
+                        set.add(pOrd);
+                        if (pOrd.includes('|')) pOrd.split('|').forEach(x => set.add(x.trim()));
+                        if (pOrd.includes('_')) set.add(pOrd.split('_')[0].trim());
+                    }
                 }
             });
-            return map;
+            return set;
+        }, [packings, erpData?.Packings]);
+
+        // 2. Pre-index out of stock non-production accessories into a fast Set
+        const outOfStockAccSet = React.useMemo(() => {
+            const set = new Set();
+            const list = erpProducts || erpData?.Products || [];
+            list.forEach(prd => {
+                if (prd && prd.name) {
+                    const cat = String(prd.category || '').toUpperCase().trim();
+                    const subCat = String(prd.sub_category || '').toUpperCase().trim();
+                    if (cat !== 'LAYOUT' && cat !== 'BỂ KÍNH' && subCat !== 'LAYOUT' && subCat !== 'BỂ KÍNH') {
+                        if (Number(prd.quantity || 0) <= 0) {
+                            set.add(String(prd.name).trim().toLowerCase().replace(/\s+/g, ' '));
+                        }
+                    }
+                }
+            });
+            return set;
         }, [erpProducts, erpData?.Products]);
+
+        // 3. Helper compute status once per order (O(1) lookups)
+        const computeOrderStatus = React.useCallback((o) => {
+            let eff = String(o._effectiveStatus || o.status || '').toUpperCase().trim();
+            if (eff !== 'CHỜ SẢN XUẤT' && eff !== 'QUÉT TỰ ĐỘNG' && eff !== 'ĐANG SẢN XUẤT' && eff !== 'SẴN SÀNG ĐÓNG GÓI' && eff !== 'CHỜ PHỤ KIỆN' && eff !== 'CHỜ MÃ VẬN ĐƠN' && eff !== 'CHỜ BÀN GIAO') {
+                return eff;
+            }
+
+            const oIdStr = String(o.id || '').trim();
+            const oCodeStr = String(o.orderCode || '').trim();
+            const baseCodeStr = oCodeStr.split(' | ')[0].trim();
+            const hasDonePack = donePackSet.has(oIdStr) || donePackSet.has(oCodeStr) || donePackSet.has(baseCodeStr);
+
+            const isGHNShipping = String(o.shippingMethod || '').trim() === 'Gửi GHN' || String(o.shippingMethod || '').toLowerCase().includes('ghn');
+            const isGuiXeShipping = String(o.shippingMethod || '').trim() === 'Gửi Xe';
+            const isTMDT = String(o.channel || '').toUpperCase().includes('SHOPEE') || String(o.channel || '').toUpperCase().includes('TIKTOK') || String(o.channel || '').toUpperCase().includes('LAZADA');
+
+            let pureShippingCode = String(o.shippingCode || '').trim();
+            if (!pureShippingCode && String(o.orderCode || '').includes('MVĐ:')) {
+                pureShippingCode = String(o.orderCode).split('MVĐ:')[1].trim();
+            }
+            const hasShippingCode = Boolean(pureShippingCode && pureShippingCode.length >= 3);
+            const requiresShippingCode = isTMDT || isGHNShipping || isGuiXeShipping;
+            const isMissingMVD = requiresShippingCode && !hasShippingCode;
+
+            if (hasDonePack) {
+                return isMissingMVD ? 'CHỜ MÃ VẬN ĐƠN' : 'CHỜ BÀN GIAO';
+            }
+
+            const related = getMatchedProds(o);
+            let allProdDone = true;
+            if (related.length > 0) {
+                allProdDone = related.every(p => checkItemReady(p));
+            }
+
+            let isMissingAccessories = false;
+            if (allProdDone && !isMissingMVD) {
+                const accs = Array.isArray(o.accessories) ? o.accessories : (typeof o.accessories === 'string' ? safeJSONParse(o.accessories) : []);
+                if (Array.isArray(accs)) {
+                    for (let a of accs) {
+                        if (!a || a.hasProduction === true || a.hasProduction === 'true') continue;
+                        const aName = String(a.name || a.Name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+                        if (aName && outOfStockAccSet.has(aName)) {
+                            isMissingAccessories = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!allProdDone) return 'CHỜ SẢN XUẤT';
+            if (isMissingMVD) return 'CHỜ MÃ VẬN ĐƠN';
+            if (isMissingAccessories) return 'CHỜ PHỤ KIỆN';
+            return 'SẴN SÀNG ĐÓNG GÓI';
+        }, [donePackSet, outOfStockAccSet, getMatchedProds]);
 
         const baseFiltered = React.useMemo(() => {
             return (orders || []).map(o => {
@@ -912,7 +1288,9 @@
                 } else if (rawStatus.includes('HUỶ') || rawStatus.includes('HỦY') || rawStatus.includes('CANCEL') || rawStatus.includes('ยกเลิก') || eff.includes('HUỶ') || eff.includes('HỦY') || eff.includes('CANCEL')) {
                     eff = 'ĐƠN HUỶ';
                 }
-                return { ...o, status: o.status && o.status !== '0' ? o.status : 'Chờ Sản Xuất', _effectiveStatus: eff };
+                const normalized = { ...o, status: o.status && o.status !== '0' ? o.status : 'Chờ Sản Xuất', _effectiveStatus: eff };
+                normalized._computedStatus = computeOrderStatus(normalized);
+                return normalized;
             }).filter(o => {
                 const isCtvOrder = String(o.channel || '').toUpperCase().includes('CỘNG TÁC VIÊN') || String(o.channel || '').toUpperCase() === 'CTV';
                 if (isCTV && o.createdBy !== currentUser && o.sale !== currentUser && o.responsibleUser !== currentUser && !isCtvOrder) return false;
@@ -922,11 +1300,13 @@
                 const cus = String(o.customer || '').toLowerCase();
                 const matchSearch = mvd.includes(searchCode.toLowerCase()) || cus.includes(searchCode.toLowerCase());
 
-                // Với đơn hoàn, dùng ngày xử lý hoàn (returnedAt / updatedAt) để xuất hiện ở tháng xử lý hiện tại
+                // Với đơn hoàn hoặc đơn đối soát, dùng ngày xử lý (reconciledAt / returnedAt / updatedAt) để luôn hiển thị ở tháng xử lý hiện tại
                 const isReturnStatus = o._effectiveStatus === 'HÀNG HOÀN CHỜ XỬ LÝ' || String(o.status || '').toUpperCase().includes('HOÀN');
                 let dateToFilter = o.date || o.createdAt;
                 if (isReturnStatus) {
                     dateToFilter = o.returnedAt || o.updatedAt || o.date || o.createdAt;
+                } else if (o.isReconciled || o.reconciledAt || o._effectiveStatus === 'HOÀN THÀNH') {
+                    dateToFilter = o.reconciledAt || o.updatedAt || o.date || o.createdAt;
                 }
 
                 // Đơn hàng đã đóng (Hoàn thành, Bàn giao, Đơn huỷ, Hàng hoàn) thì so ngày theo tháng lọc
@@ -940,33 +1320,20 @@
                 let dateMatch = true;
                 if (filterTime === 'Tất Cả') {
                     dateMatch = true;
-                } else if (isClosed || filterTime !== 'Tháng Này') {
+                } else if (isClosed) {
                     dateMatch = isDateInRangeLocal(dateToFilter, filterTime, customMonth);
                 } else {
-                    // Chế độ Tháng Này: Đơn đang chạy luôn hiện, đơn đóng thì so theo tháng
-                    dateMatch = isDateInRangeLocal(dateToFilter, 'Tháng Này', customMonth) || !isClosed;
+                    // Đơn đang chạy (chưa đóng): Nếu chọn Tháng Này thì luôn hiện để làm việc, nếu chọn tháng khác thì so theo tháng
+                    if (filterTime === 'Tháng Này') {
+                        dateMatch = true;
+                    } else {
+                        dateMatch = isDateInRangeLocal(dateToFilter, filterTime, customMonth);
+                    }
                 }
 
                 return matchSearch && dateMatch;
             });
-        }, [orders, searchCode, filterTime, customMonth, currentUser, packedOrderSet]);
-
-
-        const checkItemReady = (p) => {
-            if (!p) return true;
-            const pStatus = String(p.status || '').toUpperCase().trim();
-            if (pStatus === 'DONE' || pStatus === 'ĐÃ XONG' || pStatus === 'HỦY/VỠ' || pStatus === 'HOÀN KHO ĐẠT' || pStatus === 'HOÀN THÀNH') return true;
-
-            const ff = p.fulfilledFromStock;
-            if (ff === true || ff === 1 || ff === '1') return true;
-            const ffStr = String(ff || '').toUpperCase().trim();
-            if (ffStr === 'TRUE' || ffStr.includes('LẤY TỪ TỒN KHO') || ffStr.includes('TỒN KHO') || ffStr.includes('KHO CÓ SẴN')) return true;
-
-            const pNote = String(p.note || '').toUpperCase();
-            if (pNote.includes('LẤY TỪ TỒN KHO') || pNote.includes('KHO CÓ SẴN')) return true;
-
-            return false;
-        };
+        }, [orders, searchCode, filterTime, customMonth, currentUser, computeOrderStatus]);
 
         const filtered = React.useMemo(() => {
             return baseFiltered.filter(o => {
@@ -992,85 +1359,7 @@
                     }
                 }
 
-                let effectiveStatus = String(o._effectiveStatus || o.status || '').toUpperCase().trim();
-
-                if (effectiveStatus === 'CHỜ SẢN XUẤT' || effectiveStatus === 'QUÉT TỰ ĐỘNG' || effectiveStatus === 'ĐANG SẢN XUẤT' || effectiveStatus === 'SẴN SÀNG ĐÓNG GÓI' || effectiveStatus === 'CHỜ PHỤ KIỆN' || effectiveStatus === 'CHỜ MÃ VẬN ĐƠN' || effectiveStatus === 'CHỜ BÀN GIAO') {
-                    const allPackings = packings || erpData?.Packings || [];
-                    const oIdStr = String(o.id || '').trim();
-                    const oCodeStr = String(o.orderCode || '').trim();
-                    const baseCodeStr = oCodeStr.split(' | ')[0].trim();
-                    const orderPacks = allPackings.filter(p => {
-                        const pOrd = String(p.orderId || '').trim();
-                        return pOrd && (pOrd === oIdStr || pOrd === oCodeStr || pOrd === baseCodeStr);
-                    });
-                    const hasDonePack = orderPacks.some(p => {
-                        const ps = String(p.status || '').toUpperCase().trim();
-                        return (ps === 'DONE' || ps === 'ĐÃ ĐÓNG GÓI' || ps === 'HOÀN THÀNH' || ps === 'ĐÃ XONG') && (!p.note || !p.note.includes('kho'));
-                    });
-                    const isGHNShipping = String(o.shippingMethod || '').trim() === 'Gửi GHN' || String(o.shippingMethod || '').toLowerCase().includes('ghn');
-                    const isGuiXeShipping = String(o.shippingMethod || '').trim() === 'Gửi Xe';
-                    const isTMDT = String(o.channel || '').toUpperCase().includes('SHOPEE') || String(o.channel || '').toUpperCase().includes('TIKTOK') || String(o.channel || '').toUpperCase().includes('LAZADA');
-
-                    let pureShippingCode = String(o.shippingCode || '').trim();
-                    if (!pureShippingCode && String(o.orderCode || '').includes('MVĐ:')) {
-                        pureShippingCode = String(o.orderCode).split('MVĐ:')[1].trim();
-                    }
-                    const hasShippingCode = Boolean(pureShippingCode && pureShippingCode.length >= 3);
-                    const requiresShippingCode = isTMDT || isGHNShipping || isGuiXeShipping;
-                    const isMissingMVD = requiresShippingCode && !hasShippingCode;
-
-                    if (hasDonePack) {
-                        effectiveStatus = isMissingMVD ? 'CHỜ MÃ VẬN ĐƠN' : 'CHỜ BÀN GIAO';
-                    } else {
-
-                        const related = getMatchedProds(o);
-                        let allProdDone = true;
-                        if (related.length > 0) {
-                            allProdDone = related.every(p => checkItemReady(p));
-                        }
-
-                        let isMissingAccessories = false;
-                        if (allProdDone && !isMissingMVD) {
-                            try {
-                                const accs = typeof o.accessories === 'string' ? JSON.parse(o.accessories) : o.accessories || [];
-                                if (Array.isArray(accs)) {
-                                    for (let a of accs) {
-                                        if (!a) continue;
-                                        if (a.hasProduction === true || a.hasProduction === 'true') continue;
-                                        const aName = String(a.name || a.Name || '').trim();
-                                        if (!aName) continue;
-
-                                        const cleanAName = aName.toLowerCase().replace(/\s+/g, ' ');
-                                        // Bỏ qua nếu là mặt hàng Sản xuất (Layout / Bể kính)
-                                        const matchProd = (erpProducts || erpData?.Products || []).find(p => String(p.name || '').trim().toLowerCase().replace(/\s+/g, ' ') === cleanAName);
-                                        if (matchProd) {
-                                            const cat = String(matchProd.category || '').toUpperCase().trim();
-                                            const subCat = String(matchProd.sub_category || '').toUpperCase().trim();
-                                            if (cat === 'LAYOUT' || cat === 'BỂ KÍNH' || subCat === 'LAYOUT' || subCat === 'BỂ KÍNH') continue;
-
-                                            const required = Number(a.quantity || a.qty || 1);
-                                            const stock = Number(matchProd.quantity || 0);
-                                            if (stock < required) {
-                                                isMissingAccessories = true;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                            } catch (e) { }
-                        }
-
-                        if (!allProdDone) {
-                            effectiveStatus = 'CHỜ SẢN XUẤT';
-                        } else if (isMissingMVD) {
-                            effectiveStatus = 'CHỜ MÃ VẬN ĐƠN';
-                        } else if (isMissingAccessories) {
-                            effectiveStatus = 'CHỜ PHỤ KIỆN';
-                        } else {
-                            effectiveStatus = 'SẴN SÀNG ĐÓNG GÓI';
-                        }
-                    }
-                }
+                const effectiveStatus = o._computedStatus || 'CHỜ SẢN XUẤT';
 
                 // TẦNG 2: LỌC TRẠNG THÁI
                 const targetStatus = String(filterStatus).toUpperCase().trim();
@@ -1087,7 +1376,7 @@
                 if (targetStatus === 'HOÀN THÀNH') return effectiveStatus === 'HOÀN THÀNH' || effectiveStatus === 'ĐỐI SOÁT THÀNH CÔNG';
                 return true;
             });
-        }, [baseFiltered, filterStatus, filterChannel, prodMapByOrderId, productStockMap, erpProducts, erpData?.Products, erpData?.Packings, packings]);
+        }, [baseFiltered, filterStatus, filterChannel]);
 
         const sortedFiltered = React.useMemo(() => {
             return [...filtered].sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
@@ -1110,85 +1399,7 @@
         const stats = React.useMemo(() => {
             let pending = 0; let waitMVD = 0; let waitAcc = 0; let ready = 0; let shipping = 0; let done = 0; let cancel = 0; let returns = 0; let completed = 0;
             (baseFiltered || []).forEach(o => {
-                let finalStatus = String(o._effectiveStatus || o.status || '').toUpperCase().trim();
-
-                if (finalStatus === 'CHỜ SẢN XUẤT' || finalStatus === 'QUÉT TỰ ĐỘNG' || finalStatus === 'ĐANG SẢN XUẤT' || finalStatus === 'SẴN SÀNG ĐÓNG GÓI' || finalStatus === 'CHỜ PHỤ KIỆN' || finalStatus === 'CHỜ MÃ VẬN ĐƠN' || finalStatus === 'CHỜ BÀN GIAO') {
-                    const allPackings = packings || erpData?.Packings || [];
-                    const oIdStr = String(o.id || '').trim();
-                    const oCodeStr = String(o.orderCode || '').trim();
-                    const baseCodeStr = oCodeStr.split(' | ')[0].trim();
-                    const orderPacks = allPackings.filter(p => {
-                        const pOrd = String(p.orderId || '').trim();
-                        return pOrd && (pOrd === oIdStr || pOrd === oCodeStr || pOrd === baseCodeStr);
-                    });
-                    const hasDonePack = orderPacks.some(p => {
-                        const ps = String(p.status || '').toUpperCase().trim();
-                        return (ps === 'DONE' || ps === 'ĐÃ ĐÓNG GÓI' || ps === 'HOÀN THÀNH' || ps === 'ĐÃ XONG') && (!p.note || !p.note.includes('kho'));
-                    });
-                    const isGHNShipping = String(o.shippingMethod || '').trim() === 'Gửi GHN' || String(o.shippingMethod || '').toLowerCase().includes('ghn');
-                    const isGuiXeShipping = String(o.shippingMethod || '').trim() === 'Gửi Xe';
-                    const isTMDT = String(o.channel || '').toUpperCase().includes('SHOPEE') || String(o.channel || '').toUpperCase().includes('TIKTOK') || String(o.channel || '').toUpperCase().includes('LAZADA');
-
-                    let pureShippingCode = String(o.shippingCode || '').trim();
-                    if (!pureShippingCode && String(o.orderCode || '').includes('MVĐ:')) {
-                        pureShippingCode = String(o.orderCode).split('MVĐ:')[1].trim();
-                    }
-                    const hasShippingCode = Boolean(pureShippingCode && pureShippingCode.length >= 3);
-                    const requiresShippingCode = isTMDT || isGHNShipping || isGuiXeShipping;
-                    const isMissingMVD = requiresShippingCode && !hasShippingCode;
-
-                    if (hasDonePack) {
-                        finalStatus = isMissingMVD ? 'CHỜ MÃ VẬN ĐƠN' : 'CHỜ BÀN GIAO';
-                    } else {
-                        const related = getMatchedProds(o);
-                        let allProdDone = true;
-                        if (related.length > 0) {
-                            allProdDone = related.every(p => checkItemReady(p));
-                        }
-
-                        let isMissingAccessories = false;
-                        if (allProdDone && !isMissingMVD) {
-                            try {
-                                const accs = typeof o.accessories === 'string' ? JSON.parse(o.accessories) : o.accessories || [];
-                                if (Array.isArray(accs)) {
-                                    for (let a of accs) {
-                                        if (!a) continue;
-                                        if (a.hasProduction === true || a.hasProduction === 'true') continue;
-                                        const aName = String(a.name || a.Name || '').trim();
-                                        if (!aName) continue;
-
-                                        const cleanAName = aName.toLowerCase().replace(/\s+/g, ' ');
-                                        // Bỏ qua nếu là mặt hàng Sản xuất (Layout / Bể kính)
-                                        const matchProd = (erpProducts || erpData?.Products || []).find(p => String(p.name || '').trim().toLowerCase().replace(/\s+/g, ' ') === cleanAName);
-                                        if (matchProd) {
-                                            const cat = String(matchProd.category || '').toUpperCase().trim();
-                                            const subCat = String(matchProd.sub_category || '').toUpperCase().trim();
-                                            if (cat === 'LAYOUT' || cat === 'BỂ KÍNH' || subCat === 'LAYOUT' || subCat === 'BỂ KÍNH') continue;
-
-                                            const required = Number(a.quantity || a.qty || 1);
-                                            const stock = Number(matchProd.quantity || 0);
-                                            if (stock < required) {
-                                                isMissingAccessories = true;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                            } catch (e) { }
-                        }
-
-                        if (!allProdDone) {
-                            finalStatus = 'CHỜ SẢN XUẤT';
-                        } else if (isMissingMVD) {
-                            finalStatus = 'CHỜ MÃ VẬN ĐƠN';
-                        } else if (isMissingAccessories) {
-                            finalStatus = 'CHỜ PHỤ KIỆN';
-                        } else {
-                            finalStatus = 'SẴN SÀNG ĐÓNG GÓI';
-                        }
-                    }
-                }
-
+                const finalStatus = o._computedStatus || 'CHỜ SẢN XUẤT';
                 if (finalStatus === 'CHỜ SẢN XUẤT' || finalStatus === 'QUÉT TỰ ĐỘNG' || finalStatus === 'ĐANG SẢN XUẤT') pending++;
                 else if (finalStatus === 'CHỜ MÃ VẬN ĐƠN') waitMVD++;
                 else if (finalStatus === 'CHỜ PHỤ KIỆN') waitAcc++;
@@ -1200,7 +1411,7 @@
                 else completed++;
             });
             return { pending, waitMVD, waitAcc, ready, shipping, done, cancel, returns, completed };
-        }, [baseFiltered, prodMapByOrderId, productStockMap, erpProducts, erpData?.Products, erpData?.Packings, packings]);
+        }, [baseFiltered]);
 
         const tabs = React.useMemo(() => [
             {
@@ -2012,48 +2223,71 @@
                             {(isAdmin || isCTV) && (
                                 <button
                                     onClick={() => setAddingMode(true)}
-                                    className="w-9 h-9 rounded-xl bg-[#d4af37]/10 hover:bg-[#d4af37]/20 text-[#d4af37] font-medium flex items-center justify-center border border-[#d4af37]/30 transition-all duration-200 active:scale-95"
+                                    className="h-9 px-3 rounded-xl bg-gradient-to-r from-amber-500/20 to-yellow-500/20 hover:from-amber-500/30 hover:to-yellow-500/30 text-amber-300 font-black text-[11px] uppercase tracking-wider flex items-center gap-1.5 border border-amber-500/40 shadow-sm transition-all duration-200 active:scale-95 cursor-pointer"
                                     title="Thêm Đơn Mới"
                                 >
-                                    <i className="fas fa-plus"></i>
+                                    <i className="fas fa-plus text-amber-400"></i>
+                                    <span className="hidden sm:inline">Tạo Đơn</span>
                                 </button>
                             )}
                             {isAdmin && (
                                 <>
                                     <button
                                         onClick={() => window.dispatchEvent(new CustomEvent('openBulkImport'))}
-                                        className="w-9 h-9 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 flex items-center justify-center border border-white/[0.08] transition-all duration-200 active:scale-95"
-                                        title="Nhập File Excel"
+                                        className="h-9 px-3 rounded-xl bg-emerald-950/40 hover:bg-emerald-900/50 text-emerald-300 font-bold text-[11px] uppercase tracking-wider flex items-center gap-1.5 border border-emerald-500/40 transition-all duration-200 active:scale-95 cursor-pointer"
+                                        title="Nhập File Excel Order.all"
                                     >
-                                        <i className="fas fa-file-excel"></i>
+                                        <i className="fas fa-file-excel text-emerald-400"></i>
+                                        <span className="hidden sm:inline">Nhập Excel</span>
                                     </button>
                                     <button
                                         onClick={() => setIsScanningReturn(true)}
-                                        className="w-9 h-9 rounded-xl bg-[#f97316]/10 hover:bg-[#f97316]/20 text-[#f97316] flex items-center justify-center border border-[#f97316]/30 transition-all duration-200 active:scale-95"
-                                        title="Quét Đơn Hoàn"
+                                        className="h-9 px-3 rounded-xl bg-purple-950/60 hover:bg-purple-900/70 text-purple-300 font-black text-[11px] uppercase tracking-wider flex items-center gap-1.5 border border-purple-500/60 shadow-[0_0_12px_rgba(168,85,247,0.25)] transition-all duration-200 active:scale-95 cursor-pointer"
+                                        title="Quét Đơn Hoàn (Đưa về Kho Hoàn)"
                                     >
-                                        <i className="fas fa-undo"></i>
+                                        <i className="fas fa-undo text-purple-400"></i>
+                                        <span>Quét Hoàn</span>
                                     </button>
                                     <button
                                         onClick={() => setIsBulkFinanceOpen(true)}
-                                        className="w-9 h-9 rounded-xl bg-[#06b6d4]/10 hover:bg-[#06b6d4]/20 text-[#06b6d4] flex items-center justify-center border border-[#06b6d4]/30 transition-all duration-200 active:scale-95"
-                                        title="Đối Soát"
+                                        className="h-9 px-3 rounded-xl bg-cyan-950/40 hover:bg-cyan-900/50 text-cyan-300 font-bold text-[11px] uppercase tracking-wider flex items-center gap-1.5 border border-cyan-500/40 transition-all duration-200 active:scale-95 cursor-pointer"
+                                        title="Đối Soát Doanh Thu Shopee / TikTok"
                                     >
-                                        <i className="fas fa-check-double"></i>
+                                        <i className="fas fa-check-double text-cyan-400"></i>
+                                        <span className="hidden sm:inline">Đối Soát Sàn</span>
+                                    </button>
+                                    <button
+                                        onClick={handleSyncGHN}
+                                        disabled={isSyncingGHN}
+                                        className="h-9 px-3 rounded-xl bg-amber-950/60 hover:bg-amber-900/70 text-amber-300 font-black text-[11px] uppercase tracking-wider flex items-center gap-1.5 border border-amber-500/60 shadow-[0_0_12px_rgba(245,158,11,0.25)] transition-all duration-200 active:scale-95 cursor-pointer disabled:opacity-50"
+                                        title="Đồng bộ trạng thái & Đối soát GHN tự động qua API"
+                                    >
+                                        <i className={isSyncingGHN ? "fas fa-spinner fa-spin text-amber-400" : "fas fa-bolt text-amber-400"}></i>
+                                        <span>{isSyncingGHN ? "Đang đồng bộ..." : "Đối Soát GHN (API)"}</span>
                                     </button>
                                     <button
                                         onClick={() => setIsScanningCancel(true)}
-                                        className="w-9 h-9 rounded-xl bg-[#f43f5e]/10 hover:bg-[#f43f5e]/20 text-[#f43f5e] flex items-center justify-center border border-[#f43f5e]/30 transition-all duration-200 active:scale-95"
-                                        title="Quét Đơn Huỷ"
+                                        className="h-9 px-3 rounded-xl bg-rose-950/40 hover:bg-rose-900/50 text-rose-300 font-bold text-[11px] uppercase tracking-wider flex items-center gap-1.5 border border-rose-500/40 transition-all duration-200 active:scale-95 cursor-pointer"
+                                        title="Quét & Hủy Đơn Tự Động"
                                     >
-                                        <i className="fas fa-ban"></i>
+                                        <i className="fas fa-ban text-rose-400"></i>
+                                        <span className="hidden sm:inline">Quét Hủy</span>
                                     </button>
                                     <button
                                         onClick={() => setShowRevenueStats(prev => !prev)}
-                                        className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-200 active:scale-95 ${showRevenueStats ? 'bg-[#a855f7]/20 text-[#c084fc] border border-[#a855f7]/50' : 'bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 border border-white/[0.08]'}`}
+                                        className={`h-9 px-3 rounded-xl font-bold text-[11px] uppercase tracking-wider flex items-center gap-1.5 transition-all duration-200 active:scale-95 cursor-pointer ${showRevenueStats ? 'bg-fuchsia-950/60 text-fuchsia-300 border border-fuchsia-500/60 shadow-[0_0_12px_rgba(217,70,239,0.3)]' : 'bg-white/[0.04] hover:bg-white/[0.08] text-zinc-300 border border-white/[0.1]'}`}
                                         title="Xem Thống Kê Doanh Thu"
                                     >
-                                        <i className="fas fa-chart-bar"></i>
+                                        <i className="fas fa-chart-bar text-fuchsia-400"></i>
+                                        <span className="hidden md:inline">Thống Kê</span>
+                                    </button>
+                                    <button
+                                        onClick={() => setIsArchiveEngineOpen(true)}
+                                        className="h-9 px-3 rounded-xl bg-gradient-to-r from-amber-950/50 to-yellow-950/50 hover:from-amber-900/60 hover:to-yellow-900/60 text-amber-300 font-bold text-[11px] uppercase tracking-wider flex items-center gap-1.5 border border-amber-500/40 shadow-sm transition-all duration-200 active:scale-95 cursor-pointer"
+                                        title="Quản lý Lưu Trữ Đơn Cũ (Orders_Archive) & Giải phóng RAM"
+                                    >
+                                        <i className="fas fa-box-archive text-amber-400"></i>
+                                        <span className="hidden lg:inline">Lưu Trữ Đơn</span>
                                     </button>
                                 </>
                             )}
@@ -2134,6 +2368,7 @@
                             <option value="Tháng Này">Tháng Này</option>
                             <option value="Tháng Trước">Tháng Trước</option>
                             <option value="Chọn Tháng">Chọn Tháng</option>
+                            <option value="Tất Cả">Tất Cả</option>
                         </select>
                         {filterTime === 'Chọn Tháng' && (
                             <input type="month" value={customMonth} onChange={e => setCustomMonth(e.target.value)} className="h-[42px] w-[110px] bg-[#0a0a0a] border border-[#333] rounded-xl px-2 text-[10px] font-bold text-gray-300 outline-none focus:border-[#d4af37]" />
@@ -2279,36 +2514,61 @@
                     })}
                 </div>
 
-                {/* TÁC VỤ HÀNG LOẠT */}
+                {/* TÁC VỤ HÀNG LOẠT (HALLMARK COMPACT DOCK) */}
                 {!isCTV && selectedIds.length > 0 && (
-                    <div className="sticky top-0 z-40 bg-[#0a0a0c] border border-white/[0.07] rounded-2xl p-4 mb-4 flex items-center justify-between gen2-glass shadow-2xl">
-                        <div className="flex items-center gap-3">
-                            <div className="bg-[#2563eb] text-white px-4 py-1.5 rounded-xl font-black text-sm">ĐÃ CHỌN: {selectedIds.length} đơn</div>
-                            <button onClick={clearSelection} className="text-sm text-gray-400 hover:text-white underline">Bỏ chọn tất cả</button>
+                    <div className="sticky top-2 z-40 bg-[#111114]/95 backdrop-blur-md border border-sky-500/30 rounded-2xl p-2 sm:px-3.5 sm:py-2 mb-3 flex items-center justify-between gap-2 shadow-[0_8px_30px_rgba(0,0,0,0.6)] animate-slide-down">
+                        {/* Left: Badge + Count + Clear */}
+                        <div className="flex items-center gap-2 min-w-0">
+                            <div className="flex items-center gap-1.5 bg-sky-500/15 border border-sky-500/40 text-sky-300 px-2.5 py-1 rounded-xl text-xs font-black shrink-0">
+                                <span className="w-4.5 h-4.5 rounded-lg bg-sky-500 text-black flex items-center justify-center text-[10px] font-black">{selectedIds.length}</span>
+                                <span className="text-[11px] uppercase tracking-wider font-extrabold">Đã chọn</span>
+                            </div>
+                            <button 
+                                type="button"
+                                onClick={clearSelection} 
+                                className="text-[11px] text-zinc-400 hover:text-rose-400 flex items-center gap-1 py-1 px-1.5 rounded-lg hover:bg-white/5 transition-colors cursor-pointer shrink-0 font-medium"
+                                title="Bỏ chọn tất cả"
+                            >
+                                <i className="fas fa-times text-[10px]"></i>
+                                <span>Bỏ chọn</span>
+                            </button>
                         </div>
-                        <div className="flex items-center gap-2">
+
+                        {/* Right: Actions */}
+                        <div className="flex items-center gap-1.5 shrink-0">
                             {(filterStatus === 'Hàng Hoàn' || filterStatus === 'HÀNG HOÀN CHỜ XỬ' || filterStatus === 'HÀNG HOÀN CHỜ XỬ LÝ') && (
                                 <button
+                                    type="button"
                                     onClick={handleBulkReturnApprove}
                                     disabled={isBulkHandovering}
-                                    className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black px-5 py-3 rounded-2xl text-sm active:scale-95 transition-all shadow-lg border border-emerald-400/40 disabled:opacity-50 cursor-pointer"
+                                    className="flex items-center gap-1.5 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white font-black px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-[11px] uppercase active:scale-95 transition-all shadow-md border border-teal-400/30 disabled:opacity-50 cursor-pointer"
                                 >
-                                    <i className={`fas ${isBulkHandovering ? 'fa-spinner fa-spin' : 'fa-check-circle'}`}></i>
-                                    <span>DUYỆT HOÀN HÀNG LOẠT ({selectedIds.length})</span>
+                                    <i className={`fas ${isBulkHandovering ? 'fa-spinner fa-spin' : 'fa-check-double'} text-[10px]`}></i>
+                                    <span>Duyệt Hoàn ({selectedIds.length})</span>
                                 </button>
                             )}
+
                             {(isAdmin || isBossRole || currentRole === 'TỐI CAO') && (
                                 <button
+                                    type="button"
                                     onClick={handleBulkDelete}
                                     disabled={isBulkDeleting}
-                                    className="flex items-center gap-2 bg-rose-600 hover:bg-rose-500 text-white font-black px-4 py-3 rounded-2xl text-sm active:scale-95 transition-all shadow-lg border border-rose-500/50 disabled:opacity-50"
+                                    className="flex items-center gap-1.5 bg-rose-950/70 hover:bg-rose-900 border border-rose-800/50 text-rose-300 hover:text-white font-bold px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl text-[11px] uppercase active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
+                                    title={`Xoá ${selectedIds.length} đơn đã chọn`}
                                 >
-                                    <i className={`fas ${isBulkDeleting ? 'fa-spinner fa-spin' : 'fa-trash'}`}></i>
-                                    <span>{isBulkDeleting ? 'ĐANG XÓA...' : `XÓA HÀNG LOẠT (${selectedIds.length})`}</span>
+                                    <i className={`fas ${isBulkDeleting ? 'fa-spinner fa-spin' : 'fa-trash-alt'} text-[10px]`}></i>
+                                    <span className="hidden sm:inline">{isBulkDeleting ? 'Xoá...' : 'Xoá'}</span>
                                 </button>
                             )}
-                            <button onClick={handleBulkHandover} disabled={isBulkHandovering} className="flex items-center gap-2 bg-[#10b981] hover:bg-[#059669] text-white font-black px-6 py-3 rounded-2xl text-sm active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-                                <i className={`fas ${isBulkHandovering ? 'fa-spinner fa-spin' : 'fa-truck'}`}></i> {isBulkHandovering ? 'ĐANG BÀN GIAO...' : `BÀN GIAO HÀNG LOẠT (${selectedIds.length})`}
+
+                            <button 
+                                type="button"
+                                onClick={handleBulkHandover} 
+                                disabled={isBulkHandovering} 
+                                className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-black font-black px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl text-[11px] uppercase active:scale-95 transition-all shadow-[0_0_15px_rgba(16,185,129,0.25)] border border-emerald-300 disabled:opacity-50 cursor-pointer"
+                            >
+                                <i className={`fas ${isBulkHandovering ? 'fa-spinner fa-spin' : 'fa-truck-fast'} text-[11px]`}></i>
+                                <span>{isBulkHandovering ? 'Đang Giao...' : `Bàn Giao (${selectedIds.length})`}</span>
                             </button>
                         </div>
                     </div>
@@ -2317,8 +2577,19 @@
                 {/* DANH SÁCH ĐƠN HÀNG GOM THEO KÊNH BÁN */}
                 <div className="space-y-4">
                     {sortedFiltered.length === 0 ? (
-                        <div className="text-center py-10 text-gray-500 font-bold text-[11px] bg-[#0f0f11] rounded-2xl border-2 border-dashed border-white/[0.07]">
-                            <i className="fas fa-box-open text-3xl block mb-2 opacity-30"></i> Trống
+                        <div className="text-center py-10 px-4 text-gray-500 font-bold text-[11px] bg-[#0f0f11] rounded-2xl border-2 border-dashed border-white/[0.07] space-y-3">
+                            <i className="fas fa-box-open text-3xl block opacity-30"></i>
+                            <div>Không có đơn hàng nào phù hợp với bộ lọc hiện tại.</div>
+                            {searchCode.trim().length >= 4 && (
+                                <button
+                                    onClick={() => handleLazyLoadArchive({ searchCode: searchCode.trim() })}
+                                    disabled={isLazyLoadingArchive}
+                                    className="px-4 py-2.5 bg-[#d4af37]/15 hover:bg-[#d4af37]/25 border border-[#d4af37]/40 text-[#d4af37] font-black text-[11px] uppercase tracking-wider rounded-xl transition-all active:scale-95 inline-flex items-center gap-2 mx-auto cursor-pointer"
+                                >
+                                    <i className={isLazyLoadingArchive ? "fas fa-spinner fa-spin" : "fas fa-search"}></i>
+                                    <span>{isLazyLoadingArchive ? "Đang quét Kho Lưu Trữ..." : `Tìm "${searchCode.trim()}" trong Orders_Archive`}</span>
+                                </button>
+                            )}
                         </div>
                     ) : (
                         <>
@@ -2481,6 +2752,14 @@
                         orders={orders}
                         transactions={erpData?.Transactions || []}
                         accounts={erpData?.Accounts || []}
+                    />
+                )}
+
+                {/* MODAL LƯU TRỮ ĐƠN HÀNG CŨ SANG ORDERS_ARCHIVE */}
+                {isArchiveEngineOpen && (
+                    <ArchiveEngineModal
+                        onClose={() => setIsArchiveEngineOpen(false)}
+                        triggerToast={triggerToast}
                     />
                 )}
             </div>

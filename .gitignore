@@ -1,0 +1,9 @@
+node_modules/
+.vscode/
+backups/
+scratch/
+*.xlsx
+*.csv
+*.log
+.tmp.driveupload/
+temp_babel.js

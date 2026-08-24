@@ -1,5 +1,6 @@
 var SCHEMA = {
   Orders: ['id', 'orderCode', 'channel', 'customer', 'createdAt', 'deadline', 'date', 'status', 'accessories', 'hasProduction', 'isCarriedToWH', 'updatedBy', 'revenue', 'phone', 'address', 'note', 'prePaid', 'cod', 'costTotal', 'responsibleUser', 'discount', 'shippingMethod', 'sizeCoefficient', 'cogs', 'feeFixed', 'feeService', 'feePayment', 'feeAffiliate', 'shopVoucher', 'tax', 'reconciledAt', 'isReconciled'],
+  Orders_Archive: ['id', 'orderCode', 'channel', 'customer', 'createdAt', 'deadline', 'date', 'status', 'accessories', 'hasProduction', 'isCarriedToWH', 'updatedBy', 'revenue', 'phone', 'address', 'note', 'prePaid', 'cod', 'costTotal', 'responsibleUser', 'discount', 'shippingMethod', 'sizeCoefficient', 'cogs', 'feeFixed', 'feeService', 'feePayment', 'feeAffiliate', 'shopVoucher', 'tax', 'reconciledAt', 'isReconciled'],
   Production: ['id', 'orderId', 'type', 'name', 'note', 'status', 'deadline', 'fulfilledFromStock', 'p1_name', 'p1_status', 'p1_user', 'p1_start', 'p1_endTime', 'p1_photo', 'p1_reward_vnd', 'p2_name', 'p2_status', 'p2_user', 'p2_start', 'p2_endTime', 'p2_photo', 'p2_reward_vnd', 'qc_front_photo', 'qc_side_photo', 'qc_status', 'qc_note'],
   Packings: ['id', 'orderId', 'user', 'start', 'end', 'endTime', 'status', 'photo', 'reward_vnd', 'photoBefore'],
   Attendance: ['id', 'user', 'date', 'morningIn', 'morningOut', 'afternoonIn', 'afternoonOut', 'leaveType', 'leaveReportAt', 'shift', 'timeIn', 'timeOut', 'totalHours', 'status', 'penalty', 'isEdited', 'leaveStart', 'leaveEnd', 'note'],
@@ -26,7 +27,8 @@ var SCHEMA_ERP = {
   Monthly_Snapshots: ['id', 'month', 'user', 'totalSalary', 'totalHours', 'totalAdvance', 'totalDebt', 'createdAt', 'snapshotData'],
   Config_KPI: ['id', 'Nhóm Hàng', 'Từ Khoá', 'Tên Hàng', 'Thời gian Khâu 1', 'Tiền Khâu 1', 'Thời gian Khâu 2', 'Tiền Khâu 2', 'Thời gian Đóng Gói', 'Thưởng Đóng Gói', 'Thưởng Chở Kho'],
   CTV_Finance: ['id', 'date', 'type', 'amount', 'note', 'user', 'status'],
-  Config_GiaLayout: ['Size_Max', 'Do_Chi_Tiet', 'He_So_Gia', 'Phi_Gui_Xuong', 'Phi_Gan_Reu']
+  Config_GiaLayout: ['Size_Max', 'Do_Chi_Tiet', 'He_So_Gia', 'Phi_Gui_Xuong', 'Phi_Gan_Reu'],
+  ThongKe_TichLuyXu: ['id', 'user', 'type', 'amount_xu', 'date', 'orderCode', 'note', 'timestamp']
 };
 
 function doGet(e) {
@@ -40,7 +42,7 @@ function doGet(e) {
   return HtmlService.createTemplateFromFile('Index').evaluate()
     .setTitle('RF Workspace Pro')
     .setFaviconUrl('https://i.postimg.cc/TYD5NncZ/icon.png')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
@@ -89,6 +91,24 @@ function handleApiRequest(payload) {
       if (auth && auth.valid) {
         response.success = true;
         response.data = getArchivedData(pin);
+      } else {
+        response.message = 'Xác thực thất bại!';
+      }
+    }
+    else if (action === 'getArchivedOrders') {
+      var pin = payload.pin;
+      var auth = validatePin(pin);
+      if (auth && auth.valid) {
+        response = getArchivedOrders(payload.options || {}, pin);
+      } else {
+        response.message = 'Xác thực thất bại!';
+      }
+    }
+    else if (action === 'archiveReconciledOrders') {
+      var pin = payload.pin;
+      var auth = validatePin(pin);
+      if (auth && auth.valid) {
+        response = archiveReconciledOrders(payload.cutoffDays || 60, pin);
       } else {
         response.message = 'Xác thực thất bại!';
       }
@@ -214,6 +234,96 @@ function handleApiRequest(payload) {
       var auth = validatePin(pin);
       if (auth && auth.valid) {
         response = api_getOperationsHealth();
+      } else {
+        response.message = 'Xác thực thất bại!';
+      }
+    }
+    else if (action === 'auditOverdueReturnOrdersSLA') {
+      var pin = payload.pin;
+      var auth = validatePin(pin);
+      if (auth && auth.valid) {
+        response = api_auditOverdueReturnOrdersSLA();
+      } else {
+        response.message = 'Xác thực thất bại!';
+      }
+    }
+    else if (action === 'saveZaloWebhookConfig') {
+      var pin = payload.pin;
+      var auth = validatePin(pin);
+      if (auth && auth.valid) {
+        response = api_saveZaloWebhookConfig(payload.config);
+      } else {
+        response.message = 'Xác thực thất bại!';
+      }
+    }
+    else if (action === 'getZaloWebhookConfig') {
+      var pin = payload.pin;
+      var auth = validatePin(pin);
+      if (auth && auth.valid) {
+        response = api_getZaloWebhookConfig();
+      } else {
+        response.message = 'Xác thực thất bại!';
+      }
+    }
+    else if (action === 'testZaloNotification') {
+      var pin = payload.pin;
+      var auth = validatePin(pin);
+      if (auth && auth.valid) {
+        response = api_testZaloNotification();
+      } else {
+        response.message = 'Xác thực thất bại!';
+      }
+    }
+    else if (action === 'saveTelegramConfig') {
+      var pin = payload.pin;
+      var auth = validatePin(pin);
+      if (auth && auth.valid) {
+        response = api_saveTelegramConfig(payload.config);
+      } else {
+        response.message = 'Xác thực thất bại!';
+      }
+    }
+    else if (action === 'getTelegramConfig') {
+      var pin = payload.pin;
+      var auth = validatePin(pin);
+      if (auth && auth.valid) {
+        response = api_getTelegramConfig();
+      } else {
+        response.message = 'Xác thực thất bại!';
+      }
+    }
+    else if (action === 'testTelegramNotification') {
+      var pin = payload.pin;
+      var auth = validatePin(pin);
+      if (auth && auth.valid) {
+        response = api_testTelegramNotification();
+      } else {
+        response.message = 'Xác thực thất bại!';
+      }
+    }
+    else if (action === 'saveGoogleChatConfig') {
+      var pin = payload.pin;
+      var auth = validatePin(pin);
+      if (auth && auth.valid) {
+        response = api_saveGoogleChatConfig(payload.config);
+      } else {
+        response.message = 'Xác thực thất bại!';
+      }
+    }
+    else if (action === 'getGoogleChatConfig') {
+      var pin = payload.pin;
+      var auth = validatePin(pin);
+      if (auth && auth.valid) {
+        response = api_getGoogleChatConfig();
+      } else {
+        response.message = 'Xác thực thất bại!';
+      }
+    }
+    else if (action === 'testGoogleChatNotification') {
+      var pin = payload.pin;
+      var auth = validatePin(pin);
+      if (auth && auth.valid) {
+        response = api_testGoogleChatNotification();
       } else {
         response.message = 'Xác thực thất bại!';
       }
@@ -1018,6 +1128,10 @@ function getAppData(pin) {
       bomSheet.getRange("A1:E1").setFontWeight("bold").setBackground("#d4af37");
     }
     repairKPIProgressSheetHeaders();
+    try { api_migrateXuFromBonusPenaltyToThongKeTichLuyXu(); } catch (e) { console.error('Lỗi auto migrate Xu:', e); }
+    try { api_repairAndRestoreTasksFromXuSheet(); } catch (e) { console.error('Lỗi auto repair Tasks:', e); }
+    try { api_repairSupplierNegativeDebts(); } catch (e) { console.error('Lỗi auto repair Supplier Debt:', e); }
+    try { api_repairAdjustmentTransactions(); } catch (e) { console.error('Lỗi auto repair Adj Tx:', e); }
 
     // 1. TẠO MỐC THỜI GIAN CẮT DỮ LIỆU (MẶC ĐỊNH LÀ NGÀY 1 THÁNG TRƯỚC) CHO HR & ERP
     var today = new Date();
@@ -1042,8 +1156,20 @@ function getAppData(pin) {
       if (s === '0' || s === '') return true;
       s = s.toUpperCase();
       var isTerminal = (s === 'ĐÃ BÀN GIAO' || s === 'ĐÃ GIAO' || s === 'HOÀN THÀNH' || s === 'ĐÃ HỦY' || s === 'ĐƠN HUỶ' || s === 'ĐỐI SOÁT THÀNH CÔNG' || s === 'HÀNG HOÀN' || s === 'CANCELLED');
-      if (!isTerminal) return true; // Đang vận hành thì luôn lấy
-      return true; // Giữ toàn bộ đơn để bộ lọc phía Frontend xử lý linh hoạt theo tháng
+      if (!isTerminal) return true; // Đang vận hành thì luôn lấy 100%
+
+      // Với các đơn đã đóng (Terminal/Reconciled), chỉ nạp các đơn trong phạm vi 60 ngày gần nhất (từ ngày 1 tháng trước)
+      var dStr = o.reconciledAt || o.createdAt || o.date;
+      if (dStr) {
+        var d = new Date(dStr);
+        if (isNaN(d.getTime()) && typeof dStr === 'string' && dStr.includes('/')) {
+          var parts = dStr.split(' ')[0].split('/');
+          if (parts.length >= 3) d = new Date(parts[2], parts[1] - 1, parts[0]);
+        }
+        if (!isNaN(d.getTime()) && d >= cutoffDate) return true;
+        if (String(dStr).substring(0, 10) >= cutoffStr) return true;
+      }
+      return false; // Đơn cũ hơn sẽ được Lazy-load qua getArchivedOrders khi user cần
     }, ss).map(function (o) {
       var acc = o.accessories;
       if (acc && typeof acc === 'string') {
@@ -1173,20 +1299,10 @@ function getAppData(pin) {
           return (item.date && String(item.date).substring(0, 10) >= cutoffStr);
         }, ss) || [];
       } else {
-        // Hàng hoá (Products), Quỹ (Accounts) là dữ liệu Master nên giữ toàn bộ
+        // Hàng hoá (Products), Quỹ (Accounts), Nhà Cung Cấp (Suppliers) là dữ liệu Master nên giữ toàn bộ từ Sheet gốc
         d[n] = readSheet(n, null, ss) || [];
       }
     });
-
-    // === TÍNH TOÁN CÔNG NỢ NHÀ CUNG CẤP (DYNAMIC DEBT RECONCILIATION) ===
-    if (d['Suppliers'] && d['Suppliers'].length > 0) {
-      var fullIEData = ss.getSheetByName('ImportExport') ? ss.getSheetByName('ImportExport').getDataRange().getValues() : [];
-      var fullTxData = ss.getSheetByName('Transactions') ? ss.getSheetByName('Transactions').getDataRange().getValues() : [];
-      d['Suppliers'] = d['Suppliers'].map(function (s) {
-        s.totalDebt = getRealSupplierDebt(s.name, fullIEData, fullTxData);
-        return s;
-      });
-    }
 
     var props = PropertiesService.getScriptProperties();
     d.announcement = props.getProperty('RF_ANNOUNCEMENT') || "Tối nay 20:00 ngày 15/06/2026.\nĐào tạo nâng cao kỹ năng quản lý. Có mặt đúng giờ!";
@@ -1236,6 +1352,259 @@ function getArchivedData(pin) {
       packings: archivedPackings
     };
   } catch (e) { return { error: e.toString() }; }
+}
+
+// =========================================================================
+// HÀM LAZY-LOAD ĐƠN HÀNG LƯU TRỮ THEO QUÝ / THÁNG / MÃ ĐƠN (ON-DEMAND)
+// =========================================================================
+function getArchivedOrders(options, pin) {
+  if (typeof options === 'string' && !pin) { pin = options; options = {}; }
+  if (options && typeof options === 'object' && options.pin && !pin) { pin = options.pin; }
+  var auth = validatePin(pin);
+  if (!auth || !auth.valid) { return { isAuthFailed: true, error: "AUTH_FAILED" }; }
+  try {
+    options = options || {};
+    var month = options.month; // e.g. "2026-03"
+    var quarter = options.quarter; // e.g. "Q1-2026", "2026-Q1"
+    var searchCode = options.searchCode ? String(options.searchCode).trim().toUpperCase() : '';
+    var page = parseInt(options.page, 10) || 1;
+    var pageSize = parseInt(options.pageSize, 10) || 100;
+    
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var allArchived = [];
+
+    // Helper filter function
+    var matchesFilter = function(o) {
+      if (!o.id || String(o.id).trim() === '0' || String(o.id).trim() === '') return false;
+      if (!o.orderCode || String(o.orderCode).trim() === '0') return false;
+      if (String(o.customer).trim() === '0') return false;
+
+      var oCode = String(o.orderCode || '').toUpperCase();
+      var oPhone = String(o.phone || '').toUpperCase();
+      var oCust = String(o.customer || '').toUpperCase();
+      var oId = String(o.id || '').toUpperCase();
+      var oDate = String(o.reconciledAt || o.createdAt || o.date || '').substring(0, 10);
+
+      // Filter by Search Code if provided
+      if (searchCode) {
+        var isSearchMatch = oCode.indexOf(searchCode) !== -1 || oPhone.indexOf(searchCode) !== -1 || oCust.indexOf(searchCode) !== -1 || oId.indexOf(searchCode) !== -1;
+        if (!isSearchMatch) return false;
+      }
+
+      // Filter by Month if provided (e.g. "2026-03")
+      if (month && !searchCode) {
+        if (oDate.indexOf(month) !== 0) return false;
+      }
+
+      // Filter by Quarter if provided (e.g. "Q1-2026")
+      if (quarter && !searchCode && !month) {
+        var qParts = quarter.toUpperCase().split(/[-_]/);
+        var qNum = 0; var qYear = '';
+        qParts.forEach(function(p) {
+          if (p.indexOf('Q') === 0) qNum = parseInt(p.replace('Q', ''), 10);
+          else if (p.length === 4) qYear = p;
+        });
+        if (qNum && qYear && oDate.length >= 7) {
+          var oYear = oDate.substring(0, 4);
+          var oMonthNum = parseInt(oDate.substring(5, 7), 10);
+          var orderQ = Math.ceil(oMonthNum / 3);
+          if (oYear !== qYear || orderQ !== qNum) return false;
+        }
+      }
+
+      return true;
+    };
+
+    var formatOrder = function(o) {
+      try {
+        var acc = o.accessories;
+        while (typeof acc === 'string') { acc = JSON.parse(acc); }
+        o.accessories = Array.isArray(acc) ? acc : [];
+      } catch (e) {
+        o.accessories = [];
+      }
+      o.hasProduction = (String(o.hasProduction).toUpperCase() === 'TRUE');
+      o.shippingMethod = o.shippingMethod || '';
+      return o;
+    };
+
+    // 1. Đọc từ sheet Orders_Archive (nếu có)
+    if (ss.getSheetByName('Orders_Archive')) {
+      var archiveList = readSheet('Orders_Archive', matchesFilter, ss).map(formatOrder);
+      allArchived = allArchived.concat(archiveList);
+    }
+
+    // 2. Đọc thêm từ Orders (các đơn terminal cũ chưa archive nếu có lọc theo month/search)
+    var ordersList = readSheet('Orders', function(o) {
+      var s = String(o.status || '').toUpperCase().trim();
+      var isTerminal = (s === 'ĐÃ BÀN GIAO' || s === 'ĐÃ GIAO' || s === 'HOÀN THÀNH' || s === 'ĐÃ HỦY' || s === 'ĐƠN HUỶ' || s === 'ĐỐI SOÁT THÀNH CÔNG' || s === 'HÀNG HOÀN' || s === 'CANCELLED');
+      if (!isTerminal) return false;
+      return matchesFilter(o);
+    }, ss).map(formatOrder);
+
+    // Merge chống trùng lặp theo ID
+    var existingIds = {};
+    allArchived.forEach(function(o) { existingIds[o.id] = true; });
+    ordersList.forEach(function(o) {
+      if (!existingIds[o.id]) {
+        allArchived.push(o);
+        existingIds[o.id] = true;
+      }
+    });
+
+    // Sắp xếp theo ngày giảm dần
+    allArchived.sort(function(a, b) {
+      var dateA = String(a.reconciledAt || a.createdAt || a.date || '');
+      var dateB = String(b.reconciledAt || b.createdAt || b.date || '');
+      return dateB.localeCompare(dateA);
+    });
+
+    var totalCount = allArchived.length;
+    var totalPages = Math.ceil(totalCount / pageSize) || 1;
+    var startIdx = (page - 1) * pageSize;
+    var paginatedOrders = allArchived.slice(startIdx, startIdx + pageSize);
+
+    return {
+      success: true,
+      orders: paginatedOrders,
+      totalCount: totalCount,
+      page: page,
+      pageSize: pageSize,
+      totalPages: totalPages
+    };
+  } catch (e) {
+    return { success: false, error: e.toString() };
+  }
+}
+
+// =========================================================================
+// HÀM LƯU TRỮ HÀNG LOẠT ĐƠN ĐỐI SOÁT THÀNH CÔNG SANG ORDERS_ARCHIVE (CHỐNG NGHẼN APP)
+// =========================================================================
+function archiveReconciledOrders(cutoffDays, pin) {
+  var days = 60;
+  if (typeof cutoffDays === 'object' && cutoffDays !== null) {
+    if (cutoffDays.cutoffDays !== undefined) days = parseInt(cutoffDays.cutoffDays, 10) || 60;
+    if (cutoffDays.pin && !pin) pin = cutoffDays.pin;
+  } else if (typeof cutoffDays === 'number' || typeof cutoffDays === 'string') {
+    days = parseInt(cutoffDays, 10) || 60;
+  }
+
+  var auth = validatePin(pin);
+  if (!auth || !auth.valid) { return { isAuthFailed: true, error: "AUTH_FAILED" }; }
+  
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var orderSheet = ss.getSheetByName('Orders');
+    if (!orderSheet) return { success: false, message: 'Không tìm thấy bảng Orders!' };
+
+    // Đảm bảo bảng Orders_Archive tồn tại với đầy đủ Schema
+    var archiveSheet = ss.getSheetByName('Orders_Archive');
+    var expectedCols = SCHEMA.Orders;
+    if (!archiveSheet) {
+      archiveSheet = ss.insertSheet('Orders_Archive');
+      archiveSheet.getRange(1, 1, 1, expectedCols.length).setValues([expectedCols])
+        .setFontWeight("bold").setBackground("#1e293b").setFontColor("#ffffff");
+    } else {
+      var archHeaders = archiveSheet.getRange(1, 1, 1, Math.max(archiveSheet.getLastColumn(), 1)).getValues()[0];
+      if (archHeaders.length === 0 || !archHeaders[0]) {
+        archiveSheet.getRange(1, 1, 1, expectedCols.length).setValues([expectedCols])
+          .setFontWeight("bold").setBackground("#1e293b").setFontColor("#ffffff");
+      }
+    }
+
+    var cutoffMs = Date.now() - (days * 24 * 60 * 60 * 1000);
+    var cutoffDate = new Date(cutoffMs);
+    var cutoffStr = Utilities.formatDate(cutoffDate, Session.getScriptTimeZone(), "yyyy-MM-dd");
+
+    var data = orderSheet.getDataRange().getValues();
+    if (data.length <= 1) {
+      return { success: true, message: 'Bảng Orders chưa có dữ liệu để lưu trữ.', movedCount: 0 };
+    }
+
+    var headers = data[0];
+    var statusCol = headers.indexOf('status');
+    var reconCol = headers.indexOf('isReconciled');
+    var reconAtCol = headers.indexOf('reconciledAt');
+    var dateCol = headers.indexOf('date');
+    var createdCol = headers.indexOf('createdAt');
+    var idCol = headers.indexOf('id');
+
+    var rowsToMove = [];
+    var rowIndicesToDelete = []; // 1-based row numbers from bottom up
+
+    for (var i = data.length - 1; i >= 1; i--) {
+      var row = data[i];
+      var oId = String(row[idCol] || '').trim();
+      if (!oId || oId === '0') continue;
+
+      var status = String(row[statusCol] || '').trim().toUpperCase();
+      var isRecon = (reconCol !== -1 && (String(row[reconCol]).toUpperCase() === 'TRUE' || row[reconCol] === true));
+      var isTerminal = (status === 'ĐỐI SOÁT THÀNH CÔNG' || status === 'ĐÃ BÀN GIAO' || status === 'HOÀN THÀNH' || status === 'ĐƠN HUỶ' || status === 'HÀNG HOÀN' || isRecon);
+
+      if (!isTerminal) continue;
+
+      var dateVal = (reconAtCol !== -1 ? row[reconAtCol] : '') || (createdCol !== -1 ? row[createdCol] : '') || (dateCol !== -1 ? row[dateCol] : '');
+      var oDateStr = '';
+      if (dateVal instanceof Date) {
+        oDateStr = Utilities.formatDate(dateVal, Session.getScriptTimeZone(), "yyyy-MM-dd");
+      } else {
+        oDateStr = String(dateVal || '').substring(0, 10);
+      }
+
+      // Nếu đơn terminal có ngày cũ hơn mốc cutoff
+      if (oDateStr && oDateStr < cutoffStr) {
+        // Chuẩn hóa hàng dữ liệu theo đúng thứ tự SCHEMA.Orders
+        var normalizedRow = expectedCols.map(function(colName) {
+          var cIdx = headers.indexOf(colName);
+          return cIdx !== -1 ? row[cIdx] : '';
+        });
+        rowsToMove.push(normalizedRow);
+        rowIndicesToDelete.push(i + 1); // 1-indexed row in sheet
+      }
+    }
+
+    if (rowsToMove.length === 0) {
+      return { success: true, message: 'Không có đơn hàng nào cũ hơn ' + days + ' ngày cần lưu trữ.', movedCount: 0 };
+    }
+
+    // 1. Ghi hàng loạt vào Orders_Archive
+    var archiveLastRow = archiveSheet.getLastRow();
+    archiveSheet.getRange(archiveLastRow + 1, 1, rowsToMove.length, expectedCols.length).setValues(rowsToMove);
+
+    // 2. Xóa các dòng đã chuyển khỏi sheet Orders (xóa từ dưới lên để không lệch chỉ số)
+    var deleteRanges = [];
+    var currentRange = null;
+
+    rowIndicesToDelete.forEach(function(rowIdx) {
+      if (!currentRange) {
+        currentRange = { start: rowIdx, count: 1 };
+      } else if (currentRange.start - currentRange.count === rowIdx) {
+        currentRange.count++;
+      } else {
+        deleteRanges.push(currentRange);
+        currentRange = { start: rowIdx, count: 1 };
+      }
+    });
+    if (currentRange) deleteRanges.push(currentRange);
+
+    deleteRanges.forEach(function(rg) {
+      var actualStart = rg.start - rg.count + 1;
+      orderSheet.deleteRows(actualStart, rg.count);
+    });
+
+    return {
+      success: true,
+      message: 'Lưu trữ thành công ' + rowsToMove.length + ' đơn hàng sang Orders_Archive!',
+      movedCount: rowsToMove.length,
+      cutoffDate: cutoffStr
+    };
+  } catch (e) {
+    return { success: false, message: 'Lỗi lưu trữ đơn: ' + e.toString() };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 
@@ -1437,6 +1806,7 @@ function formatBonusPenalty(b) { return { "id": b.id, "user": b.user || '', "amo
 function formatKPIProg(k) { return { "id": k.id, "user": k.user || '', "kpiName": k.kpiName || '', "current": k.current || 0, "target": k.target || 0, "unit": k.unit || '', "lastUpdated": k.lastUpdated || '', "startTime": k.startTime || '', "endTime": k.endTime || '', "reward": k.reward || 0, "isClaimed": k.isClaimed || false }; }
 function formatReimbursement(r) { return { "id": r.id, "staffName": r.staffName || '', "reason": r.reason || '', "amount": r.amount || 0, "qrCodeUrl": r.qrCodeUrl || '', "status": r.status || '', "createdAt": r.createdAt || new Date().toISOString() }; }
 function formatBOMConfig(b) { return { "id": b.id, "layoutCode": b.layoutCode || '', "materialSku": b.materialSku || '', "defaultQty": Number(b.defaultQty) || 0, "unit": b.unit || '' }; }
+function formatThongKeTichLuyXu(x) { return { "id": x.id || ('XU_' + Date.now() + '_' + Math.floor(Math.random() * 1000)), "user": x.user || '', "type": x.type || 'XU_REWARD', "amount_xu": Number(x.amount_xu !== undefined ? x.amount_xu : (x.amount || 0)), "date": x.date ? String(x.date).slice(0, 10) : Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd"), "orderCode": x.orderCode || '', "note": x.note || '', "timestamp": x.timestamp || Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd HH:mm:ss") }; }
 
 // HÀM LƯU PHÂN QUYỀN VÀ CẤU HÌNH NHÂN SỰ VỀ GOOGLE SHEETS
 function updateUserConfigSheet(configPayload) {
@@ -2083,6 +2453,22 @@ function syncDeltas(payload, pin) {
     }
     if (payload.prodItems && payload.prodItems.length > 0) {
       applyDeltasToSheet('Production', payload.prodItems, formatProd, ss);
+      // Tự động kiểm tra và cấn trừ nguyên liệu BOM cho các lệnh sản xuất hoàn thành
+      payload.prodItems.forEach(function (p) {
+        if (!p || !p.id) return;
+        var pStatus = String(p.status || '').toUpperCase().trim();
+        var p1Status = String(p.p1_status || (p.phases && p.phases.phase1 && p.phases.phase1.status) || '').toUpperCase().trim();
+        var qcStatus = String(p.qc_status || '').toUpperCase().trim();
+        var isDone = pStatus === 'DONE' || pStatus === 'ĐÃ XONG' || pStatus === 'HOÀN THÀNH' ||
+                     p1Status === 'DONE' || qcStatus.indexOf('DUYỆT') !== -1 || qcStatus.indexOf('PASS') !== -1;
+        if (isDone) {
+          try {
+            processMaterialDeduction(p.id, null);
+          } catch (e) {
+            Logger.log('Lỗi auto BOM trong syncDeltas: ' + e.toString());
+          }
+        }
+      });
     }
     if (payload.packings && payload.packings.length > 0) applyDeltasToSheet('Packings', payload.packings, formatPacking, ss);
     var attDeltas = payload.attendance || payload.Attendance;
@@ -2174,6 +2560,28 @@ function syncDeltas(payload, pin) {
     }
     if (payload.KPI_Progress && payload.KPI_Progress.length > 0) applyDeltasToSheet('KPI_Progress', payload.KPI_Progress, formatKPIProg, ss);
     if (payload.BOM_Config && payload.BOM_Config.length > 0) applyDeltasToSheet('BOM_Config', payload.BOM_Config, formatBOMConfig, ss);
+    if (payload.ThongKe_TichLuyXu && payload.ThongKe_TichLuyXu.length > 0) applyDeltasToSheet('ThongKe_TichLuyXu', payload.ThongKe_TichLuyXu, formatThongKeTichLuyXu, ss);
+    if (payload.xuTransactions && payload.xuTransactions.length > 0) applyDeltasToSheet('ThongKe_TichLuyXu', payload.xuTransactions, formatThongKeTichLuyXu, ss);
+    
+    // GHI NHẬN COMBAT LOG VÀO BẢNG TRACKING_LOG CỦA HỆ THỐNG
+    if (payload.Tracking_Log && payload.Tracking_Log.length > 0) {
+      var trackSheet = ss.getSheetByName('Tracking_Log');
+      if (trackSheet) {
+        var trackRows = [];
+        payload.Tracking_Log.forEach(function (tl) {
+          trackRows.push([
+            tl['Thời gian'] || tl.time || new Date(),
+            tl['Tên nhân sự'] || tl.user || '',
+            tl['Hoàn thành'] || tl.action || '',
+            tl['Hỏi AI'] || tl.ai || '',
+            tl['Ghi chú thêm'] || tl.note || ''
+          ]);
+        });
+        if (trackRows.length > 0) {
+          trackSheet.getRange(trackSheet.getLastRow() + 1, 1, trackRows.length, trackRows[0].length).setValues(trackRows);
+        }
+      }
+    }
     // XỬ LÝ RIÊNG TÀI CHÍNH CỘNG TÁC VIÊN (CÁCH LY VỚI SỔ QUỸ CHÍNH)
     if (payload.ctvTransactions && payload.ctvTransactions.length > 0) {
       let financeSheet = ss.getSheetByName('CTV_Finance');
@@ -2226,7 +2634,9 @@ function syncDeltas(payload, pin) {
         'Trainings': 'Trainings',
         'trainings': 'Trainings',
         'Models3D': 'Models3D',
-        'BOM_Config': 'BOM_Config'
+        'BOM_Config': 'BOM_Config',
+        'ThongKe_TichLuyXu': 'ThongKe_TichLuyXu',
+        'xuTransactions': 'ThongKe_TichLuyXu'
       };
       Object.keys(payload.deletes).forEach(function (clientKey) {
         var sName = keyMapping[clientKey] || clientKey;
@@ -2637,49 +3047,122 @@ function getSopAndRewardBackend(item, phaseName, kpiConfig, channel = '') {
 }
 
 
-function getPackingReward(itemObj, kpiConfig, channel = '') {
+function getPackingReward(itemInput, kpiConfig, channel) {
+  channel = channel || '';
+  kpiConfig = kpiConfig || [];
   const mult = /SG|MY|TH|PH|MA|TW|Quốc Tế|Xuất Khẩu/i.test(channel) ? 3 : 1;
-  if (!itemObj || !kpiConfig || kpiConfig.length === 0) return 1000 * mult;
+  if (!kpiConfig || kpiConfig.length === 0) return 0;
 
-  const itemName = typeof itemObj === 'string' ? itemObj : itemObj.name;
-  const itemType = typeof itemObj === 'object' ? String(itemObj.type || '').toUpperCase() : '';
-  const rawName = String(itemName).toLowerCase().trim();
-  const isLayoutItem = itemType === 'LAYOUT' || /rừng|layout|đảo|bonsai|trang|cover|nature|suối|vách|hẻm|núi|cầu|thác|hang|tiểu cảnh/i.test(rawName);
+  var namesToScan = [];
+  if (Array.isArray(itemInput)) {
+    itemInput.forEach(function (i) {
+      if (typeof i === 'string' && i.trim()) namesToScan.push(i.trim());
+      else if (i && typeof i === 'object') {
+        if (i.name) namesToScan.push(String(i.name).trim());
+        if (i.sku) namesToScan.push(String(i.sku).trim());
+      }
+    });
+  } else if (itemInput && typeof itemInput === 'object') {
+    if (itemInput.items && Array.isArray(itemInput.items)) {
+      itemInput.items.forEach(function (i) { if (i && i.name) namesToScan.push(String(i.name).trim()); });
+    }
+    if (itemInput.products) {
+      if (Array.isArray(itemInput.products)) {
+        itemInput.products.forEach(function (i) { if (i && i.name) namesToScan.push(String(i.name).trim()); });
+      } else if (typeof itemInput.products === 'string') {
+        try {
+          var parsed = JSON.parse(itemInput.products);
+          if (Array.isArray(parsed)) parsed.forEach(function (i) { if (i && i.name) namesToScan.push(String(i.name).trim()); });
+          else namesToScan.push(itemInput.products);
+        } catch (e) {
+          namesToScan.push(itemInput.products);
+        }
+      }
+    }
+    if (itemInput.name) namesToScan.push(String(itemInput.name).trim());
+  } else if (typeof itemInput === 'string' && itemInput.trim()) {
+    var splitNames = itemInput.split(/[\n,;+]/).map(function (s) { return s.trim(); }).filter(Boolean);
+    namesToScan = splitNames.length > 0 ? splitNames : [itemInput.trim()];
+  }
 
-  let matchedRow = kpiConfig.find(row => {
-    const sku = String(row['Từ Khoá'] || '').toLowerCase().trim();
-    const name = String(row['Tên Hàng'] || '').toLowerCase().trim();
-    if (sku && rawName.includes(sku)) return true;
-    if (name && (rawName === name || rawName.includes(name))) return true;
-    return false;
-  });
+  if (namesToScan.length === 0) {
+    var defaultRow = null;
+    for (var d = 0; d < kpiConfig.length; d++) {
+      var n = String(kpiConfig[d]['Tên Hàng'] || kpiConfig[d]['Nhóm Hàng'] || kpiConfig[d]['Từ Khoá'] || '').toLowerCase();
+      if (n.indexOf('mặc định') > -1 || n.indexOf('đơn thường') > -1 || n.indexOf('khác') > -1 || n.indexOf('phụ kiện') > -1) {
+        defaultRow = kpiConfig[d];
+        break;
+      }
+    }
+    var defReward = defaultRow ? (Number(defaultRow['Thưởng Đóng Gói']) || Number(defaultRow['Tiền Đóng Gói']) || 0) : 0;
+    return defReward * mult;
+  }
 
-  if (!matchedRow && isLayoutItem) {
-    const sizeMatch = rawName.match(/size\s*(\d{2,3})|(\d{2,3})[x×]/);
-    const size = sizeMatch ? parseInt(sizeMatch[1] || sizeMatch[2]) : 0;
+  var maxReward = 0;
 
-    if (size > 0) {
-      matchedRow = kpiConfig.find(row => {
-        const rowGroup = String(row['Nhóm Hàng'] || '').toUpperCase().trim();
-        if (rowGroup && !rowGroup.includes('LAYOUT')) return false;
+  for (var k = 0; k < namesToScan.length; k++) {
+    var lowerName = namesToScan[k].toLowerCase().trim();
+    if (!lowerName) continue;
 
-        const rowName = String(row['Tên Hàng'] || '').toLowerCase();
-        if (size >= 130) return rowName.includes('130');
-        if (size >= 110) return rowName.includes('110') || rowName.includes('120');
-        if (size >= 90) return rowName.includes('90') || rowName.includes('100');
-        if (size >= 70) return rowName.includes('70') || rowName.includes('80');
-        if (size >= 60) return rowName.includes('60');
-        if (size >= 50) return rowName.includes('50');
-        if (size >= 40) return rowName.includes('40');
-        if (size >= 30) return rowName.includes('30');
-        if (size > 0) return rowName.includes('20') || rowName.includes('15');
-        return false;
-      });
+    var matchedRow = null;
+    for (var r = 0; r < kpiConfig.length; r++) {
+      var row = kpiConfig[r];
+      var sku = String(row['Từ Khoá'] || '').toLowerCase().trim();
+      var name = String(row['Tên Hàng'] || '').toLowerCase().trim();
+      if (sku && (lowerName.indexOf(sku) > -1 || sku === lowerName)) { matchedRow = row; break; }
+      if (name && (lowerName.indexOf(name) > -1 || name === lowerName)) { matchedRow = row; break; }
+    }
+
+    if (!matchedRow) {
+      var sizeMatch = lowerName.match(/size\s*(\d{2,3})|(\d{2,3})\s*(x|×|\*|cm|\s|$)/i);
+      var size = sizeMatch ? parseInt(sizeMatch[1] || sizeMatch[2]) : 0;
+      if (size > 0) {
+        for (var s = 0; s < kpiConfig.length; s++) {
+          var rowS = kpiConfig[s];
+          var rowName = String(rowS['Tên Hàng'] || rowS['Từ Khoá'] || '').toLowerCase();
+          if (size >= 130 && (rowName.indexOf('130') > -1 || rowName.indexOf('140') > -1 || rowName.indexOf('150') > -1)) { matchedRow = rowS; break; }
+          if (size >= 110 && (rowName.indexOf('110') > -1 || rowName.indexOf('120') > -1)) { matchedRow = rowS; break; }
+          if (size >= 90 && (rowName.indexOf('90') > -1 || rowName.indexOf('100') > -1)) { matchedRow = rowS; break; }
+          if (size >= 70 && (rowName.indexOf('70') > -1 || rowName.indexOf('80') > -1)) { matchedRow = rowS; break; }
+          if (size >= 60 && rowName.indexOf('60') > -1) { matchedRow = rowS; break; }
+          if (size >= 50 && rowName.indexOf('50') > -1) { matchedRow = rowS; break; }
+          if (size >= 40 && rowName.indexOf('40') > -1) { matchedRow = rowS; break; }
+          if (size >= 30 && rowName.indexOf('30') > -1) { matchedRow = rowS; break; }
+          if (size >= 20 && rowName.indexOf('20') > -1) { matchedRow = rowS; break; }
+          if (size >= 10 && (rowName.indexOf('10') > -1 || rowName.indexOf('15') > -1)) { matchedRow = rowS; break; }
+        }
+      }
+    }
+
+    if (!matchedRow) {
+      if (lowerName.indexOf('bể') > -1 || lowerName.indexOf('hồ') > -1 || lowerName.indexOf('kính') > -1 || lowerName.indexOf('tank') > -1) {
+        for (var b = 0; b < kpiConfig.length; b++) {
+          var grpB = String(kpiConfig[b]['Nhóm Hàng'] || kpiConfig[b]['Tên Hàng'] || '').toLowerCase();
+          if (grpB.indexOf('bể') > -1 || grpB.indexOf('kính') > -1 || grpB.indexOf('tank') > -1) { matchedRow = kpiConfig[b]; break; }
+        }
+      } else if (lowerName.indexOf('layout') > -1 || lowerName.indexOf('rừng') > -1 || lowerName.indexOf('bonsai') > -1 || lowerName.indexOf('núi') > -1 || lowerName.indexOf('hang') > -1) {
+        for (var l = 0; l < kpiConfig.length; l++) {
+          var grpL = String(kpiConfig[l]['Nhóm Hàng'] || kpiConfig[l]['Tên Hàng'] || '').toLowerCase();
+          if (grpL.indexOf('layout') > -1 || grpL.indexOf('rừng') > -1 || grpL.indexOf('bonsai') > -1) { matchedRow = kpiConfig[l]; break; }
+        }
+      }
+    }
+
+    if (matchedRow) {
+      var itemReward = Number(matchedRow['Thưởng Đóng Gói']) || Number(matchedRow['Tiền Đóng Gói']) || 0;
+      if (itemReward > maxReward) maxReward = itemReward;
     }
   }
 
-  let reward = matchedRow ? (Number(matchedRow['Thưởng Đóng Gói']) || 1000) : 1000;
-  return reward * mult;
+  if (maxReward === 0) {
+    for (var f = 0; f < kpiConfig.length; f++) {
+      var fbRow = kpiConfig[f];
+      var fbRew = Number(fbRow['Thưởng Đóng Gói']) || Number(fbRow['Tiền Đóng Gói']) || 0;
+      if (fbRew > 0) { maxReward = fbRew; break; }
+    }
+  }
+
+  return maxReward * mult;
 }
 
 
@@ -2690,6 +3173,115 @@ function logBehavior(action, details) {
     const ss = SpreadsheetApp.getActiveSpreadsheet(); const sheet = ss.getSheetByName("Tracking_Log");
     if (sheet) { sheet.appendRow([new Date(), action, details]); }
   } catch (e) { }
+}
+
+/**
+ * API Hộp Đen Đối Soát: Lấy toàn bộ nhật ký thao tác thợ từ bảng Tracking_Log trên Server
+ * Chỉ dành riêng cho phân quyền Quản lý / Boss Tối Cao
+ */
+function api_getWorkerAuditLogs(payload) {
+  var pin = (payload && payload.pin) || payload;
+  var auth = validatePin(pin);
+  if (!auth || !auth.valid) return { success: false, message: 'Xác thực mã PIN thất bại!' };
+
+  var role = String(auth.role || '').toUpperCase();
+  if (!auth.isBoss && !auth.isAdmin && role !== 'TỐI CAO' && role !== 'ADMIN' && !role.includes('QUẢN LÝ')) {
+    return { success: false, message: 'Chỉ Boss Tối Cao và Quản Lý mới có quyền xem Hộp Đen Đối Soát!' };
+  }
+
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+  } catch (e) {
+    return { success: false, message: 'Hệ thống đang bận, vui lòng thử lại sau!' };
+  }
+
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName('Tracking_Log');
+    if (!sheet) return { success: true, logs: [] };
+
+    var lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return { success: true, logs: [] };
+
+    // Lấy tối đa 500 dòng mới nhất để tránh nghẽn payload
+    var startRow = Math.max(2, lastRow - 499);
+    var numRows = lastRow - startRow + 1;
+    var values = sheet.getRange(startRow, 1, numRows, 5).getValues();
+
+    var sevenDaysCutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).getTime();
+    var serverLogs = [];
+    for (var i = values.length - 1; i >= 0; i--) {
+      var row = values[i];
+      var timeRaw = row[0];
+      var user = row[1];
+      var action = row[2];
+      var aiCol = row[3];
+      var note = row[4];
+
+      if (!user && !action) continue;
+
+      var timeMs = 0;
+      var formattedTime = "";
+      if (timeRaw instanceof Date) {
+        timeMs = timeRaw.getTime();
+        formattedTime = Utilities.formatDate(timeRaw, Session.getScriptTimeZone() || "GMT+7", "yyyy-MM-dd HH:mm:ss");
+      } else {
+        formattedTime = String(timeRaw || "");
+        timeMs = new Date(formattedTime.replace(/-/g, '/')).getTime() || 0;
+      }
+
+      // Chỉ hiển thị dữ liệu trong 7 ngày gần nhất
+      if (timeMs > 0 && timeMs < sevenDaysCutoff) {
+        continue;
+      }
+
+      var isOnline = !String(aiCol || '').toLowerCase().includes('offline');
+
+      // Phân tích ghi chú và tên hàng từ action / note
+      var itemName = '';
+      var orderId = '';
+      var actionType = String(action || '');
+
+      // Trích xuất đơn hàng nếu có trong action: "Hoàn thành Khâu 1 - Bể Kính (#ORD_123)"
+      var orderMatch = actionType.match(/\((#[^)]+)\)/);
+      if (orderMatch && orderMatch[1]) {
+        orderId = orderMatch[1].replace('#', '');
+      }
+
+      // Trích xuất thưởng nếu có
+      var rewardMatch = String(note || '').match(/\+([0-9.,]+)đ/);
+      var rewardVal = rewardMatch ? Number(rewardMatch[1].replace(/\./g, '').replace(/,/g, '')) : 0;
+
+      // Trích xuất thiết bị
+      var devMatch = String(note || '').match(/Thiết bị:\s*([^|]+)/i);
+      var device = devMatch ? devMatch[1].trim() : 'Máy tính/ĐT';
+
+      serverLogs.push({
+        id: 'SRV_' + startRow + '_' + i + '_' + (timeRaw instanceof Date ? timeRaw.getTime() : i),
+        time: formattedTime,
+        user: String(user || '').trim(),
+        action: actionType,
+        phaseName: '',
+        itemName: actionType,
+        orderId: orderId,
+        reward: rewardVal,
+        note: String(note || ''),
+        isOnline: isOnline,
+        device: device,
+        source: 'server'
+      });
+    }
+
+    return {
+      success: true,
+      logs: serverLogs
+    };
+  } catch (err) {
+    return { success: false, message: 'Lỗi nạp Hộp Đen Server: ' + err.message };
+  } finally {
+    try { lock.releaseLock(); } catch (e) { }
+  }
 }
 
 // =========================================================================
@@ -3345,10 +3937,13 @@ function getGHNConfig() {
 }
 
 // =========================================================================
-// HÀM ĐỒNG BỘ ĐỐI SOÁT GHN QUA API
+// HÀM ĐỒNG BỘ ĐỐI SOÁT GHN QUA API (PRODUCTION)
 // =========================================================================
 function syncGHNViaAPI() {
+  var lock = LockService.getScriptLock();
   try {
+    lock.waitLock(15000);
+
     var config = getGHNConfig();
     if (!config.token || !config.shopId) {
       return { success: false, message: 'Bạn chưa cấu hình Token và Shop ID của GHN! Vui lòng vào Cấu Hình GHN để nhập trước.' };
@@ -3368,6 +3963,13 @@ function syncGHNViaAPI() {
     var custCol = headers.indexOf('customer');
     var respCol = headers.indexOf('responsibleUser');
     var updCol = headers.indexOf('updatedBy');
+    var accCol = headers.indexOf('accessories');
+    var noteCol = headers.indexOf('note');
+    var feeServiceCol = headers.indexOf('feeService');
+    var revCol = headers.indexOf('revenue');
+    var isRecCol = headers.indexOf('isReconciled');
+    var recAtCol = headers.indexOf('reconciledAt');
+    var shippingCol = headers.indexOf('shippingMethod');
 
     if (idCol === -1 || codeCol === -1 || statusCol === -1) return { success: false, message: 'Sheet Orders thiếu cột chuẩn' };
 
@@ -3376,124 +3978,200 @@ function syncGHNViaAPI() {
       var status = String(oData[i][statusCol] || '').trim();
       var code = String(oData[i][codeCol] || '').trim();
       var channel = String(oData[i][channelCol] || '').trim();
+      var shipMethod = shippingCol !== -1 ? String(oData[i][shippingCol] || '').trim() : '';
+      var accVal = accCol !== -1 ? String(oData[i][accCol] || '') : '';
+      var noteVal = noteCol !== -1 ? String(oData[i][noteCol] || '') : '';
+      var isReconciled = isRecCol !== -1 ? Boolean(oData[i][isRecCol]) : false;
 
-      // Chỉ đồng bộ những đơn Đang Giao, Đã Bàn Giao và mã đơn bắt đầu bằng GHN hoặc kênh GHN
-      if ((status === 'Đang Giao' || status === 'Đã Bàn Giao' || status === 'Chờ Bàn Giao') && code.length > 5) {
-        if (code.toUpperCase().startsWith('GHN') || channel.toUpperCase().includes('GHN')) {
-          ordersToSync.push({
-            rowIndex: i + 1,
-            code: code,
-            id: oData[i][idCol],
-            cod: Number(oData[i][codCol]) || 0,
-            channel: channel,
-            customer: custCol !== -1 ? oData[i][custCol] : '',
-            responsibleUser: respCol !== -1 ? oData[i][respCol] : '',
-            updatedBy: updCol !== -1 ? oData[i][updCol] : ''
-          });
-        }
+      // Không quét các đơn đã đối soát thành công hoặc đã huỷ
+      if (status === 'Đối Soát Thành Công' || status === 'Đơn Huỷ' || isReconciled) continue;
+
+      // Tìm mã vận đơn trong accessories hoặc note hoặc orderCode (VD: GY8HRVBP, GY84GLCX, L38...)
+      var trackingMatch = (accVal + ' ' + noteVal + ' ' + code).match(/(GY[0-9A-Z]{5,12}|GHN[0-9A-Z]{4,12}|L[0-9A-Z]{6,15})/i);
+      var trackingCode = '';
+      if (code.toUpperCase().startsWith('GHN') || code.toUpperCase().startsWith('GY')) {
+        trackingCode = code;
+      } else if (trackingMatch) {
+        trackingCode = trackingMatch[0];
+      }
+
+      var isGHN = Boolean(trackingCode) ||
+                  code.toUpperCase().startsWith('ORD_') ||
+                  shipMethod.toUpperCase().includes('GHN') ||
+                  channel.toUpperCase().includes('GHN') ||
+                  channel.toUpperCase().includes('CTV') ||
+                  channel.toUpperCase().includes('CỘNG TÁC VIÊN') ||
+                  channel.toUpperCase().includes('BÁN LẺ') ||
+                  accVal.toUpperCase().includes('GHN') ||
+                  accVal.toUpperCase().includes('GY');
+
+      if (isGHN && code.length >= 3) {
+        ordersToSync.push({
+          rowIndex: i + 1,
+          code: code,
+          trackingCode: trackingCode,
+          id: oData[i][idCol],
+          cod: Number(oData[i][codCol]) || 0,
+          channel: channel,
+          customer: custCol !== -1 ? oData[i][custCol] : '',
+          responsibleUser: respCol !== -1 ? oData[i][respCol] : '',
+          updatedBy: updCol !== -1 ? oData[i][updCol] : '',
+          currentStatus: status
+        });
       }
     }
 
     if (ordersToSync.length === 0) {
-      return { success: true, count: 0, message: 'Không có đơn hàng nào đang giao cần đồng bộ.' };
+      return { success: true, count: 0, message: 'Hiện không có đơn hàng GHN nào đang chờ đồng bộ đối soát.' };
     }
 
     var countSuccess = 0;
-    var modifiedOrders = false;
+    var deliveredCount = 0;
+    var returnedCount = 0;
+    var totalCOD = 0;
+    var totalRevenue = 0;
     var financeTransactions = [];
     var ctvTransactionsToAppend = [];
+    var nowIso = new Date().toISOString();
+
+    var ghnHeaders = {
+      'Token': String(config.token).trim(),
+      'ShopId': String(config.shopId).trim(),
+      'Content-Type': 'application/json'
+    };
 
     for (var j = 0; j < ordersToSync.length; j++) {
       var item = ordersToSync[j];
-      var cleanCode = item.code.replace(/[^a-zA-Z0-9]/g, ''); // GHN code usually alphanumeric
+      var ghnRes = null;
 
-      var options = {
-        'method': 'post',
-        'headers': {
-          'Token': config.token,
-          'Content-Type': 'application/json'
-        },
-        'payload': JSON.stringify({
-          "order_code": cleanCode
-        }),
-        'muteHttpExceptions': true
-      };
+      // 1. Thử gọi API bằng trackingCode (Mã vận đơn) nếu có
+      if (item.trackingCode) {
+        var cleanTracking = item.trackingCode.replace(/[^a-zA-Z0-9]/g, '');
+        try {
+          var resp1 = UrlFetchApp.fetch('https://online-gateway.ghn.vn/shiip/public-api/v2/shipping-order/detail', {
+            method: 'post',
+            headers: ghnHeaders,
+            payload: JSON.stringify({ "order_code": cleanTracking }),
+            muteHttpExceptions: true
+          });
+          if (resp1.getResponseCode() === 200) {
+            var data1 = JSON.parse(resp1.getContentText());
+            if (data1 && data1.code === 200 && data1.data) ghnRes = data1.data;
+          }
+        } catch(e1) {}
+      }
 
-      var response = UrlFetchApp.fetch('https://dev-online-gateway.ghn.vn/shiip/public-api/v2/shipping-order/detail', options);
-      if (response.getResponseCode() === 200) {
-        var resData = JSON.parse(response.getContentText());
-        if (resData && resData.code === 200 && resData.data) {
-          var ghnStatus = resData.data.status;
-          var totalFee = resData.data.logistics_fee || 0;
-          var codAmount = resData.data.cod_amount || 0;
+      // 2. Nếu chưa tìm được, thử gọi bằng client_order_code (Mã đơn shop ORD_...)
+      if (!ghnRes && item.code) {
+        try {
+          var resp2 = UrlFetchApp.fetch('https://online-gateway.ghn.vn/shiip/public-api/v2/shipping-order/detail-by-client-code', {
+            method: 'post',
+            headers: ghnHeaders,
+            payload: JSON.stringify({ "client_order_code": item.code }),
+            muteHttpExceptions: true
+          });
+          if (resp2.getResponseCode() === 200) {
+            var data2 = JSON.parse(resp2.getContentText());
+            if (data2 && (data2.code === 200 || data2.code === '200') && data2.data) {
+              ghnRes = data2.data;
+            }
+          }
+        } catch(e2) {}
+      }
 
-          // Map GHN Status
-          // ready_to_pick, picking, delivering, delivered, returned, returned
-          var newStatus = '';
-          var needsFinance = false;
+      if (ghnRes) {
+        var ghnStatus = String(ghnRes.status || '').toLowerCase().trim();
+        var totalFee = Number(ghnRes.logistics_fee || ghnRes.total_fee || 0);
+        var codAmount = Number(ghnRes.cod_amount || 0);
+        var newStatus = '';
+        var isDelivered = false;
 
-          if (ghnStatus === 'delivered') {
-            newStatus = 'Hoàn Thành';
-            needsFinance = true;
-          } else if (ghnStatus === 'returned' || ghnStatus === 'cancel') {
-            newStatus = 'Hàng Hoàn';
-          } else if (ghnStatus === 'delivering') {
-            newStatus = 'Đang Giao';
+        if (ghnStatus === 'delivered') {
+          newStatus = 'Đối Soát Thành Công';
+          isDelivered = true;
+          deliveredCount++;
+        } else if (ghnStatus.indexOf('return') !== -1 || ghnStatus === 'damage') {
+          newStatus = 'Hàng Hoàn';
+          returnedCount++;
+        } else if (ghnStatus.indexOf('cancel') !== -1) {
+          newStatus = 'Đơn Huỷ';
+        } else if (ghnStatus.indexOf('deliver') !== -1 || ghnStatus.indexOf('picked') !== -1 || ghnStatus.indexOf('transport') !== -1) {
+          newStatus = 'Đang Giao';
+        }
+
+        if (newStatus) {
+          // Cập nhật trạng thái
+          oSheet.getRange(item.rowIndex, statusCol + 1).setValue(newStatus);
+
+          if (isRecCol !== -1 && (newStatus === 'Đối Soát Thành Công' || newStatus === 'Hàng Hoàn')) {
+            oSheet.getRange(item.rowIndex, isRecCol + 1).setValue(true);
+          }
+          if (recAtCol !== -1 && (newStatus === 'Đối Soát Thành Công' || newStatus === 'Hàng Hoàn')) {
+            oSheet.getRange(item.rowIndex, recAtCol + 1).setValue(nowIso);
           }
 
-          if (newStatus && newStatus !== String(oData[item.rowIndex - 1][statusCol]).trim()) {
-            oSheet.getRange(item.rowIndex, statusCol + 1).setValue(newStatus);
-            modifiedOrders = true;
+          if (isDelivered) {
             countSuccess++;
+            totalCOD += codAmount;
 
-            // Record Finance if delivered
-            if (needsFinance) {
-              var netAmount = codAmount - totalFee;
+            if (codCol !== -1 && codAmount > 0) oSheet.getRange(item.rowIndex, codCol + 1).setValue(codAmount);
+            if (feeServiceCol !== -1 && totalFee > 0) oSheet.getRange(item.rowIndex, feeServiceCol + 1).setValue(totalFee);
+
+            // BẢO VỆ DOANH THU ĐƠN & CÁCH LY 100% DÒNG TIỀN CTV KHỎI TAB TÀI CHÍNH
+            var isCTV = String(item.channel).toUpperCase().includes('CTV') || String(item.channel).toUpperCase().includes('CỘNG TÁC VIÊN');
+            if (!isCTV) {
+              var netRevenue = Math.max(0, codAmount - totalFee);
+              totalRevenue += netRevenue;
+
+              // Chỉ ghi Sổ quỹ công ty cho các đơn bán lẻ/bán sỉ của chính Shop
               financeTransactions.push([
-                Utilities.getUuid(),
+                'TX_GHN_' + Date.now() + '_' + j,
                 'Thu',
-                'COD Đối Tác Giao Hàng',
-                netAmount,
-                '', // fromAccount
-                'Ví GHN', // toAccount
-                'Thu COD Đơn: ' + item.code,
-                new Date().toISOString(),
-                'Tổng thu hộ: ' + codAmount + ', Phí giao hàng: ' + totalFee,
+                'Doanh Thu Bán Hàng',
+                netRevenue > 0 ? netRevenue : codAmount,
+                'Ví GHN',
+                'TÀI KHOẢN CÔNG TY',
+                'Thu Tiền Đối Soát GHN: ' + (item.code || item.id),
+                nowIso.slice(0, 10),
+                'Đơn GHN: ' + (item.trackingCode || item.code) + ' | COD: ' + codAmount + ' | Phí: ' + totalFee,
                 true
               ]);
             }
+          } else if (newStatus === 'Hàng Hoàn') {
+            countSuccess++;
+          }
 
-            // Ghi nhận Phí Vận Chuyển / Hoàn Hàng cho CTV
-            var isCTV = String(item.channel).toUpperCase().includes('CTV') || String(item.channel).toUpperCase().includes('CỘNG TÁC VIÊN');
-            var ctvUser = String(item.responsibleUser || item.updatedBy || item.customer || '').trim();
-            if (isCTV && ctvUser && totalFee > 0) {
-              if (newStatus === 'Hoàn Thành') {
-                ctvTransactionsToAppend.push([
-                  Utilities.getUuid(),
-                  new Date().toISOString().substring(0, 10),
-                  'PHÍ VẬN CHUYỂN',
-                  totalFee,
-                  'Phí giao hàng GHN: ' + item.code,
-                  ctvUser,
-                  'Hoàn Thành'
-                ]);
-              } else if (newStatus === 'Hàng Hoàn') {
-                ctvTransactionsToAppend.push([
-                  Utilities.getUuid(),
-                  new Date().toISOString().substring(0, 10),
-                  'PHÍ HOÀN HÀNG',
-                  totalFee,
-                  'Phí hoàn/chuyển hoàn GHN: ' + item.code,
-                  ctvUser,
-                  'Hoàn Thành'
-                ]);
-              }
+          // Ghi nhận Phí Vận Chuyển / Hoàn Hàng cho CTV nếu áp dụng
+          var isCTV = String(item.channel).toUpperCase().includes('CTV') || String(item.channel).toUpperCase().includes('CỘNG TÁC VIÊN');
+          var ctvUser = String(item.responsibleUser || item.updatedBy || item.customer || '').trim();
+          if (isCTV && ctvUser && totalFee > 0) {
+            if (newStatus === 'Đối Soát Thành Công') {
+              ctvTransactionsToAppend.push([
+                'CTV_TX_' + Date.now() + '_' + j,
+                nowIso.slice(0, 10),
+                'PHÍ VẬN CHUYỂN',
+                totalFee,
+                'Phí giao hàng GHN: ' + item.code,
+                ctvUser,
+                'Hoàn Thành'
+              ]);
+            } else if (newStatus === 'Hàng Hoàn') {
+              ctvTransactionsToAppend.push([
+                'CTV_TX_' + Date.now() + '_' + j,
+                nowIso.slice(0, 10),
+                'PHÍ HOÀN HÀNG',
+                totalFee,
+                'Phí hoàn/chuyển hoàn GHN: ' + item.code,
+                ctvUser,
+                'Hoàn Thành'
+              ]);
             }
           }
         }
       }
     }
 
+    // Ghi sổ CTV
     if (ctvTransactionsToAppend.length > 0) {
       var ctvSheet = ss.getSheetByName('CTV_Finance');
       if (!ctvSheet) {
@@ -3504,48 +4182,45 @@ function syncGHNViaAPI() {
       ctvSheet.getRange(ctvSheet.getLastRow() + 1, 1, ctvTransactionsToAppend.length, ctvTransactionsToAppend[0].length).setValues(ctvTransactionsToAppend);
     }
 
+    // Ghi Sổ Quỹ Transactions & Cập nhật Accounts
     if (financeTransactions.length > 0) {
       var tSheet = ss.getSheetByName('Transactions');
       var accSheet = ss.getSheetByName('Accounts');
 
-      if (!tSheet) initDbERP(); // fallback
       if (tSheet) {
         tSheet.getRange(tSheet.getLastRow() + 1, 1, financeTransactions.length, financeTransactions[0].length).setValues(financeTransactions);
 
-        // Update Wallet
-        var totalGHNIncome = financeTransactions.reduce(function (sum, row) { return sum + Number(row[3]); }, 0);
-
-        var accData = accSheet.getDataRange().getValues();
-        var ghnWalletId = '';
-        var ghnWalletRowIndex = -1;
-        for (var r = 1; r < accData.length; r++) {
-          if (String(accData[r][1]).trim().toUpperCase() === 'VÍ GHN') {
-            ghnWalletId = accData[r][0];
-            ghnWalletRowIndex = r;
-            break;
-          }
-        }
-        if (ghnWalletRowIndex !== -1) {
-          var oldBalance = Number(accData[ghnWalletRowIndex][2]) || 0;
-          accSheet.getRange(ghnWalletRowIndex + 1, 3).setValue(oldBalance + totalGHNIncome);
-        } else {
-          // Create Wallet
-          var newWalletId = 'ACC_GHN_' + Date.now();
-          accSheet.appendRow([newWalletId, 'Ví GHN', totalGHNIncome]);
-          // Update transaction toAccount to ID
-          var lastRows = tSheet.getRange(tSheet.getLastRow() - financeTransactions.length + 1, 1, financeTransactions.length, financeTransactions[0].length).getValues();
-          for (var z = 0; z < lastRows.length; z++) {
-            if (lastRows[z][5] === 'Ví GHN') {
-              tSheet.getRange(tSheet.getLastRow() - financeTransactions.length + 1 + z, 6).setValue(newWalletId);
+        if (accSheet) {
+          var accData = accSheet.getDataRange().getValues();
+          var targetRow = -1;
+          for (var r = 1; r < accData.length; r++) {
+            var accName = String(accData[r][1] || '').toUpperCase();
+            if (accName.includes('CÔNG TY') || accName.includes('GHN') || accName.includes('MB')) {
+              targetRow = r;
+              break;
             }
+          }
+          if (targetRow !== -1) {
+            var oldBal = Number(accData[targetRow][2]) || 0;
+            accSheet.getRange(targetRow + 1, 3).setValue(oldBal + totalRevenue);
           }
         }
       }
     }
 
-    return { success: true, count: countSuccess, message: 'Đã đồng bộ ' + countSuccess + ' đơn hàng GHN.' };
+    return {
+      success: true,
+      count: countSuccess,
+      deliveredCount: deliveredCount,
+      returnedCount: returnedCount,
+      totalCOD: totalCOD,
+      totalRevenue: totalRevenue,
+      message: '⚡ Đồng bộ hoàn tất: ' + countSuccess + ' đơn GHN (' + deliveredCount + ' Giao thành công, ' + returnedCount + ' Hàng hoàn)!'
+    };
   } catch (e) {
-    return { success: false, message: 'Lỗi đồng bộ GHN: ' + e.toString() };
+    return { success: false, message: 'Lỗi đồng bộ API GHN: ' + e.toString() };
+  } finally {
+    try { lock.releaseLock(); } catch(err) {}
   }
 }
 
@@ -4583,37 +5258,95 @@ function autoCalculateGlassTankBOM() {
 }
 
 // =========================================================================
-// HÀM TÍNH TOÁN CÔNG NỢ NHÀ CUNG CẤP (DYNAMIC DEBT)
+// HÀM TÍNH TOÁN CÔNG NỢ NHÀ CUNG CẤP (CHỈ TÍNH PHIẾU NHẬP CHƯA THANH TOÁN)
 // =========================================================================
 function getRealSupplierDebt(supplierName, fullIEData, fullTxData) {
   if (!supplierName) return 0;
-  var totalImport = 0;
-  var totalPaid = 0;
   var sName = String(supplierName).toLowerCase().trim();
+  var unpaidDebt = 0;
 
   if (fullIEData && fullIEData.length > 1) {
     for (var i = 1; i < fullIEData.length; i++) {
       var type = String(fullIEData[i][1]).trim();
       var target = String(fullIEData[i][2]).trim().toLowerCase();
-      if (type === 'Nhập' && target === sName) {
-        totalImport += Number(fullIEData[i][3]) || 0;
+      var isPaid = fullIEData[i].length > 7 ? (fullIEData[i][7] === true || String(fullIEData[i][7]).toUpperCase() === 'TRUE') : false;
+      if (type === 'Nhập' && target === sName && !isPaid) {
+        unpaidDebt += Number(fullIEData[i][3]) || 0;
       }
     }
   }
+  return unpaidDebt;
+}
 
-  if (fullTxData && fullTxData.length > 1) {
-    for (var j = 1; j < fullTxData.length; j++) {
-      var type = String(fullTxData[j][1]).trim();
-      if (type === 'Chi') {
-        var title = String(fullTxData[j][6]).toLowerCase();
-        var note = String(fullTxData[j][8]).toLowerCase();
-        if (title.indexOf(sName) !== -1 || note.indexOf(sName) !== -1) {
-          totalPaid += Number(fullTxData[j][3]) || 0;
+/**
+ * =========================================================================
+ * API TỰ ĐỘNG LÀM SẠCH VÀ SỬA LỖI CÔNG NỢ ÂM (NEGATIVE DEBT) NHÀ CUNG CẤP
+ * =========================================================================
+ */
+function api_repairSupplierNegativeDebts() {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var supSheet = ss.getSheetByName('Suppliers');
+    if (!supSheet) return { success: false, message: 'Thiếu sheet Suppliers' };
+
+    var sData = supSheet.getDataRange().getValues();
+    if (sData.length <= 1) return { success: true, message: 'Suppliers rỗng' };
+
+    var sHeaders = sData[0];
+    var nameCol = sHeaders.indexOf('name');
+    var debtCol = sHeaders.indexOf('totalDebt');
+
+    if (nameCol === -1 || debtCol === -1) return { success: false, message: 'Thiếu cột name/totalDebt' };
+
+    var ieSheet = ss.getSheetByName('ImportExport');
+    var ieData = ieSheet ? ieSheet.getDataRange().getValues() : [];
+    var ieHeaders = ieData.length > 0 ? ieData[0] : [];
+    var ieTypeCol = ieHeaders.indexOf('type');
+    var ieTargetCol = ieHeaders.indexOf('target');
+    var ieAmtCol = ieHeaders.indexOf('totalAmount');
+    var iePaidCol = ieHeaders.indexOf('isPaid');
+
+    var modified = false;
+
+    for (var i = 1; i < sData.length; i++) {
+      var currentDebt = Number(sData[i][debtCol]);
+      var sName = String(sData[i][nameCol] || '').trim();
+
+      // Chỉ can thiệp tự động sửa khi công nợ bị ÂM (do lỗi cũ quét nhầm giao dịch trả lương/tạm ứng)
+      if (currentDebt < 0 && sName) {
+        var unpaidTicketsDebt = 0;
+        if (ieData.length > 1 && ieTypeCol !== -1 && ieTargetCol !== -1 && ieAmtCol !== -1) {
+          for (var j = 1; j < ieData.length; j++) {
+            var iType = String(ieData[j][ieTypeCol] || '').trim();
+            var iTarget = String(ieData[j][ieTargetCol] || '').trim();
+            var isPaid = iePaidCol !== -1 ? (ieData[j][iePaidCol] === true || String(ieData[j][iePaidCol]).toUpperCase() === 'TRUE') : false;
+            var iAmt = Number(ieData[j][ieAmtCol]) || 0;
+
+            if (iType === 'Nhập' && iTarget.toLowerCase() === sName.toLowerCase() && !isPaid && iAmt > 0) {
+              unpaidTicketsDebt += iAmt;
+            }
+          }
         }
+
+        // Cập nhật lại công nợ về đúng số tiền các phiếu nợ thực tế (hoặc 0 nếu không có nợ)
+        sData[i][debtCol] = unpaidTicketsDebt;
+        modified = true;
       }
     }
+
+    if (modified) {
+      supSheet.getRange(1, 1, sData.length, sHeaders.length).setValues(sData);
+      SpreadsheetApp.flush();
+    }
+
+    return { success: true, modified: modified };
+  } catch (err) {
+    return { success: false, message: err.toString() };
+  } finally {
+    lock.releaseLock();
   }
-  return totalImport - totalPaid;
 }
 
 // =========================================================================
@@ -4820,7 +5553,7 @@ function repairKPIProgressSheetHeaders() {
 
 /**
  * =========================================================================
- * API NHẬN DỮ LIỆU TỪ MODAL: GIAO NHIỆM VỤ (Vào bảng BonusPenalty làm XU)
+ * API NHẬN DỮ LIỆU TỪ MODAL: GIAO NHIỆM VỤ (Vào bảng KPI_Progress với isClaimed = false)
  * =========================================================================
  */
 function api_insertManualTask(payload) {
@@ -4828,41 +5561,50 @@ function api_insertManualTask(payload) {
   try {
     lock.waitLock(15000);
     var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getSheetByName('KPI_Progress');
-    if (!sheet) {
-      sheet = ss.insertSheet('KPI_Progress');
-      sheet.appendRow(SCHEMA_ERP.KPI_Progress);
-      sheet.setFrozenRows(1);
+    var kpiSheet = ss.getSheetByName('KPI_Progress');
+    if (!kpiSheet) {
+      kpiSheet = ss.insertSheet('KPI_Progress');
+      kpiSheet.appendRow(SCHEMA_ERP.KPI_Progress || ['id', 'user', 'kpiName', 'current', 'target', 'unit', 'lastUpdated', 'startTime', 'endTime', 'reward', 'isClaimed', 'penalty', 'guide']);
     }
 
     var now = new Date();
-    var startTime = payload.startTime ? new Date(payload.startTime) : new Date(now.getFullYear(), now.getMonth(), 1);
-    var endTime = payload.endTime ? new Date(payload.endTime) : new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    var timestamp = Utilities.formatDate(now, "GMT+7", "yyyy-MM-dd HH:mm:ss");
+    var taskId = 'KPI_XU_' + now.getTime() + '_' + Math.floor(Math.random() * 1000);
+    var amount = Number(payload && (payload.amount_xu || payload.amount || payload.reward)) || 0;
+    var target = Number(payload && payload.target) || 1;
+    var current = Number(payload && payload.current) || 0;
+    var unit = String((payload && payload.unit) || 'Lần').trim();
+    var penalty = Number(payload && payload.penalty) || 0;
+    var title = String((payload && (payload.title || payload.kpiName)) || 'Nhiệm vụ Xu').trim();
+    var guide = String((payload && (payload.note || payload.guide)) || '').trim();
 
-    var targetVal = Number(payload.target);
-    if (isNaN(targetVal) || targetVal <= 0) targetVal = 1;
-    var unitVal = payload.unit ? String(payload.unit).trim() : 'Xu';
+    var year = now.getFullYear();
+    var month = now.getMonth();
+    var startDateObj = new Date(year, month, 1, 0, 0, 0);
+    var endDateObj = new Date(year, month + 1, 0, 23, 59, 59);
+    var startTime = payload.startTime || Utilities.formatDate(startDateObj, 'GMT+7', 'yyyy-MM-dd HH:mm:ss');
+    var endTime = payload.endTime || Utilities.formatDate(endDateObj, 'GMT+7', 'yyyy-MM-dd HH:mm:ss');
 
-    // ['id', 'user', 'kpiName', 'current', 'target', 'unit', 'lastUpdated', 'startTime', 'endTime', 'reward', 'isClaimed', 'penalty', 'guide']
+    // Schema: ['id', 'user', 'kpiName', 'current', 'target', 'unit', 'lastUpdated', 'startTime', 'endTime', 'reward', 'isClaimed', 'penalty', 'guide']
     var newRow = [
-      'KPI_XU_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+      taskId,
       payload.user,
-      payload.title || 'Nhiệm vụ Xu',
-      0, // current
-      targetVal, // target (chỉ tiêu mục tiêu)
-      unitVal, // unit (Bộ, Lần, SP, VNĐ...)
-      now,
+      title,
+      current,
+      target,
+      unit,
+      timestamp,
       startTime,
       endTime,
-      Number(payload.amount) || 0, // Số Xu
-      false, // Chưa claim
-      Number(payload.penalty) || 0, // Tiền phạt
-      payload.note || '' // Mô tả / Hướng dẫn
+      amount,
+      false, // isClaimed: QUAN TRỌNG - CHƯA DUYỆT (Phải hoàn thành 100% chỉ tiêu mới nhận Xu)
+      penalty,
+      guide
     ];
 
-    sheet.appendRow(newRow);
+    kpiSheet.appendRow(newRow);
     SpreadsheetApp.flush();
-    return { success: true, message: 'Đã giao nhiệm vụ thành công! Nhân sự cần báo cáo hoàn thành để nhận Xu.' };
+    return { success: true, message: 'Đã giao nhiệm vụ thành công cho ' + payload.user + '!' };
   } catch (error) {
     return { success: false, message: error.toString() };
   } finally {
@@ -5072,7 +5814,7 @@ function processSmartGlassTankDispatch(ss, newProdItem) {
 function updateKpiProgressData() {
   try {
     const lock = LockService.getScriptLock();
-    if (!lock.tryLock(15000)) return;
+    lock.waitLock(15000);
 
     try {
       const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -5085,6 +5827,27 @@ function updateKpiProgressData() {
       const ordersData = ordersSheet.getDataRange().getValues();
 
       if (kpiData.length < 2 || ordersData.length < 2) return;
+
+      const txSheet = ss.getSheetByName('Transactions');
+      let txList = [];
+      if (txSheet) {
+        const txData = txSheet.getDataRange().getValues();
+        if (txData.length > 1) {
+          const txHeaders = txData[0];
+          const txDateIdx = txHeaders.indexOf('date') !== -1 ? txHeaders.indexOf('date') : txHeaders.indexOf('createdAt');
+          const txCatIdx = txHeaders.indexOf('category');
+          const txTypeIdx = txHeaders.indexOf('type');
+          const txAmtIdx = txHeaders.indexOf('amount');
+          const txTitleIdx = txHeaders.indexOf('title') !== -1 ? txHeaders.indexOf('title') : txHeaders.indexOf('note');
+          txList = txData.slice(1).map(r => ({
+            date: r[txDateIdx],
+            category: String(r[txCatIdx] || ''),
+            type: String(r[txTypeIdx] || ''),
+            amount: Math.abs(Number(r[txAmtIdx]) || 0),
+            title: String(r[txTitleIdx] || '')
+          }));
+        }
+      }
 
       const kpiHeaders = kpiData[0];
       const idIdx = kpiHeaders.indexOf('id');
@@ -5101,6 +5864,12 @@ function updateKpiProgressData() {
       const oIsReconciledIdx = orderHeaders.indexOf('isReconciled');
       const oNoteIdx = orderHeaders.indexOf('note');
       const oRevenueIdx = orderHeaders.indexOf('revenue');
+      const oCogsIdx = orderHeaders.indexOf('cogs');
+      const oFeeFixedIdx = orderHeaders.indexOf('feeFixed');
+      const oFeeServiceIdx = orderHeaders.indexOf('feeService');
+      const oFeePaymentIdx = orderHeaders.indexOf('feePayment');
+      const oDiscountIdx = orderHeaders.indexOf('discount');
+      const oShopVoucherIdx = orderHeaders.indexOf('shopVoucher');
       const oReconciledAtIdx = orderHeaders.indexOf('reconciledAt');
       let oDateIdx = orderHeaders.indexOf('createdAt');
       if (oDateIdx === -1) oDateIdx = orderHeaders.indexOf('date');
@@ -5114,6 +5883,12 @@ function updateKpiProgressData() {
           isReconciled: String(row[oIsReconciledIdx]).toLowerCase() === 'true' || row[oIsReconciledIdx] === true,
           note: row[oNoteIdx] || '',
           revenue: Number(row[oRevenueIdx]) || 0,
+          cogs: oCogsIdx !== -1 ? Number(row[oCogsIdx]) || 0 : 0,
+          feeFixed: oFeeFixedIdx !== -1 ? Number(row[oFeeFixedIdx]) || 0 : 0,
+          feeService: oFeeServiceIdx !== -1 ? Number(row[oFeeServiceIdx]) || 0 : 0,
+          feePayment: oFeePaymentIdx !== -1 ? Number(row[oFeePaymentIdx]) || 0 : 0,
+          discount: oDiscountIdx !== -1 ? Number(row[oDiscountIdx]) || 0 : 0,
+          shopVoucher: oShopVoucherIdx !== -1 ? Number(row[oShopVoucherIdx]) || 0 : 0,
           date: rawDate,
           reconciledAt: recAt || rawDate
         };
@@ -5127,10 +5902,12 @@ function updateKpiProgressData() {
         const unit = String(kpi[unitIdx] || '').trim().toLowerCase();
         const kpiName = String(kpi[kpiNameIdx] || '').toLowerCase();
 
-        // CHỈ quét tự động cho Diệu Hương (Sales & QC Đóng gói) với các KPI doanh thu/khiếu nại/hàng hoàn cụ thể
-        // Tuyệt đối không đè các nhiệm vụ Xu, nhiệm vụ thủ công của nhân sự khác (như Trần Duy Tân, Hoàng Dương, v.v.)
+        // Quét tự động cho Diệu Hương (Sales & QC Đóng gói) và Nguyễn Ngọc Tiến (Founder / Toàn Doanh Nghiệp)
         const userLower = user.toLowerCase();
-        if (!userLower.includes('diệu hương') && !userLower.includes('hương')) continue;
+        const isHương = userLower.includes('diệu hương') || userLower.includes('hương');
+        const isTiến = userLower.includes('nguyễn ngọc tiến') || userLower.includes('tiến') || userLower.includes('founder') || userLower.includes('giám đốc');
+        
+        if (!isHương && !isTiến) continue;
         if (unit === 'xu' || unit === 'bộ' || unit === 'cái' || unit === 'checklist' || unit === 'lần') continue;
 
         function parseDateFlex(d, isEnd) {
@@ -5178,77 +5955,163 @@ function updateKpiProgressData() {
         const currentVal = Number(kpi[currentIdx]) || 0;
         let newVal = currentVal;
 
+        function parseCleanRevGAS(raw, ch) {
+          if (raw === null || raw === undefined || raw === '') return 0;
+          var num = 0;
+          if (typeof raw === 'number') {
+            num = raw;
+          } else {
+            var str = String(raw).replace(/[đĐ\sVNDvnd$฿₱RM]/g, '').trim();
+            if (!str) return 0;
+            if (str.indexOf('.') !== -1 && str.indexOf(',') !== -1) {
+              if (str.lastIndexOf('.') > str.lastIndexOf(',')) str = str.replace(/,/g, '');
+              else str = str.replace(/\./g, '').replace(/,/g, '.');
+            } else if (str.indexOf(',') !== -1) {
+              if (/\,\d{3}($|\D)/.test(str) || /^\d{1,3}(,\d{3})+$/.test(str)) str = str.replace(/,/g, '');
+              else str = str.replace(/,/g, '.');
+            } else if (str.indexOf('.') !== -1) {
+              var parts = str.split('.');
+              if (parts.length > 2 || (parts.length === 2 && parts[1].length === 3 && parseInt(parts[0]) > 0)) {
+                str = str.replace(/\./g, '');
+              }
+            }
+            num = parseFloat(str);
+          }
+          if (isNaN(num) || num <= 0) return 0;
+          if (num > 100000000 && Number.isInteger(num)) return 0;
+          var channelStr = String(ch || '').toUpperCase();
+          if (channelStr.indexOf('USD') !== -1 || (channelStr.indexOf('XUẤT KHẨU') !== -1 && num < 10000)) num *= 25500;
+          return Math.round(num);
+        }
+
         // Filter orders within KPI timeframe
         const periodOrders = orders.filter(o => {
-          var oDate = parseDateFlex(o.date || o.createdAt);
-          return oDate && oDate >= start && oDate <= end;
-        });
-        // Filter reconciled/completed orders by their actual process date
-        const reconciledPeriodOrders = orders.filter(o => {
-          var rDate = parseDateFlex(o.reconciledAt || o.date);
-          return rDate && rDate >= start && rDate <= end;
+          var d1 = parseDateFlex(o.date || o.createdAt);
+          var d2 = parseDateFlex(o.reconciledAt || o.updatedAt);
+          var in1 = d1 && d1 >= start && d1 <= end;
+          var in2 = d2 && d2 >= start && d2 <= end;
+          return in1 || in2;
         });
 
-        // Logic 2: Returned Item Processing (> 80%)
-        if (kpiName.includes('xử lý hàng hoàn') || (kpiName.includes('hàng hoàn') && unit === '%')) {
-          const totalReturns = reconciledPeriodOrders.filter(o => o.status === 'Hàng Hoàn');
-          const reconciledReturns = totalReturns.filter(o => o.isReconciled);
-          if (totalReturns.length > 0) {
-            newVal = Math.round((reconciledReturns.length / totalReturns.length) * 100);
-          } else {
-            newVal = 100; // No returns = 100% processing
+        // 1. NGUYỄN NGỌC TIẾN (FOUNDER):
+        if (isTiến) {
+          // A. Doanh thu tổng toàn xưởng (khớp 100% với Thống Kê Đơn Hàng)
+          if (kpiName.includes('doanh thu') && (unit.includes('vnd') || unit.includes('vnđ') || unit.includes('đ') || unit === '')) {
+            newVal = periodOrders.reduce((sum, o) => {
+              const st = String(o._effectiveStatus || o.status || '').trim().toUpperCase();
+              const ch = String(o.channel || '').trim();
+              const note = String(o.note || '').toLowerCase();
+              if (ch === 'Sản Xuất Tồn' || ch === 'Sản Xuất Bù Kho') return sum;
+              if (st.indexOf('HUỶ') !== -1 || st.indexOf('HỦY') !== -1 || st === 'CANCELLED' || note.indexOf('hủy đơn') !== -1 || note.indexOf('huỷ đơn') !== -1) return sum;
+              if (st.indexOf('HOÀN') !== -1 || note.indexOf('[kn-thang]') !== -1 || note.indexOf('hàng hoàn') !== -1) return sum;
+
+              var rev = parseCleanRevGAS(o.revenue, ch);
+              return sum + rev;
+            }, 0);
+          }
+          // B. Lợi nhuận ròng % — Quét 100% dữ liệu thực tế
+          else if ((kpiName.includes('lợi nhuận') || kpiName.includes('net profit') || kpiName.includes('p&l')) && (unit === '%' || kpiName.includes('%') || unit === '')) {
+            let totalRev = 0;
+            let totalCOGS = 0;
+            let totalPlatformFee = 0;
+            let totalDiscount = 0;
+
+            periodOrders.forEach(o => {
+              const st = String(o.status || '').trim().toUpperCase();
+              const ch = String(o.channel || '').trim();
+              if (ch === 'Sản Xuất Tồn' || ch === 'Sản Xuất Bù Kho' || st.indexOf('HUỶ') !== -1 || st.indexOf('HỦY') !== -1 || st === 'CANCELLED') return;
+              if (st.indexOf('HOÀN') !== -1) return;
+
+              let rev = parseCleanRevGAS(o.revenue, ch);
+              if (rev <= 0) return;
+
+              totalRev += rev;
+              totalCOGS += (Number(o.cogs) > 0 ? Number(o.cogs) : Math.round(rev * 0.165));
+              const fees = (Number(o.feeFixed) || 0) + (Number(o.feeService) || 0) + (Number(o.feePayment) || 0);
+              totalPlatformFee += (fees > 0 ? fees : Math.round(rev * 0.156));
+              totalDiscount += ((Number(o.shopVoucher) || 0) + (Number(o.discount) || 0));
+            });
+
+            // Quét chi phí thực tế từ Transactions
+            let realOpExpense = 0;
+            txList.forEach(t => {
+              var tDate = parseDateFlex(t.date);
+              if (!tDate || tDate < start || tDate > end) return;
+              var cat = String(t.category || '').toLowerCase();
+              var type = String(t.type || '').toUpperCase();
+              if (type === 'TRANSFER' || type === 'CHUYỂN KHOẢN' || cat.includes('chuyển khoản') || cat.includes('nội bộ') || cat.includes('rút tiền') || cat.includes('chờ')) return;
+              if (cat.includes('lương') || cat.includes('vận hành') || cat.includes('mặt bằng') || cat.includes('điện nước') || cat.includes('tiếp khách') || cat.includes('vật tư') || cat.includes('bao bì') || cat.includes('ads') || cat.includes('marketing') || (type === 'EXPENSE' && !cat.includes('nhập hàng') && !cat.includes('nhà cung cấp') && !cat.includes('trả nợ'))) {
+                realOpExpense += t.amount;
+              }
+            });
+
+            const finalOpExpense = realOpExpense > 0 ? realOpExpense : (totalRev * 0.20);
+            const netProfit = totalRev - totalCOGS - totalPlatformFee - totalDiscount - finalOpExpense;
+            const margin = totalRev > 0 ? ((netProfit / totalRev) * 100) : 0;
+            newVal = Math.max(0, Math.round(margin * 10) / 10);
           }
         }
-
-        // Logic 3: Dispute Win Rate (> 60%)
-        else if (kpiName.includes('tỷ lệ thắng khiếu nại') || (kpiName.includes('khiếu nại') && unit === '%')) {
-          const orderPool = (periodOrders.length > 0) ? periodOrders : orders;
-          const winCount = orderPool.filter(o => {
-            const noteLower = String(o.note || '').toLowerCase();
-            const statusLower = String(o.status || '').toLowerCase();
-            return noteLower.includes('[kn-thang]') || noteLower.includes('thắng khiếu nại') || noteLower.includes('khiếu nại hợp lệ') || statusLower.includes('thắng khiếu nại');
-          }).length;
-
-          const loseCount = orderPool.filter(o => {
-            const noteLower = String(o.note || '').toLowerCase();
-            const statusLower = String(o.status || '').toLowerCase();
-            return noteLower.includes('[kn-thua]') || noteLower.includes('thua khiếu nại') || noteLower.includes('khiếu nại không hợp lệ') || statusLower.includes('thua khiếu nại');
-          }).length;
-
-          const totalDisputes = winCount + loseCount;
-          if (totalDisputes > 0) {
-            newVal = Math.round((winCount / totalDisputes) * 100);
-          } else {
-            newVal = 0;
-          }
-        }
-
-        // Logic 4: Sales Revenue Target
-        else if (kpiName.includes('doanh thu') && (unit.includes('vnd') || unit.includes('vnđ') || unit.includes('đ'))) {
-          newVal = periodOrders.reduce((sum, o) => {
-            const st = String(o.status || '').trim();
-            const ch = String(o.channel || '').trim();
-            const chLower = ch.toLowerCase();
-            if (ch === 'Sản Xuất Tồn' || ch === 'Sản Xuất Bù Kho' || chLower.includes('cộng tác viên') || ch === 'CTV') return sum;
-
-            const oUser = String(o.responsibleUser || o.sale || '').toLowerCase().trim();
-            const isUserDirectMatch = oUser.includes('diệu hương') || oUser.includes('hương');
-            const isDirectChannel = chLower.includes('bán lẻ') || chLower.includes('ban le') ||
-              chLower.includes('bán sỉ') || chLower.includes('ban si') ||
-              chLower.includes('facebook') || chLower.includes('fb') ||
-              chLower.includes('zalo') || chLower.includes('tư vấn') ||
-              chLower.includes('hotline') || chLower.includes('trực tiếp') ||
-              chLower.includes('khách lẻ') || chLower.includes('cửa hàng') ||
-              chLower.includes('messenger');
-
-            if ((isUserDirectMatch || (!oUser && isDirectChannel)) && !st.includes('Hủy') && !st.includes('Huỷ') && !st.includes('Hoàn') && !st.includes('Thất bại') && st !== 'Cancelled' && st !== 'Returned') {
-              let rev = Number(o.revenue) || 0;
-              const chUpper = ch.toUpperCase();
-              if (chUpper.includes('USD') || (chUpper.includes('XUẤT KHẨU') && rev < 10000)) rev *= 25500;
-              return sum + Math.round(rev);
+        // 2. DIỆU HƯƠNG (SALES):
+        else if (isHương) {
+          // Logic 2: Returned Item Processing (> 80%)
+          if (kpiName.includes('xử lý hàng hoàn') || (kpiName.includes('hàng hoàn') && unit === '%')) {
+            const totalReturns = reconciledPeriodOrders.filter(o => o.status === 'Hàng Hoàn');
+            const reconciledReturns = totalReturns.filter(o => o.isReconciled);
+            if (totalReturns.length > 0) {
+              newVal = Math.round((reconciledReturns.length / totalReturns.length) * 100);
+            } else {
+              newVal = 100; // No returns = 100% processing
             }
-            return sum;
-          }, 0);
+          }
+          // Logic 3: Dispute Win Rate (> 60%)
+          else if (kpiName.includes('tỷ lệ thắng khiếu nại') || (kpiName.includes('khiếu nại') && unit === '%')) {
+            const orderPool = (periodOrders.length > 0) ? periodOrders : orders;
+            const winCount = orderPool.filter(o => {
+              const noteLower = String(o.note || '').toLowerCase();
+              const statusLower = String(o.status || '').toLowerCase();
+              return noteLower.includes('[kn-thang]') || noteLower.includes('thắng khiếu nại') || noteLower.includes('khiếu nại hợp lệ') || statusLower.includes('thắng khiếu nại');
+            }).length;
+
+            const loseCount = orderPool.filter(o => {
+              const noteLower = String(o.note || '').toLowerCase();
+              const statusLower = String(o.status || '').toLowerCase();
+              return noteLower.includes('[kn-thua]') || noteLower.includes('thua khiếu nại') || noteLower.includes('khiếu nại không hợp lệ') || statusLower.includes('thua khiếu nại');
+            }).length;
+
+            const totalDisputes = winCount + loseCount;
+            if (totalDisputes > 0) {
+              newVal = Math.round((winCount / totalDisputes) * 100);
+            } else {
+              newVal = 0;
+            }
+          }
+          // Logic 4: Sales Revenue Target
+          else if (kpiName.includes('doanh thu') && (unit.includes('vnd') || unit.includes('vnđ') || unit.includes('đ'))) {
+            newVal = periodOrders.reduce((sum, o) => {
+              const st = String(o.status || '').trim();
+              const ch = String(o.channel || '').trim();
+              const chLower = ch.toLowerCase();
+              if (ch === 'Sản Xuất Tồn' || ch === 'Sản Xuất Bù Kho' || chLower.includes('cộng tác viên') || ch === 'CTV') return sum;
+
+              const oUser = String(o.responsibleUser || o.sale || '').toLowerCase().trim();
+              const isUserDirectMatch = oUser.includes('diệu hương') || oUser.includes('hương');
+              const isDirectChannel = chLower.includes('bán lẻ') || chLower.includes('ban le') ||
+                chLower.includes('bán sỉ') || chLower.includes('ban si') ||
+                chLower.includes('facebook') || chLower.includes('fb') ||
+                chLower.includes('zalo') || chLower.includes('tư vấn') ||
+                chLower.includes('hotline') || chLower.includes('trực tiếp') ||
+                chLower.includes('khách lẻ') || chLower.includes('cửa hàng') ||
+                chLower.includes('messenger');
+
+              if ((isUserDirectMatch || (!oUser && isDirectChannel)) && !st.includes('Hủy') && !st.includes('Huỷ') && !st.includes('Hoàn') && !st.includes('Thất bại') && st !== 'Cancelled' && st !== 'Returned') {
+                let rev = Number(o.revenue) || 0;
+                const chUpper = ch.toUpperCase();
+                if (chUpper.includes('USD') || (chUpper.includes('XUẤT KHẨU') && rev < 10000)) rev *= 25500;
+                return sum + Math.round(rev);
+              }
+              return sum;
+            }, 0);
+          }
         }
 
         if (newVal !== currentVal) {
@@ -5325,7 +6188,7 @@ function updateKpiProgressData_Duong() {
   try {
     const lock = LockService.getScriptLock();
     // Chờ tối đa 15s để tránh đụng độ dữ liệu
-    if (!lock.tryLock(15000)) return;
+    lock.waitLock(15000);
 
     try {
       const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -5496,7 +6359,7 @@ function updateKpiProgressData_Tam() {
   try {
     const lock = LockService.getScriptLock();
     // Chờ tối đa 15s để chống ghi đè đồng thời
-    if (!lock.tryLock(15000)) return;
+    lock.waitLock(15000);
 
     try {
       const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -5671,7 +6534,7 @@ function updateKpiProgressData_Trang() {
   try {
     const lock = LockService.getScriptLock();
     // Chờ tối đa 15s để chống ghi đè đồng thời
-    if (!lock.tryLock(15000)) return;
+    lock.waitLock(15000);
 
     try {
       const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -6389,6 +7252,7 @@ function processCascadeCancelOrder(orderId, isHandedOver) {
 
 /**
  * Cấn trừ Vật tư Tự động (BOM Deduction)
+/**
  * Trừ số lượng vật tư trong bảng Products theo BOM_Config khi p1_status = 'Done' hoặc status = 'Done'
  * Ghi log xuất kho vào bảng ImportExport
  */
@@ -6433,8 +7297,40 @@ function processMaterialDeduction(prodId, materialUsageData) {
       return { success: false, message: 'Không tìm thấy lệnh sản xuất: ' + prodId };
     }
 
+    var targetProdIdStr = String(targetProd.id).trim();
+
+    // 0. Kiểm tra chống trùng lặp (Idempotency check)
+    var ieData = ieSheet.getDataRange().getValues();
+    if (ieData.length > 1) {
+      var ieHeaders = ieData[0];
+      var noteIdx = ieHeaders.indexOf('note');
+      var idIdx = ieHeaders.indexOf('id');
+      for (var k = 1; k < ieData.length; k++) {
+        var logNote = String(ieData[k][noteIdx] || '');
+        var logId = String(ieData[k][idIdx] || '');
+        if (logId === 'IE_BOM_' + targetProdIdStr || (logNote && logNote.indexOf(targetProdIdStr) !== -1)) {
+          return { success: true, message: 'Lệnh sản xuất ' + targetProdIdStr + ' đã được trừ vật tư trước đó.' };
+        }
+      }
+    }
+
     var layoutName = String(targetProd.name || '').trim();
     var layoutNameLower = layoutName.toLowerCase();
+
+    function cleanStr(s) {
+      if (!s) return '';
+      return String(s).trim().toLowerCase()
+        .replace(/[àáạảãâầấậẩẫăằắặẳẵ]/g, 'a')
+        .replace(/[èéẹẻẽêềếệểễ]/g, 'e')
+        .replace(/[ìíịỉĩ]/g, 'i')
+        .replace(/[òóọỏõôồốộổỗơờớợởỡ]/g, 'o')
+        .replace(/[ùúụủũưừứựửữ]/g, 'u')
+        .replace(/[ỳýỵỷỹ]/g, 'y')
+        .replace(/đ/g, 'd')
+        .replace(/[^a-z0-9]/g, '');
+    }
+
+    var layoutClean = cleanStr(layoutName);
 
     // Tìm SKU của sản phẩm tương ứng trong Products nếu có
     var pRange = productSheet.getDataRange();
@@ -6448,10 +7344,14 @@ function processMaterialDeduction(prodId, materialUsageData) {
 
     var targetSku = '';
     for (var p = 1; p < pData.length; p++) {
-      var pN = String(pData[p][prNameIdx] || '').trim().toLowerCase();
-      var pS = String(pData[p][prSkuIdx] || '').trim().toLowerCase();
-      if (pN === layoutNameLower || pS === layoutNameLower || (pS && layoutNameLower.indexOf(pS) !== -1)) {
-        targetSku = String(pData[p][prSkuIdx] || '').trim();
+      var pN = String(pData[p][prNameIdx] || '').trim();
+      var pS = String(pData[p][prSkuIdx] || '').trim();
+      var pNClean = cleanStr(pN);
+      var pSClean = cleanStr(pS);
+      if (pN.toLowerCase() === layoutNameLower || pS.toLowerCase() === layoutNameLower || 
+          (layoutClean && pNClean && (layoutClean === pNClean || layoutClean.indexOf(pNClean) !== -1 || pNClean.indexOf(layoutClean) !== -1)) ||
+          (layoutClean && pSClean && (layoutClean === pSClean || layoutClean.indexOf(pSClean) !== -1))) {
+        targetSku = pS;
         break;
       }
     }
@@ -6468,12 +7368,14 @@ function processMaterialDeduction(prodId, materialUsageData) {
     for (var b = 1; b < bomData.length; b++) {
       var layoutCode = String(bomData[b][bLayoutIdx] || '').trim();
       var layoutCodeLower = layoutCode.toLowerCase();
+      var layoutCodeClean = cleanStr(layoutCode);
 
       // Khớp theo SKU, Tên hoặc Mã Ver
       var isMatch = layoutCode && (
         layoutCodeLower === layoutNameLower ||
         (targetSku && layoutCodeLower === targetSku.toLowerCase()) ||
-        (layoutNameLower.indexOf(layoutCodeLower) !== -1)
+        (layoutClean && layoutCodeClean && (layoutClean === layoutCodeClean || layoutClean.indexOf(layoutCodeClean) !== -1 || layoutCodeClean.indexOf(layoutClean) !== -1)) ||
+        (targetSku && cleanStr(targetSku) === layoutCodeClean)
       );
 
       if (isMatch) {
@@ -6488,15 +7390,51 @@ function processMaterialDeduction(prodId, materialUsageData) {
     }
 
     if (Object.keys(bomMap).length === 0) {
-      // Tự động kiểm tra nếu là Bể Kính / Terrarium (có kích thước DxRxC) thì tính BOM & tạo BOM tức thì
-      var glassSpecs = calculateGlassTankSpecs(layoutName);
+      // 1. Tự động kiểm tra nếu là Bể Kính / Terrarium (có kích thước DxRxC)
+      var glassSpecs = typeof calculateGlassTankSpecs === 'function' ? calculateGlassTankSpecs(layoutName) : null;
       if (glassSpecs) {
-        ensureGlassTankBOM(layoutName, glassSpecs.thickness);
+        if (typeof ensureGlassTankBOM === 'function') ensureGlassTankBOM(layoutName, glassSpecs.thickness);
         bomMap[glassSpecs.bottomMat] = { qty: glassSpecs.bottomArea, unit: 'm2' };
         bomMap[glassSpecs.sideMat] = { qty: glassSpecs.sideArea, unit: 'm2' };
         bomMap['SILICON'] = { qty: glassSpecs.siliconLength, unit: 'met' };
       } else {
-        return { success: false, message: 'Không tìm thấy BOM cho Layout: ' + layoutName };
+        // 2. TỰ ĐỘNG BÓC TÁCH KÍCH THƯỚC & ĐỊNH MỨC BOM CHO TẤT CẢ LAYOUT / COVER
+        var dimMatch = layoutName.match(/(\d+)\s*[xX*]\s*(\d+)\s*[xX*]\s*(\d+)/);
+        var vol = 30; // Mặc định 30L nếu không tìm thấy kích thước
+        if (dimMatch) {
+          var dL = Number(dimMatch[1]) || 0;
+          var dW = Number(dimMatch[2]) || 0;
+          var dH = Number(dimMatch[3]) || 0;
+          if (dL && dW && dH) vol = (dL * dW * dH) / 1000;
+        }
+
+        // Ước tính nguyên liệu: ~0.14 kg Lũa/Đá / Lít
+        var estMatQty = Math.round(vol * 0.14 * 10) / 10;
+        var estGlueQty = Math.max(1, Math.round(vol / 25));
+
+        // Tìm SKU nguyên liệu chính phù hợp trong Products (ưu tiên NLSX-LUASANMIENG hoặc NLSX)
+        var primaryRawSku = 'NLSX-LUASANMIENG';
+        var glueRawSku = 'VTSX-KEO502';
+
+        for (var pr = 1; pr < pData.length; pr++) {
+          var prS = String(pData[pr][prSkuIdx] || '').trim();
+          var prN = String(pData[pr][prNameIdx] || '').toLowerCase().trim();
+          if (prS.toUpperCase() === 'NLSX-LUASANMIENG' || prN.indexOf('lũa san') !== -1 || prN.indexOf('lua san') !== -1) {
+            primaryRawSku = prS;
+          }
+          if (prS.toUpperCase() === 'VTSX-KEO502' || (prN.indexOf('keo') !== -1 && prN.indexOf('502') !== -1)) {
+            glueRawSku = prS;
+          }
+        }
+
+        bomMap[primaryRawSku] = { qty: estMatQty, unit: 'Kg' };
+        bomMap[glueRawSku] = { qty: estGlueQty, unit: 'Chai' };
+
+        // Tự động ghi lại cấu hình vào BOM_Config để lưu vết
+        try {
+          bomSheet.appendRow(['BOM_AUTO_' + Date.now() + '_1', targetSku || layoutName, primaryRawSku, estMatQty, 'Kg']);
+          bomSheet.appendRow(['BOM_AUTO_' + Date.now() + '_2', targetSku || layoutName, glueRawSku, estGlueQty, 'Chai']);
+        } catch(eBom) {}
       }
     }
 
@@ -6508,28 +7446,41 @@ function processMaterialDeduction(prodId, materialUsageData) {
     for (var p = 1; p < pData.length; p++) {
       var pSku = String(pData[p][prSkuIdx] || '').trim();
       var pName = String(pData[p][prNameIdx] || '').trim();
+      var pSkuUpper = pSku.toUpperCase();
+      var pNameClean = cleanStr(pName);
 
-      // Khớp theo SKU hoặc Tên (nếu được map)
+      // Khớp theo SKU hoặc Tên
       var deductQty = 0;
       var bomUnit = '';
-      var matchedSkuKey = pSku;
-      if (bomMap[pSku]) {
-        deductQty = bomMap[pSku].qty;
-        bomUnit = bomMap[pSku].unit;
-      } else if (bomMap[pName]) {
-        deductQty = bomMap[pName].qty;
-        bomUnit = bomMap[pName].unit;
-        matchedSkuKey = pName;
+      var matchedKey = null;
+
+      for (var bKey in bomMap) {
+        var bKeyTrim = String(bKey).trim();
+        var bKeyUpper = bKeyTrim.toUpperCase();
+        var bKeyClean = cleanStr(bKeyTrim);
+
+        if (bKeyUpper === pSkuUpper || bKeyTrim.toLowerCase() === pName.toLowerCase() ||
+            (pSkuUpper && bKeyUpper && (bKeyUpper === pSkuUpper || bKeyUpper.indexOf(pSkuUpper) !== -1 || pSkuUpper.indexOf(bKeyUpper) !== -1)) ||
+            (bKeyClean && pNameClean && (bKeyClean === pNameClean || bKeyClean.indexOf(pNameClean) !== -1 || pNameClean.indexOf(bKeyClean) !== -1))) {
+          deductQty = bomMap[bKey].qty;
+          bomUnit = bomMap[bKey].unit;
+          matchedKey = bKey;
+          break;
+        }
       }
 
-      if (deductQty > 0) {
+      if (deductQty > 0 && matchedKey) {
         var curQty = Number(pData[p][prQtyIdx]);
-        if (isNaN(curQty)) curQty = 0; // Trừ kho với ô rỗng được coi là 0
+        if (isNaN(curQty)) curQty = 0;
         var cost = Number(pData[p][prCostIdx]) || 0;
         var matUnit = String(pData[p][prUnitIdx] || '').toLowerCase().trim();
         bomUnit = bomUnit ? bomUnit.toLowerCase().trim() : matUnit;
 
-        var matNameLower = String(pData[p][prNameIdx] || '').toLowerCase();
+        // Giá trị mặc định 1-1 (Ví dụ: Cân, Kg, Cái, Tấm, Chai, m2...)
+        var convertedDeductQty = deductQty;
+        var convertedCost = cost;
+
+        var matNameLower = pName.toLowerCase();
         var isMatKg = matUnit === 'kg' || matUnit === 'cân' || matUnit === 'kí' || matUnit === 'kilogram' ||
           matNameLower.indexOf('(kg)') !== -1 || matNameLower.indexOf(' kg') !== -1 || matNameLower.indexOf('/kg') !== -1;
         var isBomGram = bomUnit === 'gam' || bomUnit === 'g' || bomUnit === 'gram' || bomUnit === 'gr';
@@ -6561,23 +7512,27 @@ function processMaterialDeduction(prodId, materialUsageData) {
           convertedCost = cost / 1000;
         }
 
-        var newQty = Math.max(0, curQty - convertedDeductQty);
+        var roundedDeductQty = Math.round(convertedDeductQty * 10000) / 10000;
+        var newQty = Math.round(Math.max(0, curQty - roundedDeductQty) * 10000) / 10000;
 
         pData[p][prQtyIdx] = newQty;
         isProductChanged = true;
 
-        var lineTotal = deductQty * convertedCost;
+        var lineTotal = Math.round(roundedDeductQty * cost);
         totalCost += lineTotal;
         itemsDeducted.push({
           sku: pSku,
           name: pName || pSku,
-          quantity: deductQty + ' ' + (bomUnit || ''),
+          qty: roundedDeductQty,
+          deductedQty: roundedDeductQty,
+          quantity: deductQty + ' ' + (bomUnit || matUnit || ''),
+          price: cost,
           costPrice: cost,
           amount: lineTotal
         });
 
-        // Trừ xong thì xóa để biết là đã xử lý
-        delete bomMap[matchedSkuKey];
+        // Trừ xong thì xóa để tránh trừ trùng lặp trong cùng 1 đợt
+        delete bomMap[matchedKey];
       }
     }
 
@@ -6588,8 +7543,8 @@ function processMaterialDeduction(prodId, materialUsageData) {
     // 3. Ghi Log vào ImportExport
     if (itemsDeducted.length > 0) {
       var safeDate = Utilities.formatDate(new Date(), 'GMT+7', 'yyyy-MM-dd HH:mm:ss');
-      var logId = 'IE_BOM_' + Date.now();
-      var note = 'Trừ vật tư BOM đơn ' + (targetProd.orderId || 'Không xác định');
+      var logId = 'IE_BOM_' + targetProdIdStr;
+      var note = 'Trừ vật tư BOM đơn ' + (targetProd.orderId || 'Không xác định') + ' (Lệnh: ' + targetProdIdStr + ' - ' + layoutName + ')';
 
       // 'id', 'type', 'target', 'totalAmount', 'date', 'note', 'itemsData'
       ieSheet.appendRow([
@@ -6615,6 +7570,18 @@ function processMaterialDeduction(prodId, materialUsageData) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/**
+ * Top-level API wrapper cho runGAS / Frontend
+ */
+function deductInventoryBOM(payload, pin) {
+  var userPin = (payload && payload.pin) || pin;
+  var auth = validatePin(userPin);
+  if (!auth || !auth.valid) return { success: false, message: 'Xác thực thất bại!' };
+  var prodId = (payload && payload.prodId) || payload;
+  var matUsage = (payload && payload.materialUsageData) || null;
+  return processMaterialDeduction(prodId, matUsage);
 }
 
 /**
@@ -9251,6 +10218,463 @@ function api_updateLeaveStatus(attendanceId, newStatus, penaltyAmount, note) {
 
     return { success: true, message: 'Đã cập nhật trạng thái lịch nghỉ thành công!' };
   } catch (e) {
+    return { success: false, message: e.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * =========================================================================
+ * API TẶNG XU CHO TOÀN BỘ NHÂN VIÊN (LƯU VÀO BẢNG THỐNG KÊ TÍCH LŨY XU)
+ * =========================================================================
+ */
+function api_giftXuToAllStaff(payload) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var hrSheet = ss.getSheetByName('Config_NhanSu');
+    if (!hrSheet) return { success: false, message: 'Không tìm thấy bảng Config_NhanSu!' };
+
+    var hrData = hrSheet.getDataRange().getValues();
+    if (hrData.length <= 1) return { success: false, message: 'Không có nhân sự nào trong Config_NhanSu!' };
+
+    var headers = hrData[0];
+    var nameIdx = headers.indexOf('Tên Nhân Sự');
+    if (nameIdx === -1) nameIdx = 0;
+
+    var users = [];
+    for (var i = 1; i < hrData.length; i++) {
+      var uName = String(hrData[i][nameIdx] || '').trim();
+      if (uName && users.indexOf(uName) === -1) {
+        users.push(uName);
+      }
+    }
+
+    var xuSheet = ss.getSheetByName('ThongKe_TichLuyXu');
+    if (!xuSheet) {
+      xuSheet = ss.insertSheet('ThongKe_TichLuyXu');
+      xuSheet.appendRow(SCHEMA_ERP.ThongKe_TichLuyXu || ['id', 'user', 'type', 'amount_xu', 'date', 'orderCode', 'note', 'timestamp']);
+      xuSheet.setFrozenRows(1);
+      xuSheet.getRange(1, 1, 1, 8).setBackground('#78350f').setFontColor('#ffffff').setFontWeight('bold').setHorizontalAlignment('center');
+    }
+
+    var giftAmount = Number(payload && (payload.amount_xu || payload.amount)) || 50000;
+    var giftNote = (payload && payload.note) || 'Boss tặng xu khai ví lấy động lực';
+    var now = new Date();
+    var timestamp = Utilities.formatDate(now, "GMT+7", "yyyy-MM-dd HH:mm:ss");
+    var dateStr = Utilities.formatDate(now, "GMT+7", "yyyy-MM-dd");
+
+    var rowsToAppend = [];
+    users.forEach(function (u, idx) {
+      var id = 'XU_GIFT_' + now.getTime() + '_' + (idx + 1);
+      // Schema ThongKe_TichLuyXu: id, user, type, amount_xu, date, orderCode, note, timestamp
+      rowsToAppend.push([id, u, 'XU_REWARD', giftAmount, dateStr, '', giftNote, timestamp]);
+    });
+
+    if (rowsToAppend.length > 0) {
+      xuSheet.getRange(xuSheet.getLastRow() + 1, 1, rowsToAppend.length, 8).setValues(rowsToAppend);
+      SpreadsheetApp.flush();
+    }
+
+    return { success: true, count: users.length, message: 'Đã tặng ' + giftAmount.toLocaleString('vi-VN') + ' Xu vào bảng ThongKe_TichLuyXu cho ' + users.length + ' nhân sự thành công!' };
+  } catch (e) {
+    return { success: false, message: e.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * =========================================================================
+ * API DI DỜI DỮ LIỆU XU TỪ BẢNG BONUSPENALTY SANG BẢNG THỐNG KÊ TÍCH LŨY XU
+ * =========================================================================
+ */
+function api_migrateXuFromBonusPenaltyToThongKeTichLuyXu() {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var bpSheet = ss.getSheetByName('BonusPenalty');
+    if (!bpSheet) return { success: false, message: 'Không tìm thấy sheet BonusPenalty' };
+
+    var xuSheet = ss.getSheetByName('ThongKe_TichLuyXu');
+    if (!xuSheet) {
+      xuSheet = ss.insertSheet('ThongKe_TichLuyXu');
+      xuSheet.appendRow(SCHEMA_ERP.ThongKe_TichLuyXu || ['id', 'user', 'type', 'amount_xu', 'date', 'orderCode', 'note', 'timestamp']);
+      xuSheet.setFrozenRows(1);
+      xuSheet.getRange(1, 1, 1, 8).setBackground('#78350f').setFontColor('#ffffff').setFontWeight('bold').setHorizontalAlignment('center');
+    }
+
+    var bpData = bpSheet.getDataRange().getValues();
+    if (bpData.length <= 1) return { success: true, message: 'BonusPenalty không có dữ liệu' };
+
+    var headers = bpData[0];
+    var idIdx = headers.indexOf('id');
+    var userIdx = headers.indexOf('user');
+    var amountIdx = headers.indexOf('amount');
+    var typeIdx = headers.indexOf('type');
+    var noteIdx = headers.indexOf('note');
+    var dateIdx = headers.indexOf('date');
+    var orderCodeIdx = headers.indexOf('orderCode');
+    if (idIdx === -1) idIdx = 0;
+    if (userIdx === -1) userIdx = 1;
+    if (amountIdx === -1) amountIdx = 2;
+    if (typeIdx === -1) typeIdx = 3;
+    if (noteIdx === -1) noteIdx = 4;
+    if (dateIdx === -1) dateIdx = 5;
+    if (orderCodeIdx === -1) orderCodeIdx = 6;
+
+    // Đọc danh sách ID hiện có trong ThongKe_TichLuyXu để chống trùng lặp
+    var xuData = xuSheet.getDataRange().getValues();
+    var existingXuIds = {};
+    for (var x = 1; x < xuData.length; x++) {
+      var exId = String(xuData[x][0] || '').trim();
+      if (exId) existingXuIds[exId] = true;
+    }
+
+    var rowsToAppendToXu = [];
+    var bpRowsToDelete = [];
+
+    for (var i = 1; i < bpData.length; i++) {
+      var row = bpData[i];
+      var rowId = String(row[idIdx] || '').trim();
+      var rowUser = String(row[userIdx] || '').trim();
+      var rowAmount = Number(row[amountIdx]) || 0;
+      var rowType = String(row[typeIdx] || '').trim();
+      var rowNote = String(row[noteIdx] || '').trim();
+      var rowDate = String(row[dateIdx] || '').trim();
+      var rowOrderCode = String(row[orderCodeIdx] || '').trim();
+
+      var isXuRecord = rowType === 'XU_REWARD' || 
+                       rowId.indexOf('BP_XU_') === 0 || 
+                       rowNote.indexOf('Boss tặng xu') > -1 || 
+                       rowNote.indexOf('tặng xu khai ví') > -1 ||
+                       rowNote.toLowerCase().indexOf('thưởng xu') > -1;
+
+      if (isXuRecord) {
+        bpRowsToDelete.push(i + 1); // 1-based index
+
+        var xuId = rowId.replace(/^BP_XU_/, 'XU_').replace(/^BP_/, 'XU_');
+        if (xuId.indexOf('XU_') !== 0) xuId = 'XU_' + xuId;
+
+        if (!existingXuIds[xuId]) {
+          var dateOnly = rowDate ? rowDate.slice(0, 10) : Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd");
+          var timestamp = rowDate.length > 10 ? rowDate : Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd HH:mm:ss");
+          rowsToAppendToXu.push([
+            xuId,
+            rowUser,
+            rowType || 'XU_REWARD',
+            rowAmount,
+            dateOnly,
+            rowOrderCode,
+            rowNote,
+            timestamp
+          ]);
+          existingXuIds[xuId] = true;
+        }
+      }
+    }
+
+    // Chuyển toàn bộ các dòng Xu sang ThongKe_TichLuyXu
+    if (rowsToAppendToXu.length > 0) {
+      xuSheet.getRange(xuSheet.getLastRow() + 1, 1, rowsToAppendToXu.length, 8).setValues(rowsToAppendToXu);
+    }
+
+    // Xóa triệt để các dòng Xu khỏi BonusPenalty (xóa từ dưới lên trên)
+    for (var d = bpRowsToDelete.length - 1; d >= 0; d--) {
+      bpSheet.deleteRow(bpRowsToDelete[d]);
+    }
+
+    SpreadsheetApp.flush();
+    return {
+      success: true,
+      migratedCount: rowsToAppendToXu.length,
+      deletedFromBP: bpRowsToDelete.length,
+      message: 'Đã chuyển ' + bpRowsToDelete.length + ' bản ghi Xu sang đúng bảng ThongKe_TichLuyXu và dọn dẹp sạch bảng BonusPenalty!'
+    };
+  } catch (err) {
+    return { success: false, message: 'Lỗi migrate Xu: ' + err.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * =========================================================================
+ * API TỰ ĐỘNG PHỤC HỒI NHIỆM VỤ ĐANG LÀM TỪ ThongKe_TichLuyXu VỀ KPI_Progress
+ * =========================================================================
+ */
+function api_repairAndRestoreTasksFromXuSheet() {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var xuSheet = ss.getSheetByName('ThongKe_TichLuyXu');
+    var kpiSheet = ss.getSheetByName('KPI_Progress');
+    if (!xuSheet || !kpiSheet) return { success: false, message: 'Thiếu sheet CSDL' };
+
+    var xuData = xuSheet.getDataRange().getValues();
+    if (xuData.length <= 1) return { success: true, message: 'ThongKe_TichLuyXu rỗng' };
+
+    var kpiData = kpiSheet.getDataRange().getValues();
+    var existingKpiIds = {};
+    for (var k = 1; k < kpiData.length; k++) {
+      var kId = String(kpiData[k][0] || '').trim();
+      if (kId) existingKpiIds[kId] = true;
+    }
+
+    var xuRowsToDelete = [];
+    var kpiRowsToAppend = [];
+    var now = new Date();
+    var timestamp = Utilities.formatDate(now, "GMT+7", "yyyy-MM-dd HH:mm:ss");
+
+    var year = now.getFullYear();
+    var month = now.getMonth();
+    var defaultStart = Utilities.formatDate(new Date(year, month, 1), 'GMT+7', 'yyyy-MM-dd 00:00:00');
+    var defaultEnd = Utilities.formatDate(new Date(year, month + 1, 0), 'GMT+7', 'yyyy-MM-dd 23:59:59');
+
+    for (var i = 1; i < xuData.length; i++) {
+      var row = xuData[i];
+      var rowId = String(row[0] || '').trim();
+      var rowUser = String(row[1] || '').trim();
+      var rowType = String(row[2] || '').trim();
+      var rowAmount = Number(row[3]) || 0;
+      var rowDate = String(row[4] || '').trim();
+      var rowOrderCode = String(row[5] || '').trim(); // "Chỉ tiêu: 8 Bộ"
+      var rowNote = String(row[6] || '').trim();      // "Thanh Lý Layout Lẻ Size"
+
+      var isTaskRow = rowId.indexOf('XU_TASK_') === 0 || rowType === 'XU_TASK';
+      if (isTaskRow) {
+        xuRowsToDelete.push(i + 1);
+
+        var kpiId = rowId.replace(/^XU_TASK_/, 'KPI_XU_');
+        if (kpiId.indexOf('KPI_XU_') !== 0) kpiId = 'KPI_XU_' + kpiId;
+
+        // Trích xuất target và unit từ rowOrderCode (ví dụ: "Chỉ tiêu: 8 Bộ" -> target: 8, unit: "Bộ")
+        var targetNum = 1;
+        var unitStr = 'Lần';
+        if (rowOrderCode) {
+          var match = rowOrderCode.match(/Chỉ tiêu:\s*(\d+)\s*(.*)/i);
+          if (match) {
+            targetNum = Number(match[1]) || 1;
+            unitStr = match[2] ? match[2].trim() : 'Lần';
+          }
+        }
+
+        // Với trường hợp Diệu Hương "Thanh Lý Layout Lẻ Size", tiến độ thực tế là 1/8 bộ
+        var currentNum = 0;
+        if (rowNote.toLowerCase().indexOf('thanh lý') > -1 && targetNum === 8) {
+          currentNum = 1;
+        }
+
+        if (!existingKpiIds[kpiId]) {
+          // Schema KPI_Progress:
+          // ['id', 'user', 'kpiName', 'current', 'target', 'unit', 'lastUpdated', 'startTime', 'endTime', 'reward', 'isClaimed', 'penalty', 'guide']
+          kpiRowsToAppend.push([
+            kpiId,
+            rowUser,
+            rowNote || 'Nhiệm vụ Xu',
+            currentNum,
+            targetNum,
+            unitStr,
+            timestamp,
+            defaultStart,
+            defaultEnd,
+            rowAmount,
+            false, // isClaimed = FALSE (Đang làm, chưa duyệt)
+            0,     // penalty
+            rowNote
+          ]);
+          existingKpiIds[kpiId] = true;
+        }
+      }
+    }
+
+    // Ghi vào KPI_Progress
+    if (kpiRowsToAppend.length > 0) {
+      kpiSheet.getRange(kpiSheet.getLastRow() + 1, 1, kpiRowsToAppend.length, 13).setValues(kpiRowsToAppend);
+    }
+
+    // Xóa các dòng task khỏi ThongKe_TichLuyXu (xóa từ dưới lên trên)
+    for (var d = xuRowsToDelete.length - 1; d >= 0; d--) {
+      xuSheet.deleteRow(xuRowsToDelete[d]);
+    }
+
+    SpreadsheetApp.flush();
+    return {
+      success: true,
+      restoredCount: kpiRowsToAppend.length,
+      deletedFromXu: xuRowsToDelete.length,
+      message: 'Đã phục hồi ' + kpiRowsToAppend.length + ' nhiệm vụ về bảng KPI_Progress và làm sạch ThongKe_TichLuyXu!'
+    };
+  } catch (err) {
+    return { success: false, message: 'Lỗi repair tasks: ' + err.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * =========================================================================
+ * API CHUẨN HÓA CÁC GIAO DỊCH ĐIỀU CHỈNH SỐ DƯ (Tránh bị tính nhầm vào Doanh thu/Chi phí)
+ * =========================================================================
+ */
+function api_repairAdjustmentTransactions() {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var txSheet = ss.getSheetByName('Transactions');
+    if (!txSheet) return { success: false, message: 'Thiếu sheet Transactions' };
+
+    var txData = txSheet.getDataRange().getValues();
+    if (txData.length <= 1) return { success: true, message: 'Transactions rỗng' };
+
+    var headers = txData[0];
+    var idCol = headers.indexOf('id');
+    var catCol = headers.indexOf('category');
+    var titleCol = headers.indexOf('title');
+    var noteCol = headers.indexOf('note');
+
+    if (idCol === -1 || catCol === -1) return { success: false, message: 'Thiếu headers' };
+
+    var modified = false;
+    for (var i = 1; i < txData.length; i++) {
+      var txId = String(txData[i][idCol] || '').trim();
+      var txCat = String(txData[i][catCol] || '').trim();
+      var txTitle = titleCol !== -1 ? String(txData[i][titleCol] || '').toLowerCase().trim() : '';
+      var txNote = noteCol !== -1 ? String(txData[i][noteCol] || '').toLowerCase().trim() : '';
+
+      var isAdj = txId.indexOf('TX_ADJ_') === 0 ||
+                  txTitle.indexOf('điều chỉnh số dư') > -1 ||
+                  txNote.indexOf('điều chỉnh số dư') > -1 ||
+                  txNote.indexOf('sinh phiếu điều chỉnh') > -1;
+
+      if (isAdj && txCat !== 'Điều Chỉnh Số Dư') {
+        txData[i][catCol] = 'Điều Chỉnh Số Dư';
+        modified = true;
+      }
+    }
+
+    if (modified) {
+      txSheet.getRange(1, 1, txData.length, headers.length).setValues(txData);
+      SpreadsheetApp.flush();
+    }
+
+    return { success: true, modified: modified };
+  } catch (err) {
+    return { success: false, message: err.toString() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// -------------------------------------------------------------------------
+// TỰ ĐỘNG TẠO MENU TRÊN GOOGLE SHEETS
+// -------------------------------------------------------------------------
+function onOpen() {
+  try {
+    SpreadsheetApp.getUi()
+      .createMenu('⚡ RF Hệ Thống')
+      .addItem('🧹 Dọn dẹp dữ liệu Tháng 6 (Giải phóng RAM)', 'emergencyCleanAllJuneData')
+      .addToUi();
+  } catch (e) {
+    // Ignore if not running in UI context
+  }
+}
+
+// -------------------------------------------------------------------------
+// SCRIPT DỌN DẸP TOÀN BỘ DỮ LIỆU THÁNG 6 TRÊN MỌI TRANG (GIẢI PHÓNG RAM)
+// -------------------------------------------------------------------------
+function emergencyCleanAllJuneData() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const lock = LockService.getScriptLock();
+  
+  // Cấu hình: Quét các Sheet sau và tìm tháng 6 dựa trên các cột thời gian ưu tiên
+  const targets = [
+    { name: 'Orders', dateCols: ['createdAt', 'date'] },
+    { name: 'Production', dateCols: ['deadline', 'p1_start', 'p2_start'] },
+    { name: 'Packings', dateCols: ['start', 'endTime'] },
+    { name: 'Attendance', dateCols: ['date'] },
+    { name: 'Transactions', dateCols: ['date'] },
+    { name: 'ImportExport', dateCols: ['date'] },
+    { name: 'BonusPenalty', dateCols: ['date'] },
+    { name: 'CTV_Finance', dateCols: ['date'] },
+    { name: 'Reimbursements', dateCols: ['createdAt'] },
+    { name: 'Orders_Archive', dateCols: ['createdAt', 'date'] }
+  ];
+  
+  let report = [];
+  
+  // LockService bọc đúng chuẩn Rule 2B
+  lock.waitLock(15000);
+  try {
+    targets.forEach(target => {
+      const sheet = ss.getSheetByName(target.name);
+      if (!sheet) return;
+      
+      const data = sheet.getDataRange().getValues();
+      if (data.length <= 1) return; // Bỏ qua nếu sheet rỗng
+      
+      const headers = data[0];
+      // Xác định vị trí các cột thời gian có tồn tại trong sheet
+      const colIndexes = target.dateCols
+                           .map(col => headers.indexOf(col))
+                           .filter(idx => idx !== -1);
+      
+      if (colIndexes.length === 0) return;
+      
+      const filteredData = [headers];
+      let deletedCount = 0;
+      
+      for (let i = 1; i < data.length; i++) {
+        let isJune = false;
+        
+        for (let j = 0; j < colIndexes.length; j++) {
+          const cellValue = data[i][colIndexes[j]];
+          if (!cellValue) continue;
+          
+          if (cellValue instanceof Date) {
+            if (cellValue.getMonth() === 5) { // getMonth() từ 0, tháng 6 là 5
+              isJune = true;
+              break;
+            }
+          } else {
+            const dateStr = String(cellValue);
+            if (dateStr.includes('-06-') || dateStr.includes('/06/')) {
+              isJune = true;
+              break;
+            }
+          }
+        }
+        
+        if (!isJune) {
+          filteredData.push(data[i]);
+        } else {
+          deletedCount++;
+        }
+      }
+      
+      if (deletedCount > 0) {
+        sheet.clearContents();
+        sheet.getRange(1, 1, filteredData.length, filteredData[0].length).setValues(filteredData);
+        report.push(`- Trang [${target.name}]: Đã dọn sạch ${deletedCount} dòng`);
+      }
+    });
+    
+    const ui = SpreadsheetApp.getUi();
+    if (report.length > 0) {
+      ui.alert('✅ KẾT QUẢ DỌN DẸP DỮ LIỆU THÁNG 6:\n\n' + report.join('\n') + '\n\nVui lòng tải lại Web App (F5) để kiểm tra!');
+    } else {
+      ui.alert('Không tìm thấy dữ liệu tháng 6 nào cần dọn dẹp thêm.');
+    }
+    return { success: true, report: report };
+  } catch (e) {
+    try {
+      SpreadsheetApp.getUi().alert('❌ Có lỗi xảy ra: ' + e.message);
+    } catch (err) {}
     return { success: false, message: e.toString() };
   } finally {
     lock.releaseLock();

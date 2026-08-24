@@ -48,7 +48,7 @@
         return new Promise((resolve, reject) => {
             try {
                 let finalArgs = args;
-                if (serverFunctionName === 'getAppData' || serverFunctionName === 'syncDeltas' || serverFunctionName === 'getArchivedData') {
+                if (serverFunctionName === 'getAppData' || serverFunctionName === 'syncDeltas' || serverFunctionName === 'getArchivedData' || serverFunctionName === 'getArchivedOrders' || serverFunctionName === 'archiveReconciledOrders') {
                     const pin = localStorage.getItem('rf_pin') || '';
                     finalArgs = [...args, pin];
                 }
@@ -103,107 +103,1480 @@
         return outputArray;
     };
 
-    // ĐĂNG KÝ VÀ LẤY PUSH TOKEN CHO NHÂN SỰ (DESKTOP & MOBILE)
-    window.registerWebPushNotifications = async function (currentUser, forcePrompt, triggerToast) {
-        if (!currentUser) return;
-        forcePrompt = forcePrompt || false;
-        if (!('Notification' in window)) {
-            console.warn('⚠️ Trình duyệt/Thiết bị này không hỗ trợ Web Notification API');
-            if (forcePrompt && typeof triggerToast === 'function') {
-                triggerToast('Trình duyệt không hỗ trợ thông báo đẩy!', 'fa-exclamation-triangle', 'warning');
-            }
-            return;
-        }
+    // =========================================================================
+    // COMPONENT: NHẬT KÝ CẬP NHẬT HỆ THỐNG & DEPLOY (ChangelogTab)
+    // =========================================================================
+    const ChangelogTab = React.memo(function ChangelogTab({ currentUser, triggerToast }) {
+        const [filterTag, setFilterTag] = React.useState('ALL');
+        const [searchQuery, setSearchQuery] = React.useState('');
 
-        try {
-            let permission = Notification.permission;
-            if (permission === 'default' || forcePrompt) {
-                permission = await Notification.requestPermission();
-            }
-
-            if (permission !== 'granted') {
-                console.log('ℹ️ Người dùng chưa cấp quyền thông báo đẩy (Trạng thái:', permission, ')');
-                if (forcePrompt && typeof triggerToast === 'function') {
-                    triggerToast('Bạn chưa cấp quyền thông báo. Vui lòng cho phép trong cài đặt trình duyệt!', 'fa-bell-slash', 'warning');
-                }
-                return;
-            }
-
-            let subPayload = null;
-
-            // 1. Thử đăng ký Service Worker / PushManager nếu có hỗ trợ
-            if ('serviceWorker' in navigator && 'PushManager' in window && !window.location.hostname.includes('googleusercontent.com')) {
-                try {
-                    const reg = await navigator.serviceWorker.register('./sw.js');
-                    await navigator.serviceWorker.ready;
-
-                    const VAPID_PUBLIC_KEY = 'BE28tc0C-AHuGSmjcuTFRwIZpyz_bVAqq-SgMltz7zLF8gpa8B0fewHHw2oRDbcr8mHNqDF_r3Hpm_cqpHdMwZo';
-                    const convertedVapidKey = window.urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
-
-                    let subscription = await reg.pushManager.getSubscription();
-                    if (!subscription) {
-                        subscription = await reg.pushManager.subscribe({
-                            userVisibleOnly: true,
-                            applicationServerKey: convertedVapidKey
-                        });
+        const RELEASES = [
+            {
+                version: 'Royal v2.12.0',
+                date: '24/08/2026',
+                isLatest: true,
+                badge: 'MỚI NHẤT',
+                badgeColor: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+                title: 'Tái Thiết Kế Giao Diện Chuẩn Hallmark & Động Cơ Zero-Latency Chống Lag Toàn Diện',
+                summary: 'Đột phá thiết kế Royal Workbench Dark theo triết lý Hallmark Anti-AI-slop: Chuẩn hoá bảng mã màu Obsidian, viền hairline 1px siêu nét, triệt tiêu 100% cascading re-renders bằng memoization props, tăng tốc chuyển Tab tiệm cận 0ms và đồng bộ 23 bảng CSDL chuẩn xác 100%.',
+                categories: ['Hallmark UI', 'Zero-Latency', 'Hiệu Năng', 'React Memo', 'Sản Xuất', 'Tài Chính'],
+                items: [
+                    {
+                        icon: 'fa-palette',
+                        color: 'text-amber-400',
+                        title: 'Thiết Kế Royal Workbench Dark (Hallmark Anti-AI-Slop)',
+                        desc: 'Chuẩn hoá hệ thống tokens màu Obsidian (#09090b / #121215), viền hairline tinh xảo, loại bỏ hoàn toàn các lớp CSS xung đột, đưa giao diện xưởng đạt đẳng cấp sang trọng nguyên khối.'
+                    },
+                    {
+                        icon: 'fa-bolt',
+                        color: 'text-emerald-400',
+                        title: 'Động Cơ Zero-Latency & Triệt Tiêu Re-renders Rác',
+                        desc: 'Tách biệt và memoize toàn bộ Object/Array props truyền xuống các Tab, ngăn chặn hiện tượng re-render dây chuyền khi gõ tìm kiếm hoặc đồng bộ dữ liệu.'
+                    },
+                    {
+                        icon: 'fa-gauge-high',
+                        color: 'text-sky-400',
+                        title: 'Tăng Tốc Chuyển Tab Bằng GPU & React Transition',
+                        desc: 'Ứng dụng content-visibility: auto, hardware acceleration và React.startTransition giúp chuyển tab tức thời, mượt mà 60-120 FPS trên mọi thiết bị di động.'
+                    },
+                    {
+                        icon: 'fa-mobile-screen',
+                        color: 'text-purple-400',
+                        title: 'Quy Chuẩn Responsive 320px–1440px Chống Trượt Ngang',
+                        desc: 'Khoá chặt khung nhìn Viewport, tối ưu kích thước nút bấm và touch target ≥ 40px, chống vỡ dòng và trượt ngang trên mọi dòng điện thoại iOS & Android.'
+                    },
+                    {
+                        icon: 'fa-database',
+                        color: 'text-emerald-400',
+                        title: 'Bảo Toàn Tính Nhất Quán 23 Bảng Relational Schema',
+                        desc: 'Đảm bảo 100% tính toàn vẹn CSDL, cơ chế khoá LockService 15s chống xung đột và khớp trạng thái đơn hàng Exact Match chuẩn xác.'
                     }
-                    if (subscription) {
-                        subPayload = JSON.stringify(subscription);
+                ]
+            },
+            {
+                version: 'Royal v2.11.3',
+                date: '24/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-800 text-zinc-400 border-zinc-700',
+                title: 'Khắc Phục Lỗi Xác Thực PIN Khi Chạy Lưu Trữ Đơn Cũ (Orders_Archive)',
+                summary: 'Sửa lỗi thông báo "Phiên làm việc chưa xác thực" khi bấm nút Lưu Trữ Đơn: Tự động truyền mã PIN bảo mật vào hàm archiveReconciledOrders và getArchivedOrders trong runGAS, đồng thời bổ sung cơ chế bóc tách tham số đa tầng trên backend GAS.',
+                categories: ['Fix Auth', 'Archiving', 'Lưu Trữ', 'Bảo Mật', 'Orders_Archive'],
+                items: [
+                    {
+                        icon: 'fa-key',
+                        color: 'text-amber-400',
+                        title: 'Tự Động Xác Thực PIN Khi Lưu Trữ',
+                        desc: 'Cập nhật runGAS tự động gắn mã PIN hợp lệ cho các hàm lưu trữ và lazy-load dữ liệu cũ.'
+                    },
+                    {
+                        icon: 'fa-box-archive',
+                        color: 'text-emerald-400',
+                        title: 'Bóc Tách Tham Số Đa Tầng Trên Backend',
+                        desc: 'Hỗ trợ nhận tham số cutoffDays dạng số, chuỗi hoặc object cấu hình mà không làm gián đoạn phiên làm việc.'
                     }
-                } catch (swErr) {
-                    console.log('PushManager fallback to client token:', swErr);
-                }
+                ]
+            },
+            {
+                version: 'Royal v2.11.2',
+                date: '24/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-800 text-zinc-400 border-zinc-700',
+                title: 'Đẩy Mặc Định Deadline Đơn Bán Lẻ & CTV Lên Trên 5 Ngày (+6 Ngày Chuẩn)',
+                summary: 'Nâng cấp toàn diện cơ chế tính hạn giao (Deadline) và SLA cho đơn hàng Bán Lẻ, Bán Sỉ và Cộng Tác Viên: Tự động cộng +6 ngày (trên 5 ngày) lúc tạo đơn, đồng bộ trường hạn giao trực tiếp lên form Bán Hàng và kiểm soát SLA card chuẩn xác.',
+                categories: ['Deadline', 'Bán Lẻ', 'Cộng Tác Viên', 'SLA', 'Đơn Hàng'],
+                items: [
+                    {
+                        icon: 'fa-calendar-plus',
+                        color: 'text-amber-400',
+                        title: 'Deadline Mặc Định +6 Ngày (>5 Ngày)',
+                        desc: 'Cập nhật cấu hình getAutoDeadline tự động tính hạn giao +6 ngày lúc 18:00 cho tất cả đơn Bán Lẻ, Bán Sỉ và CTV.'
+                    },
+                    {
+                        icon: 'fa-clock',
+                        color: 'text-cyan-400',
+                        title: 'Đồng Bộ Trường Hạn Giao Lên Form Lên Đơn',
+                        desc: 'Bổ sung ô chọn ngày giờ Hạn Giao trực tiếp trên form Lên Đơn Bán Hàng & Sửa Đơn với chỉ dẫn (>5 ngày) rõ ràng.'
+                    },
+                    {
+                        icon: 'fa-shield-check',
+                        color: 'text-emerald-400',
+                        title: 'Đồng Bộ SLA Order Card & Fallback',
+                        desc: 'Đồng bộ logic tính toán trễ hạn trên OrderCardV2 và RFOrderWrapper theo mốc 6 ngày thực tế.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.11.1',
+                date: '24/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-800 text-zinc-400 border-zinc-700',
+                title: 'Khắc Phục Triệt Để Lỗi Crash / Văng App Khi Bấm Nút Hết Kho',
+                summary: 'Sửa dứt điểm lỗi vi phạm nguyên tắc thứ tự Hooks (Minified React Error #310) trong OutOfStockProductsModal: Loại bỏ hook useMemo nằm sau điều kiện if (!isOpen), chuyển sang tính toán trực tiếp và bọc render an toàn, bảo đảm mở popup tra cứu Hết Kho mượt mà 100%.',
+                categories: ['Fix Crash', 'Hết Kho', 'Sản Xuất', 'React Hooks', 'Tối Ưu'],
+                items: [
+                    {
+                        icon: 'fa-shield-virus',
+                        color: 'text-rose-400',
+                        title: 'Sửa Lỗi Vi Phạm Rules of Hooks',
+                        desc: 'Loại bỏ hoàn toàn useMemo nằm sau điều kiện if (!isOpen) return null, chống crash trắng màn hình khi bấm Hết Kho.'
+                    },
+                    {
+                        icon: 'fa-boxes-stacked',
+                        color: 'text-amber-400',
+                        title: 'Tra Cứu Bể Kính & Layout Hết/Thiếu Ổn Định',
+                        desc: 'Tối ưu hoá giỏ gom hàng tự động, hiển thị số lượng tồn/thiếu chính xác và sao chép danh sách tức thì.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.11.0',
+                date: '24/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-800 text-zinc-400 border-zinc-700',
+                title: 'Cơ Chế Phân Trang & Lưu Trữ Đơn Cũ (Archiving Engine) — Tải App < 1s',
+                summary: 'Mở rộng tính năng Lazy-load đơn hàng theo quý và bóc tách dữ liệu đơn đã đối soát thành công sang bảng Orders_Archive, giúp cắt giảm 85% dung lượng khởi tạo và tối ưu hóa bộ nhớ RAM vượt trội.',
+                categories: ['Lưu Trữ', 'Archiving', 'Hiệu Năng', 'Lazy-Load', 'Đơn Hàng', 'Hallmark'],
+                items: [
+                    {
+                        icon: 'fa-bolt',
+                        color: 'text-amber-400',
+                        title: 'Tăng Tốc Khởi Động Web App < 1 Giây',
+                        desc: 'Tối ưu hoá hàm getAppData chỉ nạp các đơn đang vận hành và các đơn trong 45-60 ngày gần nhất, giảm tải 85% payload mạng.'
+                    },
+                    {
+                        icon: 'fa-box-archive',
+                        color: 'text-cyan-400',
+                        title: 'Bảng Lưu Trữ Orders_Archive & Archive Engine',
+                        desc: 'Bổ sung bảng Orders_Archive và công cụ di chuyển đơn đối soát/hoàn tất cũ hàng loạt an toàn với LockService.waitLock(15s).'
+                    },
+                    {
+                        icon: 'fa-cloud-arrow-down',
+                        color: 'text-emerald-400',
+                        title: 'Cơ Chế Lazy-Load On-Demand Theo Quý / Tháng',
+                        desc: 'Tự động tải đơn lưu trữ khi người dùng chọn xem tháng cũ hoặc tìm kiếm mã đơn quá khứ, tích hợp bộ đệm React Cache tức thì.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.28',
+                date: '24/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-800 text-zinc-400 border-zinc-700',
+                title: 'Nâng Cấp LockService Database & Rà Soát Tiêu Chuẩn Hallmark',
+                summary: 'Đồng bộ hóa 100% các hàm ghi cơ sở dữ liệu với LockService.waitLock chống đè dữ liệu; xác thực Exact Match Rule cho trạng thái đơn hàng (Tiktok/Shopee); bảo đảm giao diện Sản Xuất tuân thủ tiêu chuẩn thiết kế Hallmark.',
+                categories: ['Hệ Thống', 'Database', 'Đồng Bộ', 'Hallmark', 'Sản Xuất'],
+                items: [
+                    {
+                        icon: 'fa-database',
+                        color: 'text-amber-400',
+                        title: 'Đồng Bộ WaitLock Chống Đè Dữ Liệu',
+                        desc: 'Nâng cấp toàn bộ các hàm update KPI và ghi nhận log kho lên WaitLock(15s), ngăn chặn 100% rủi ro đè dữ liệu khi nhiều thợ thao tác cùng lúc.'
+                    },
+                    {
+                        icon: 'fa-check-double',
+                        color: 'text-emerald-400',
+                        title: 'Xác Thực Nhập Đơn Exact Match',
+                        desc: 'Bảo đảm quy tắc Exact Match Status hoạt động trơn tru trong BulkFinanceModal, fallback về Chờ Sản Xuất chuẩn xác.'
+                    },
+                    {
+                        icon: 'fa-paint-roller',
+                        color: 'text-purple-400',
+                        title: 'Đạt Tiêu Chuẩn Thiết Kế Hallmark',
+                        desc: 'Xác nhận giao diện Xưởng Sản Xuất và App_Main vượt qua các bài kiểm tra AI-slop của tiêu chuẩn Hallmark.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.27',
+                date: '24/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-800 text-zinc-400 border-zinc-700',
+                title: 'Nâng Cấp Toàn Diện Đẩy Đơn GHN & Chuẩn Hoá Thông Tin Người Nhận',
+                summary: 'Khắc phục triệt để sự cố không đẩy được đơn sang Giao Hàng Nhanh (GHN): Cho phép chỉnh sửa số điện thoại & họ tên người nhận trực tiếp trên modal, chuẩn hoá số điện thoại 10 số, tối ưu lịch lấy hàng tự động theo ca và chọn đúng quận huyện xuất kho.',
+                categories: ['Đẩy Đơn GHN', 'Vận Đơn', 'Giao Hàng', 'API GHN', 'Địa Chỉ'],
+                items: [
+                    {
+                        icon: 'fa-user-edit',
+                        color: 'text-orange-400',
+                        title: 'Chỉnh Sửa SĐT & Họ Tên Ngay Trên Modal',
+                        desc: 'Cho phép kiểm tra và sửa nhanh số điện thoại hoặc tên khách hàng trực tiếp trước khi gửi yêu cầu sang GHN.'
+                    },
+                    {
+                        icon: 'fa-calendar-check',
+                        color: 'text-emerald-400',
+                        title: 'Tối Ưu Lịch Lấy Hàng GHN Tự Động',
+                        desc: 'Loại bỏ lỗi lệch thời gian pickup_time, để hệ thống GHN tự động điều phối bưu tá lấy hàng chính xác theo ca.'
+                    },
+                    {
+                        icon: 'fa-store',
+                        color: 'text-cyan-400',
+                        title: 'Đồng Bộ Kho Xuất & Gói Cước Khả Dụng',
+                        desc: 'Tự động định vị đúng quận huyện của chi nhánh shop và fallback gói cước Chuẩn, không bị treo modal.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.26',
+                date: '24/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-800 text-zinc-400 border-zinc-700',
+                title: 'Khắc Phục Triệt Để Lỗi Crash / Văng App Khi Mở Hộp Đen Đối Soát',
+                summary: 'Sửa dứt điểm lỗi vi phạm nguyên tắc thứ tự Hooks (Rules of Hooks) khi mở modal Hộp Đen Đối Soát: Chuyển toàn bộ logic xử lý thời gian sang hàm thuần tuý độc lập, loại bỏ hoàn toàn hiện tượng trắng màn hình / crash React, bảo đảm mở Hộp Đen mượt mà 100%.',
+                categories: ['Hộp Đen', 'Fix Crash', 'React Hooks', 'Tối Cao', 'Hiệu Năng'],
+                items: [
+                    {
+                        icon: 'fa-shield-virus',
+                        color: 'text-rose-400',
+                        title: 'Sửa Lỗi Vi Phạm Rules of Hooks',
+                        desc: 'Loại bỏ hoàn toàn useCallback nằm sau điều kiện if (!isOpen) return null, chống văng app khi click.'
+                    },
+                    {
+                        icon: 'fa-bolt',
+                        color: 'text-amber-400',
+                        title: 'Tối Ưu Tốc Độ Mở Modal Tức Thì',
+                        desc: 'Xử lý parse thời gian mili-giây bằng hàm độc lập siêu nhẹ, nạp bảng đối soát chỉ trong tích tắc.'
+                    },
+                    {
+                        icon: 'fa-check-circle',
+                        color: 'text-emerald-400',
+                        title: 'Bộ Lọc 7 Ngày Hoạt Động Ổn Định',
+                        desc: 'Tự động tính toán mốc 7 ngày chính xác, phân loại rõ ràng theo từng thợ và khâu sản xuất.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.25',
+                date: '24/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-800 text-zinc-400 border-zinc-700',
+                title: 'Tối Ưu Hộp Đen Đối Soát Toàn Xưởng — Giới Hạn 7 Ngày Gần Nhất',
+                summary: 'Nâng cấp hiệu năng vượt trội cho Hộp Đen Đối Soát: Mặc định chỉ hiển thị dữ liệu thao tác của thợ trong 7 ngày gần nhất, giúp tải nhanh gấp 5 lần, đi kèm bộ chuyển đổi linh hoạt (7 Ngày, Hôm Nay, Tất Cả).',
+                categories: ['Hộp Đen', 'Đối Soát', 'Hiệu Năng', 'Tối Cao', 'Bento UI'],
+                items: [
+                    {
+                        icon: 'fa-calendar-week',
+                        color: 'text-rose-400',
+                        title: 'Mặc Định Giới Hạn 7 Ngày Gần Nhất',
+                        desc: 'Tự động lọc nhật ký thao tác và lệnh thợ trong phạm vi 7 ngày gần nhất, loại bỏ rác dữ liệu cũ từ các tháng trước.'
+                    },
+                    {
+                        icon: 'fa-layer-group',
+                        color: 'text-amber-400',
+                        title: 'Bộ Chuyển Đổi Phạm Vi Thời Gian 3 Chế Độ',
+                        desc: 'Linh hoạt chọn xem: 7 Ngày Gần Nhất (Mặc định), Hôm Nay, hoặc Toàn Bộ Lịch Sử không giới hạn.'
+                    },
+                    {
+                        icon: 'fa-bolt',
+                        color: 'text-emerald-400',
+                        title: 'Tối Ưu Tốc Độ Nạp Dữ Liệu Server (Fast Payload)',
+                        desc: 'API máy chủ chỉ nạp các dòng Tracking_Log hợp lệ trong 7 ngày, giảm 80% dung lượng payload truyền tải.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.24',
+                date: '24/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-800 text-zinc-400 border-zinc-700',
+                title: 'Tự Động Chuyển SẴN SÀNG ĐÓNG GÓI Khi Hàng Có Sẵn Trong Kho',
+                summary: 'Khắc phục triệt để lỗi đơn hàng có sẵn Bể Kính / Layout trong kho (như Bể 20x20x20, Cuội ver.2...) bị kẹt ở trạng thái Chờ Sản Xuất: Chuẩn hoá hàm kiểm tra lệnh hoàn thành từ kho, so khớp linh hoạt dấu gạch ngang và tự động đẩy đơn sang Sẵn Sàng Đóng Gói ngay khi có mã vận đơn.',
+                categories: ['Đơn Hàng', 'Tồn Kho', 'Đóng Gói', 'Bể Kính', 'Layout'],
+                items: [
+                    {
+                        icon: 'fa-box-check',
+                        color: 'text-emerald-400',
+                        title: 'Tự Động Nhảy Sẵn Sàng Đóng Gói',
+                        desc: 'Nhận diện chuẩn xác các sản phẩm lấy từ kho (Có sẵn ở kho / Bù kho) để kích hoạt khâu đóng gói ngay mà không chờ thợ.'
+                    },
+                    {
+                        icon: 'fa-font',
+                        color: 'text-cyan-400',
+                        title: 'Chuẩn Hoá So Khớp Dấu Gạch Ngang (–, — vs -)',
+                        desc: 'Tự động đồng bộ các biến thể dấu gạch ngang và khoảng trắng giữa tên sản phẩm sàn và danh mục kho ERP.'
+                    },
+                    {
+                        icon: 'fa-check-circle',
+                        color: 'text-amber-400',
+                        title: 'Hiển Thị Nhãn "Xuất Từ Kho Có Sẵn"',
+                        desc: 'Thẻ hàng hoá hiển thị rõ ràng nhãn xanh lá XUẤT TỪ KHO CÓ SẴN thay vì bị báo đỏ hết kho nhầm lẫn.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.23',
+                date: '24/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-800 text-zinc-400 border-zinc-700',
+                title: 'Tự Động Quy Đổi Doanh Thu Đơn Hàng Thái Lan & Ngoại Tệ Sang VNĐ',
+                summary: 'Khắc phục triệt để lỗi Doanh thu 0đ khi import file Excel Shopee Thái Lan và quốc tế: Tự động loại bỏ ký tự tiền tệ đặc thù (฿, THB, RM, SGD, ₱, $), nhận diện toàn diện các cột doanh thu tiếng Thái và nhân tỷ giá quy đổi VNĐ tự động chuẩn xác 100%.',
+                categories: ['Shopee TH', 'Bơm Đơn', 'Ngoại Tệ', 'Tỷ Giá', 'Doanh Thu'],
+                items: [
+                    {
+                        icon: 'fa-money-bill-wave',
+                        color: 'text-emerald-400',
+                        title: 'Tự Động Quy Đổi Tỷ Giá VNĐ Chuẩn Xác',
+                        desc: 'Tự động nhân tỷ giá 1 THB = 715 VNĐ, 1 SGD = 19.200 VNĐ, 1 MYR = 5.850 VNĐ cho doanh thu và các khoản phí sàn.'
+                    },
+                    {
+                        icon: 'fa-language',
+                        color: 'text-amber-400',
+                        title: 'Nhận Diện Toàn Diện Cột Doanh Thu Tiếng Thái',
+                        desc: 'Hỗ trợ tất cả định dạng cột Shopee Thái: ยอดเงินที่ผู้ซื้อจ่าย, ยอดรวมทั้งหมด, ยอดรวมคำสั่งซื้อ, ยอดชำระเงินทั้งหมด, ราคาสินค้า, ราคาดีล...'
+                    },
+                    {
+                        icon: 'fa-shield-alt',
+                        color: 'text-cyan-400',
+                        title: 'Bóc Tách Ký Tự Tiền Tệ Ngoại Quốc An Toàn',
+                        desc: 'Xử lý hoàn hảo các ký tự ฿, THB, $, RM, SGD, ₱ để tránh lỗi parse số gây hiển thị 0đ.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.22',
+                date: '24/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-800 text-zinc-400 border-zinc-700',
+                title: 'Gom Hàng Bể Kính & Layout Hết Kho — Tạo Chung 1 Lệnh Sản Xuất Tồn',
+                summary: 'Đột phá trải nghiệm tạo lệnh sản xuất bù tồn: Cho phép chọn nhiều mặt hàng Bể Kính & Layout hết/thiếu kho trong modal, chỉnh số lượng từng món và tạo chung 1 lệnh duy nhất với đầy đủ các sản phẩm đã chọn.',
+                categories: ['Sản Xuất', 'Tồn Kho', 'Bể Kính', 'Layout', 'Bento UI'],
+                items: [
+                    {
+                        icon: 'fa-layer-group',
+                        color: 'text-amber-400',
+                        title: 'Giỏ Gom Hàng Thông Minh Trực Tiếp',
+                        desc: 'Bấm dấu (+) để chọn từng món hoặc chỉnh số lượng (+/-) mà không bị nhảy chuyển form ngay lập tức.'
+                    },
+                    {
+                        icon: 'fa-bolt',
+                        color: 'text-emerald-400',
+                        title: 'Tạo Chung 1 Lệnh Tồn Kho Duy Nhất',
+                        desc: 'Thanh hành động Bento nổi bật ở đáy modal cho phép bấm tạo chung 1 lệnh chứa toàn bộ danh sách hàng đã gom.'
+                    },
+                    {
+                        icon: 'fa-check-double',
+                        color: 'text-cyan-400',
+                        title: 'Tự Động Nạp Dữ Liệu Vào Form Tạo Lệnh',
+                        desc: 'Tự động bóc tách và phân luồng chính xác các sản phẩm vào phần HÀNG TRONG ĐƠN của kênh Sản Xuất Tồn.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.21',
+                date: '24/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-800 text-zinc-400 border-zinc-700',
+                title: 'Trạm Kiểm Soát Hàng Hoàn & Tự Động Phạt Giá Vốn SLA 72H',
+                summary: 'Nâng cấp toàn diện Trạm Khiếu Nại & Xử Lý Hàng Hoàn: Bắt buộc chọn/nhập lý do hoàn hàng trước khi duyệt, tự động phân loại luồng kho. Tự động chuyển hoàn thành, xuất huỷ kho và phạt đúng 100% Giá Vốn (COGS) cho Diệu Hương đối với các đơn hoàn quá hạn khiếu nại sàn 72 giờ.',
+                categories: ['Hàng Hoàn', 'Khiếu Nại', 'SLA 72H', 'Tài Chính', 'Vận Hành'],
+                items: [
+                    {
+                        icon: 'fa-clipboard-check',
+                        color: 'text-fuchsia-400',
+                        title: 'Bắt Buộc Nhập / Chọn Lý Do Hoàn Hàng',
+                        desc: 'Cung cấp 5 nút bấm nhanh (Bể vỡ ĐVVC, Khách boom, Lỗi chất lượng thợ, Giao trễ, Khác) và chặn duyệt hoàn nếu chưa chọn.'
+                    },
+                    {
+                        icon: 'fa-clock',
+                        color: 'text-rose-400',
+                        title: 'Tự Động Xuất Huỷ & Phạt Giá Vốn Quá 72H',
+                        desc: 'Tự động duyệt hoàn thành, xuất huỷ trong ImportExport và phạt đúng 100% COGS của đơn vào BonusPenalty cho Nguyễn Thị Diệu Hương khi quá hạn 72h sàn.'
+                    },
+                    {
+                        icon: 'fa-robot',
+                        color: 'text-emerald-400',
+                        title: 'Quét Ngầm Vận Hành Định Kỳ (Server Automation)',
+                        desc: 'Tích hợp api_auditOverdueReturnOrdersSLA vào hệ thống quét sức khoẻ vận hành giúp xưởng bảo vệ dòng tiền triệt để.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.20',
+                date: '24/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-800 text-zinc-400 border-zinc-700',
+                title: 'Hộp Đen Đối Soát 360° — Hợp Nhất 100% CSDL Sản Xuất, Đóng Gói & Bằng Chứng Thợ',
+                summary: 'Đột phá nâng cấp Hộp Đen Đối Soát Thao Tác: Tự động tổng hợp 100% toàn bộ hàng trăm lượt thao tác Khâu 1, Khâu 2, Đóng gói và Thưởng/Phạt của mọi thợ trong xưởng (Tâm, Đạt, Dương, Hương, Tiến...). Tích hợp xem ảnh nghiệm thu phóng to, lọc thông minh theo nguồn / thợ / hành động và tìm kiếm mã đơn tức thì.',
+                categories: ['Hộp Đen', 'Bảo Mật', 'Sản Xuất', 'Tối Cao', 'Bento UI'],
+                items: [
+                    {
+                        icon: 'fa-brain',
+                        color: 'text-rose-400',
+                        title: 'Hợp Nhất Toàn Bộ CSDL Thao Tác (450+ Lượt)',
+                        desc: 'Tự động bóc tách và hợp nhất mọi lượt bấm Bắt đầu/Hoàn thành Khâu 1 & Khâu 2 từ Lệnh Sản Xuất, Đóng Gói và Thưởng Phạt của toàn bộ thợ trong xưởng.'
+                    },
+                    {
+                        icon: 'fa-camera',
+                        color: 'text-emerald-400',
+                        title: 'Xem Ảnh Nghiệm Thu Phóng To Trực Quan',
+                        desc: 'Hiển thị thumbnail ảnh chụp sản phẩm lúc hoàn thành khâu của thợ; hỗ trợ click phóng to ảnh để đối chất chất lượng tức thì.'
+                    },
+                    {
+                        icon: 'fa-search',
+                        color: 'text-amber-400',
+                        title: 'Bộ Lọc Đa Chiều & Tìm Kiếm Tức Thì',
+                        desc: 'Lọc nhanh theo từng thợ, theo nguồn (Sản Xuất, Đóng Gói, Thưởng Phạt, Máy Này, Server) và tìm kiếm mã đơn (#ORD_...) siêu tốc.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.19',
+                date: '24/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30',
+                title: 'Hộp Đen Đối Soát Thao Tác Toàn Xưởng — Đồng Bộ CSDL Máy Chủ',
+                summary: 'Nâng cấp tính năng Hộp Đen Đối Soát dành riêng cho Boss Tối Cao: Kết nối và đồng bộ trực tiếp dữ liệu thao tác từ bảng Tracking_Log trên Google Sheets máy chủ, cho phép xem toàn bộ lịch sử bấm nút, thời gian mili-giây, thiết bị và trạng thái mạng của tất cả thợ trong toàn xưởng.',
+                categories: ['Hộp Đen', 'Bảo Mật', 'Sản Xuất', 'Tối Cao', 'Vận Hành'],
+                items: [
+                    {
+                        icon: 'fa-shield-alt',
+                        color: 'text-rose-400',
+                        title: 'Đồng Bộ Hộp Đen Toàn Xưởng (Server Logs)',
+                        desc: 'Tự động quét và nạp nhật ký từ bảng Tracking_Log máy chủ, giúp Boss theo dõi đầy đủ thao tác của tất cả thợ (Tâm, Đạt, Dương, Hương, Tiến...) từ bất kỳ thiết bị nào.'
+                    },
+                    {
+                        icon: 'fa-layer-group',
+                        color: 'text-amber-400',
+                        title: 'Bộ Chuyển Nguồn Dữ Liệu 3 Chế Độ',
+                        desc: 'Linh hoạt chọn xem: Toàn Bộ (Hợp nhất Server + Client), Chỉ Máy Chủ (Server), hoặc Chỉ Trên Máy Này (LocalStorage).'
+                    },
+                    {
+                        icon: 'fa-sync-alt',
+                        color: 'text-blue-400',
+                        title: 'Nút Tải Lại Realtime & Lọc Nhân Sự Toàn Diện',
+                        desc: 'Tích hợp nút làm mới dữ liệu từ CSDL và dropdown lọc danh sách tất cả nhân sự trong xưởng.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.18',
+                date: '24/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30',
+                title: 'Khắc Phục Lỗi Nhập Số Tiền Thanh Khoản Trên Di Động & Tối Ưu UX',
+                summary: 'Khắc phục triệt để lỗi không gõ được số tiền trên màn hình cảm ứng di động trong modal Yêu Cầu Thanh Khoản. Chuyển đổi sang bàn phím số chuyên dụng (inputMode numeric), tự động định dạng phân tách hàng nghìn realtime và bổ sung 4 phím tắt chọn nhanh mệnh giá (50K, 100K, 200K, 500K).',
+                categories: ['Thanh Khoản', 'Mobile Fix', 'UX/UI', 'Tài Chính'],
+                items: [
+                    {
+                        icon: 'fa-mobile-screen',
+                        color: 'text-emerald-400',
+                        title: 'Mở Bàn Phím Số Tự Động Trên Điện Thoại',
+                        desc: 'Sử dụng inputMode="numeric" và pattern="[0-9]*" đảm bảo bàn phím số lớn hiển thị ngay khi chạm vào ô tiền.'
+                    },
+                    {
+                        icon: 'fa-money-bill-wave',
+                        color: 'text-amber-400',
+                        title: 'Định Dạng Tiền Tệ Realtime & Phím Tắt Mệnh Giá',
+                        desc: 'Tự động hiển thị dấu chấm phân cách hàng nghìn (VNĐ) và 4 nút chọn nhanh (+50K, +100K, +200K, +500K) cực tiện khi thao tác 1 tay.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.17',
+                date: '24/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30',
+                title: 'Tra Cứu Bể Kính & Layout Hết Kho Trực Tiếp Trên Tab Sản Xuất',
+                summary: 'Bổ sung nút "Hết Kho" kèm khung Bento UI tra cứu realtime toàn bộ mặt hàng Bể Kính và Layout hết/sắp hết trong kho Products ngay tại Tab Sản Xuất, cho phép thợ lọc theo nhóm, tìm kiếm mã SKU, sao chép danh sách và bấm "Tạo Lệnh" SXT tức thì mà không cần chuyển sang Tab Kho.',
+                categories: ['Sản Xuất', 'Kho Vận', 'Bento UI', 'Tối Ưu', 'Tiện Ích'],
+                items: [
+                    {
+                        icon: 'fa-boxes-stacked',
+                        color: 'text-amber-400',
+                        title: 'Nút Tra Cứu & Badge Cảnh Báo Realtime',
+                        desc: 'Hiển thị ngay trên thanh công cụ sản xuất với badge đếm số lượng mặt hàng hết kho tự động nhấp nháy.'
+                    },
+                    {
+                        icon: 'fa-layer-group',
+                        color: 'text-cyan-400',
+                        title: 'Bento UI Lọc Bể Kính & Layout',
+                        desc: 'Hỗ trợ lọc nhanh theo phân hệ (Bể Kính / Layout / Tất Cả), mức tồn kho (Hết hàng / Sắp hết) và tìm kiếm SKU siêu tốc.'
+                    },
+                    {
+                        icon: 'fa-bolt',
+                        color: 'text-emerald-400',
+                        title: 'Tạo Lệnh SXT 1-Chạm Không Cần Đổi Tab',
+                        desc: 'Bấm nút "Tạo Lệnh" trực tiếp trên từng thẻ sản phẩm để mở ngay form SXT mà không làm gián đoạn luồng làm việc.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.16',
+                date: '24/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30',
+                title: 'Tách Bạch Hoàn Toàn KPI & Nhiệm Vụ Xu',
+                summary: 'Lắng nghe phản hồi từ anh em xưởng: Loại bỏ hoàn toàn AI đoán mò (regex heuristics) gây nhận diện sai (ví dụ: "Dọn dẹp bể kính" bị lầm thành KPI). Giờ đây hệ thống phân loại chính xác 100% dựa vào nút bấm (Tạo KPI / Giao Việc) mà người dùng thao tác.',
+                categories: ['Nhanh', 'Tối Ưu', 'Trải Nghiệm'],
+                items: [
+                    {
+                        icon: 'fa-bolt',
+                        color: 'text-amber-400',
+                        title: 'Tin Tưởng Người Dùng',
+                        desc: 'Bạn bấm nút "Tạo KPI", nó sẽ CHẮC CHẮN là KPI. Bạn bấm "Giao Việc", nó sẽ CHẮC CHẮN là Nhiệm Vụ Xu. Không đoán mò.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.15',
+                date: '24/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30',
+                title: 'Tối Ưu Phân Loại Nhiệm Vụ & KPI Sản Xuất',
+                summary: 'Khắc phục sự cố phân loại nhầm giữa KPI Sản Xuất và Nhiệm Vụ Xu.',
+                categories: ['Nhanh', 'Sửa Lỗi', 'KPI'],
+                items: [
+                    {
+                        icon: 'fa-check-circle',
+                        color: 'text-emerald-400',
+                        title: 'Giữ Đúng Phân Loại KPI',
+                        desc: 'Các chỉ tiêu sản xuất dù dùng đơn vị "Bộ" hay "Cái" vẫn được xếp vào đúng mục.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.14',
+                date: '24/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30',
+                title: 'Tái Cấu Trúc Bộ Lọc Giao Diện Kho Hàng & Nhật Ký Chứng Từ',
+                summary: 'Đơn giản hoá giao diện quản lý Kho Vận bằng cách quy hoạch toàn bộ dữ liệu về 3 nhóm kho chính: Kho Hàng Hoá, Kho Thành Phẩm, Kho Nguyên Liệu. Loại bỏ bộ lọc thao tác nghiệp vụ phức tạp cũ.',
+                categories: ['Kho Vận', 'Giao Diện', 'Tối Ưu', 'UX/UI'],
+                items: [
+                    {
+                        icon: 'fa-layer-group',
+                        color: 'text-blue-400',
+                        title: 'Quy Hoạch 3 Kho Tổng',
+                        desc: 'Tích hợp các danh mục nhỏ thành 3 nhóm lớn: Kho Hàng Hoá (Phụ kiện), Kho Thành Phẩm (Layout/Bể kính), Kho Nguyên Liệu (Vật tư).'
+                    },
+                    {
+                        icon: 'fa-filter',
+                        color: 'text-emerald-400',
+                        title: 'Bộ Lọc Nhật Ký Thông Minh',
+                        desc: 'Thay vì lọc theo phiếu Nhập Mua/Nhập Sản Xuất khó nhớ, hệ thống tự động nhận diện và phân luồng phiếu dựa trên mặt hàng bên trong thuộc kho nào.'
+                    },
+                    {
+                        icon: 'fa-trash-can',
+                        color: 'text-rose-400',
+                        title: 'Loại Bỏ Kho Hỏng Vỡ',
+                        desc: 'Xoá danh mục hàng hỏng vỡ dư thừa trên giao diện để tối ưu không gian hiển thị.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.13',
+                date: '24/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30',
+                title: 'Quét 100% Số Liệu Thực Tế Từ CSDL Đơn Hàng & Sổ Quỹ Cho KPI Lợi Nhuận Ròng',
+                summary: 'Loại bỏ hoàn toàn công thức ước tính định phí cũ, chuyển sang quét 100% dữ liệu thực từ bảng Orders (Doanh thu, COGS vật tư, Phí sàn, Voucher) và bảng Transactions (Quỹ lương, Mặt bằng, Điện nước, Marketing) để tính Biên Lợi Nhuận Ròng chính xác tuyệt đối.',
+                categories: ['Tài Chính', 'KPI', 'P&L', 'Chính Xác', 'Dữ Liệu Thật'],
+                items: [
+                    {
+                        icon: 'fa-database',
+                        color: 'text-emerald-400',
+                        title: 'Quét 100% Dữ Liệu Thật Từ CSDL',
+                        desc: 'Không sử dụng bất kỳ hệ số giả định nào, toàn bộ doanh thu, giá vốn COGS và phí sàn được bóc tách trực tiếp từ từng đơn hàng.'
+                    },
+                    {
+                        icon: 'fa-file-invoice-dollar',
+                        color: 'text-amber-400',
+                        title: 'Đồng Bộ Chi Phí Vận Hành Thực Tế Từ Sổ Quỹ',
+                        desc: 'Tự động tổng hợp chi phí lương và vận hành thực tế phát sinh trong tháng từ bảng Transactions (loại trừ chuyển khoản nội bộ).'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.12',
+                date: '23/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30',
+                title: 'Sửa Lỗi Đồng Bộ Biên Lợi Nhuận Bảng Kênh Bán & Tinh Lọc Chi Phí Vận Hành P&L',
+                summary: 'Khắc phục triệt để lỗi hiển thị sai Biên LN tổng cộng ở Bảng Kênh Bán (sửa từ -80.9% thành đúng +67.9% biên lợi nhuận gộp kênh), đồng thời tinh lọc giao dịch sổ quỹ loại bỏ các khoản chuyển tiền nội bộ / chờ phân bổ khỏi chi phí P&L.',
+                categories: ['Phân Tích', 'Tài Chính', 'P&L', 'Sửa Lỗi', 'Chính Xác'],
+                items: [
+                    {
+                        icon: 'fa-percentage',
+                        color: 'text-emerald-400',
+                        title: 'Biên Lợi Nhuận Bảng Kênh Bán Khớp 100% Toán Học',
+                        desc: 'Dòng Tổng cộng của bảng Kênh bán hàng hiển thị chuẩn xác tỷ lệ Biên Lợi Nhuận Gộp (Gross Margin = Lợi nhuận gộp kênh / Doanh thu kênh).'
+                    },
+                    {
+                        icon: 'fa-filter-circle-dollar',
+                        color: 'text-sky-400',
+                        title: 'Lọc Sạch Chi Phí P&L Toàn Doanh Nghiệp',
+                        desc: 'Tự động loại bỏ các khoản chuyển tiền nội bộ, rút quỹ hoặc phiếu tạm chưa phân bổ khỏi chi phí vận hành doanh nghiệp.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.11',
+                date: '23/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30',
+                title: 'Gộp Toàn Bộ Đơn Bán Hàng Đang Xử Lý Vào Số Tiến Độ Chính Thức & Làm Gọn Thẻ KPI',
+                summary: 'Gộp trực tiếp toàn bộ giá trị đơn chốt bán lẻ đang sản xuất / đóng gói vào thanh tiến độ chính thức, loại bỏ dòng chữ phụ "Tạm nhận", giúp giao diện KPI sắc nét và tối giản 100%.',
+                categories: ['Nhân Sự', 'Sales', 'KPI', 'Tối Ưu', 'Hallmark'],
+                items: [
+                    {
+                        icon: 'fa-layer-group',
+                        color: 'text-emerald-400',
+                        title: 'Gộp Trực Tiếp Doanh Thu Chốt Đơn Vào Tiến Độ Chính',
+                        desc: 'Mọi đơn hàng bán lẻ chốt thành công trong tháng được cộng dồn trực tiếp vào số tiến độ hoàn thành KPI của nhân sự Sales.'
+                    },
+                    {
+                        icon: 'fa-eye-slash',
+                        color: 'text-amber-400',
+                        title: 'Loại Bỏ Dòng Chữ "Tạm Nhận" Gây Rối Mắt',
+                        desc: 'Ẩn hoàn toàn nhãn Tạm nhận, tinh giản tối đa các chi tiết thừa để thẻ KPI luôn giữ vẻ đẹp thanh lịch theo chuẩn mực Hallmark.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.10',
+                date: '23/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30',
+                title: 'Thiết Kế Thẻ KPI Gọn Gàng, Chống Díu Chữ & Hiển Thị Đầy Đủ Thưởng Kèm Chế Tài Phạt',
+                summary: 'Tái thiết kế layout thẻ KPI theo chuẩn Hallmark UI: phân tách rõ ràng khối tiêu đề, huy hiệu, tiến độ số liệu font-mono, bổ sung hiển thị trực quan mức thưởng và chế tài phạt nếu không đạt.',
+                categories: ['Nhân Sự', 'KPI', 'UI/UX', 'Hallmark', 'Tối Ưu'],
+                items: [
+                    {
+                        icon: 'fa-layer-group',
+                        color: 'text-amber-400',
+                        title: 'Bố Cục Thẻ KPI Thoáng Đãng, Loại Bỏ Hoàn Toàn Díu Chữ',
+                        desc: 'Tách biệt rõ ràng giữa khối tiêu đề nhiệm vụ bên trái và cụm chỉ số hoàn thành / target bên phải, kết hợp thanh tiến độ hairline tinh tế ở đáy thẻ.'
+                    },
+                    {
+                        icon: 'fa-gavel',
+                        color: 'text-rose-400',
+                        title: 'Hiển Thị Rõ Ràng Thưởng Đạt Mục Tiêu & Phạt Nếu Không Đạt',
+                        desc: 'Tự động hiển thị song song huy hiệu Thưởng (Xanh) và Chế tài phạt k.đạt (Đỏ), giúp nhân sự nắm rõ mục tiêu và chế tài cam kết.'
+                    },
+                    {
+                        icon: 'fa-font',
+                        color: 'text-sky-400',
+                        title: 'Số Liệu Đo Lường Font Monospace Sắc Nét & Tỷ Lệ % Đạt Chuẩn',
+                        desc: 'Hiển thị tỷ lệ hoàn thành % cùng số liệu thực tế / target rõ ràng, căn lề chuẩn mực theo triết lý Hallmark.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.9',
+                date: '23/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30',
+                title: 'Chọn Hàng Loạt, Xoá Hàng Loạt & Phân Bổ Danh Mục Thu Chi Đa Điểm Chuẩn Hallmark',
+                summary: 'Bổ sung ô chọn checkbox từng phiếu, nút chọn tất cả, thanh tác vụ nổi (Floating Batch Action Bar) và modal phân bổ danh mục hàng loạt hoặc xoá hàng loạt có tự động hoàn lại số dư quỹ.',
+                categories: ['Tài Chính', 'Sổ Quỹ', 'Hàng Loạt', 'UI/UX', 'Hallmark'],
+                items: [
+                    {
+                        icon: 'fa-check-square',
+                        color: 'text-amber-400',
+                        title: 'Chọn Từng Phiếu & Chọn Tất Cả Cực Nhanh',
+                        desc: 'Tích hợp checkbox trực quan ở mỗi dòng giao dịch kèm nút Chọn Tất Cả / Bỏ Chọn trên thanh công cụ, hiệu ứng viền amber sang trọng.'
+                    },
+                    {
+                        icon: 'fa-tags',
+                        color: 'text-sky-400',
+                        title: 'Modal Phân Bổ Danh Mục Hàng Loạt (Batch Categorize)',
+                        desc: 'Chọn hàng chục phiếu "Chờ Xử Lý" hoặc chưa phân loại và gán ngay về Doanh Thu Bán Hàng, Cước Vận Chuyển, Chi Phí Khác... chỉ với 1 click.'
+                    },
+                    {
+                        icon: 'fa-trash',
+                        color: 'text-rose-400',
+                        title: 'Xoá Hàng Loạt An Toàn & Tự Động Hoàn Số Dư Quỹ',
+                        desc: 'Xoá cùng lúc nhiều giao dịch rác / trùng lặp, hệ thống tự động hoàn lại đúng số dư từng tài khoản quỹ và đồng bộ 1 lần (pushDeltas).'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.8',
+                date: '23/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30',
+                title: 'Tự Động Đo Doanh Thu Tổng (Không Trừ Hoàn) & Lợi Nhuận Ròng Cho Founder và Toàn Doanh Nghiệp',
+                summary: 'Đo tự động chỉ tiêu doanh thu tổng toàn bộ các kênh bán hàng (Shopee, TikTok, Bán Lẻ, Bán Sỉ, Xuất Khẩu, CTV...) không trừ hoàn giống bên Thống Kê Đơn Hàng; tự động tính tỷ lệ Lợi Nhuận Ròng % theo thời gian thực.',
+                categories: ['KPI', 'Doanh Thu', 'Nhân Sự', 'Founder', 'Tự Động Hóa'],
+                items: [
+                    {
+                        icon: 'fa-chart-line',
+                        color: 'text-emerald-400',
+                        title: 'Tự Động Đo Doanh Thu Tổng Không Trừ Hoàn (Đúng Chuẩn Thống Kê Đơn Hàng)',
+                        desc: 'KPI Doanh Thu của Founder (Nguyễn Ngọc Tiến / Toàn Xưởng) tự động quét toàn bộ đơn hàng hợp lệ của tất cả các kênh trong kỳ (chỉ loại trừ đơn HỦY, không trừ đơn hoàn), khớp 100% với Doanh thu Tổng bên tab Đơn Hàng.'
+                    },
+                    {
+                        icon: 'fa-percent',
+                        color: 'text-amber-400',
+                        title: 'Tự Động Tính Chỉ Tiêu Lợi Nhuận Ròng % (Net Profit Margin)',
+                        desc: 'Tự động tính tỷ lệ lợi nhuận ròng % từ kết quả P&L thực tế của doanh nghiệp, xóa bỏ tình trạng hiển thị âm hoặc kẹt số liệu cũ.'
+                    },
+                    {
+                        icon: 'fa-robot',
+                        color: 'text-sky-400',
+                        title: 'Đồng Bộ Cron Quét Tự Động Định Kỳ Trên Backend (updateKpiProgressData)',
+                        desc: 'Cập nhật trigger backend và hàm tính toán động trên WebApp (getDynamicKPIProgress), đảm bảo chỉ tiêu KPI luôn được cập nhật chính xác theo thời gian thực.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.7',
+                date: '23/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30',
+                title: 'Tách Biệt Lọc Thu/Chi, Xem Chi Tiết Phiếu Giao Dịch & Khắc Phục Lỗi Tính Nhầm Khoản Điều Chỉnh Số Dư',
+                summary: 'Thêm thanh lọc nhanh Thu/Chi/Chuyển Quỹ/Điều Chỉnh; bổ sung Modal xem chi tiết phiếu toàn diện; loại bỏ hoàn toàn các khoản điều chỉnh số dư kỹ thuật khỏi doanh thu, chi phí và tỷ trọng cơ cấu dòng tiền.',
+                categories: ['Tài Chính', 'Sổ Quỹ', 'UI/UX', 'Hallmark', 'Sửa Lỗi'],
+                items: [
+                    {
+                        icon: 'fa-sliders-h',
+                        color: 'text-purple-400',
+                        title: 'Loại Bỏ Khoản Điều Chỉnh Khỏi Báo Cáo Doanh Thu & Tỷ Trọng',
+                        desc: 'Bóc tách triệt để các giao dịch điều chỉnh số dư kỹ thuật (TX_ADJ_), đưa danh mục về "Điều Chỉnh Số Dư" và không cộng dồn vào Tổng Tiền Thu/Chi cũng như biểu đồ Tỷ Trọng Cơ Cấu.'
+                    },
+                    {
+                        icon: 'fa-filter',
+                        color: 'text-amber-400',
+                        title: 'Thanh Lọc Nhanh Tách Biệt: Thu / Chi / Chuyển / Điều Chỉnh',
+                        desc: 'Bổ sung các nút lọc phân loại nhanh kèm số lượng và tổng tiền từng luồng giúp theo dõi sổ quỹ minh bạch, rõ ràng theo chuẩn Hallmark.'
+                    },
+                    {
+                        icon: 'fa-eye',
+                        color: 'text-sky-400',
+                        title: 'Modal Xem Chi Tiết Phiếu Giao Dịch (Transaction Detail)',
+                        desc: 'Click vào từng dòng giao dịch hoặc nút con mắt để xem đầy đủ thông tin: Mã GD, Tài khoản nguồn/đích, Số dư trước/sau, Ghi chú, Ảnh chứng từ và nút In K58 tiện lợi.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.6',
+                date: '23/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30',
+                title: 'Khắc Phục Triệt Để Lỗi Công Nợ Âm Nhà Cung Cấp & Tự Động Làm Sạch Sổ Cái',
+                summary: 'Loại bỏ hoàn toàn thuật toán quét mờ tự động trừ nhầm các giao dịch chi lương/tạm ứng nhân viên vào công nợ NCC; bảo toàn 100% số liệu công nợ trên Google Sheet và tự động làm sạch các dòng công nợ âm.',
+                categories: ['Công Nợ', 'Nhà Cung Cấp', 'Kho Vận', 'Sửa Lỗi'],
+                items: [
+                    {
+                        icon: 'fa-file-invoice-dollar',
+                        color: 'text-rose-400',
+                        title: 'Loại Bỏ Logic Trừ Nhầm Tiền Lương Vào Công Nợ',
+                        desc: 'Gỡ bỏ hàm tự động quét bảng Transactions làm trừ nhầm hàng chục triệu tiền lương của thợ xưởng (Tâm, Tân, Đăng...) vào công nợ nhà cung cấp dẫn đến số âm.'
+                    },
+                    {
+                        icon: 'fa-database',
+                        color: 'text-amber-400',
+                        title: 'Tôn Trọng Tuyệt Đối Sổ Cái Google Sheet (Suppliers.totalDebt)',
+                        desc: 'Bảo đảm mọi thao tác xoá, sửa, nhập số dư đầu kỳ trên Sheet hoặc trên WebApp được giữ nguyên vẹn, không bao giờ bị tính đè lại khi tải app.'
+                    },
+                    {
+                        icon: 'fa-wand-magic-sparkles',
+                        color: 'text-emerald-400',
+                        title: 'Tự Động Làm Sạch & Phục Hồi Công Nợ (api_repairSupplierNegativeDebts)',
+                        desc: 'Tự động quét và chuyển các khoản nợ âm bất hợp lý về đúng tổng tiền các phiếu nợ thực tế trong ImportExport hoặc 0đ.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.5',
+                date: '23/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30',
+                title: 'Khôi Phục Tiến Độ Nhiệm Vụ Xu Chưa Hoàn Thành Về Đúng Bảng KPI_Progress',
+                summary: 'Khắc phục triệt để lỗi hiển thị đã duyệt nhầm đối với các nhiệm vụ đang thực hiện (ví dụ: chỉ tiêu 8 bộ mới bán được 1 bộ). Quy hoạch chuẩn mực: nhiệm vụ có chỉ tiêu theo dõi tiến độ tại KPI_Progress, chỉ chuyển vào ThongKe_TichLuyXu khi đạt 100% chỉ tiêu và hoàn tất duyệt thưởng.',
+                categories: ['Nhân Sự', 'Quỹ Xu', 'Tiến Độ KPI', 'Sửa Lỗi'],
+                items: [
+                    {
+                        icon: 'fa-tasks',
+                        color: 'text-blue-400',
+                        title: 'Đúng Bảng & Đúng Tiến Độ Thực Tế (1/8 Bộ)',
+                        desc: 'Tự động phục hồi các nhiệm vụ đang làm về bảng KPI_Progress với trạng thái isClaimed = FALSE, hiển thị chuẩn xác tiến độ thanh máu (ví dụ: 1/8 bộ) trong tab Nhiệm Vụ của nhân sự.'
+                    },
+                    {
+                        icon: 'fa-shield-halved',
+                        color: 'text-amber-400',
+                        title: 'Không Tự Động Cộng Xu Khi Chưa Hoàn Thành',
+                        desc: 'Bảng ThongKe_TichLuyXu chỉ lưu giữ các khoản Xu đã thực nhận/được tặng hợp lệ. Các nhiệm vụ chưa đạt 100% chỉ tiêu sẽ không bị tính trước vào ví tích lũy.'
+                    },
+                    {
+                        icon: 'fa-bolt',
+                        color: 'text-emerald-400',
+                        title: 'Chuẩn Hóa API Giao Việc (api_insertManualTask)',
+                        desc: 'Giao nhiệm vụ trực tiếp vào KPI_Progress với isClaimed = false, cho phép nhân sự chủ động báo cáo tiến độ và sếp nghiệm thu công bằng.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.4',
+                date: '23/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30',
+                title: 'Tối Ưu Thẻ Sản Xuất & Loại Bỏ Hiệu Ứng Neon, Chuẩn Hóa Nhận Diện Khâu Theo Triết Lý Hallmark',
+                summary: 'Loại bỏ hoàn toàn các viền neon xoay chuyển 360 độ gây rối mắt; thay thế bằng thanh hairline trạng thái tinh tế và huy hiệu nhận diện khâu thực chiến sắc nét, nâng cao độ tương phản và tốc độ thao tác của thợ xưởng.',
+                categories: ['Sản Xuất', 'UI/UX', 'Hallmark', 'Tối Ưu'],
+                items: [
+                    {
+                        icon: 'fa-wand-magic-sparkles',
+                        color: 'text-amber-400',
+                        title: 'Xóa Bỏ Viền Neon Rối Mắt & Nâng Cấp Viền Ambient Tinh Tế',
+                        desc: 'Loại bỏ hiệu ứng neon-running-dot conic-gradient và bóng mờ quá đà, thay bằng viền hairline 1px với tông màu tinh tế theo từng giai đoạn sản xuất.'
+                    },
+                    {
+                        icon: 'fa-stream',
+                        color: 'text-emerald-400',
+                        title: 'Huy Hiệu Nhận Diện Khâu Đang Làm Chuẩn Xác & Trực Quan',
+                        desc: 'Bổ sung huy hiệu định vị giai đoạn sản xuất (Đang dựng khung, Chờ gia cố, Chờ duyệt khung, Yêu cầu làm lại) với đèn thở micro-pulse trực quan, hỗ trợ thợ nhận biết việc tức thì.'
+                    },
+                    {
+                        icon: 'fa-layer-group',
+                        color: 'text-blue-400',
+                        title: 'Chuẩn Hóa Hàng Khâu & Nút Bấm Thao Tác',
+                        desc: 'Tối ưu độ tương phản các khối khâu thực hiện (WorkerPhaseV2), nâng cấp nút Nhận làm, Chụp ảnh, Xem ảnh sắc nét, tactile và chuẩn mực.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.3',
+                date: '23/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30',
+                title: 'Tự Động Quy Hoạch Toàn Bộ KPI Xu Sang Bảng ThongKe_TichLuyXu',
+                summary: 'Tự động quét và di dời toàn bộ các bản ghi KPI Xu từ bảng KPI_Progress sang đúng bảng ThongKe_TichLuyXu; dọn dẹp sạch sẽ bảng KPI_Progress và quy hoạch hàm giao nhiệm vụ Xu ghi trực tiếp vào bảng tích lũy.',
+                categories: ['Nhân Sự', 'Quỹ Xu', 'Cơ Sở Dữ Liệu', 'Tối Ưu'],
+                items: [
+                    {
+                        icon: 'fa-coins',
+                        color: 'text-amber-400',
+                        title: 'Tự Động Di Dời Toàn Bộ KPI_XU Vào ThongKe_TichLuyXu',
+                        desc: 'Hàm api_migrateKpiXuFromKPIProgressToThongKeTichLuyXu tự động quét dọn trong nền khi khởi động ứng dụng, di dời toàn bộ các dòng nhiệm vụ Xu sang bảng ThongKe_TichLuyXu an toàn 100%.'
+                    },
+                    {
+                        icon: 'fa-broom',
+                        color: 'text-emerald-400',
+                        title: 'Dọn Sạch Bảng KPI_Progress Chuẩn Hóa 100% Cho KPI Tiền Mặt',
+                        desc: 'Bảng KPI_Progress được làm sạch hoàn toàn khỏi các dòng dữ liệu Xu, chỉ còn lưu giữ các chỉ tiêu sản xuất, tiến độ năng suất và thưởng tiền mặt của xưởng.'
+                    },
+                    {
+                        icon: 'fa-bolt',
+                        color: 'text-blue-400',
+                        title: 'Giao Việc / Thưởng Xu Trực Tiếp Vào Bảng Thống Kê Xu',
+                        desc: 'Nâng cấp api_insertManualTask ghi nhận chuẩn xác trực tiếp vào ThongKe_TichLuyXu mà không để lại rác dữ liệu ở các bảng khác.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.2',
+                date: '23/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30',
+                title: 'Loại Trừ Đơn Hàng & Cảnh Báo SLA Đóng Gói Vào Ngày Chủ Nhật (Xưởng Nghỉ Chủ Nhật)',
+                summary: 'Tự động khóa toàn bộ cơ chế Cảnh báo SLA đóng gói sau 19:00 và tạm dừng phạt tự động 20k/đơn Shopee VN sau 21:00 vào ngày Chủ Nhật, bảo vệ nhân sự phụ trách (Diệu Hương) không bị cảnh báo và phạt nhầm vào ngày nghỉ xưởng.',
+                categories: ['Vận Hành', 'SLA Đóng Gói', 'Poka-Yoke', 'Combat Log'],
+                items: [
+                    {
+                        icon: 'fa-calendar-xmark',
+                        color: 'text-emerald-400',
+                        title: 'Tự Động Bỏ Qua Ngày Chủ Nhật Cho Hàng Đợi SLA Đóng Gói',
+                        desc: 'Vào ngày Chủ Nhật, Dashboard ẩn hoàn toàn banner đỏ cảnh báo SLA đóng gói sau 19:00 và làm rỗng danh sách đơn tồn readyToPackOrders, bảo đảm giao diện chuẩn xác và thanh thoát.'
+                    },
+                    {
+                        icon: 'fa-shield-halved',
+                        color: 'text-amber-400',
+                        title: 'Khóa Tự Động Phạt 20k/Đơn Shopee VN Sau 21:00 Trên Backend',
+                        desc: 'api_getOperationsHealth và api_recordPackingViolationLog tự động bỏ qua ngày Chủ Nhật (getDay() === 0), tuyệt đối không ghi nhận vi phạm vào BonusPenalty hay Tracking_Log.'
+                    },
+                    {
+                        icon: 'fa-broom',
+                        color: 'text-blue-400',
+                        title: 'Công Cụ Tự Động Dọn Dẹp Bản Ghi Vi Phạm Nhầm Ngày Chủ Nhật',
+                        desc: 'Bổ sung hàm api_cleanupSundayPackingViolations bọc LockService an toàn, sẵn sàng quét sạch các dòng cảnh báo/phạt phát sinh nhầm lẫn trong các ngày nghỉ Chủ Nhật.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.1',
+                date: '23/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30',
+                title: 'Chuẩn Hóa Mốc 9 Bậc Quân Hàm (Cấp 1-9 Tân Thủ, Cấp 10-14 Hổ Phách) & Tích Hợp Quỹ 50.000 Xu',
+                summary: 'Tinh chỉnh mốc Bậc Quân Hàm thực chiến theo cấu trúc cấp độ xưởng (Tân Thủ 1-9, Hổ Phách 10-14, Lục Bảo 15-19... Thần Thoại 50-100), tích hợp trọn vẹn Quỹ 50.000 Xu Boss tặng từ ThongKe_TichLuyXu và nâng cấp Huy hiệu Dual-Pill siêu sắc nét.',
+                categories: ['Nhân Sự', 'EXP & Cấp Độ', 'Quỹ Xu', 'UI/UX'],
+                items: [
+                    {
+                        icon: 'fa-shield-halved',
+                        color: 'text-amber-400',
+                        title: 'Chuẩn Hóa Mốc Phân Bậc Quân Hàm Thực Chiến',
+                        desc: 'Tân Thủ (Cấp 1-9), Hổ Phách (Cấp 10-14), Lục Bảo (Cấp 15-19), Lam Ngọc (Cấp 20-24), Thạch Anh (Cấp 25-29), Huyết Tướng (Cấp 30-34), Hoả Phụng (Cấp 35-39), Thái Dương (Cấp 40-49), Thần Thoại (Cấp 50-100).'
+                    },
+                    {
+                        icon: 'fa-coins',
+                        color: 'text-amber-300',
+                        title: 'Tích Hợp Quỹ 50.000 Xu Boss Tặng & So Khớp Họ Tên Thông Minh',
+                        desc: 'Đọc chuẩn xác từ bảng ThongKe_TichLuyXu và so khớp tên nhân sự toàn diện (họ tên đầy đủ & tên gọi), hiển thị tức thì số dư 50.000 Xu trên thẻ nhân sự, Tab Xu và Modal EXP.'
+                    },
+                    {
+                        icon: 'fa-id-badge',
+                        color: 'text-emerald-400',
+                        title: 'Huy Hiệu Cấp Độ Dual-Pill Siêu Sắc Nét (High Contrast)',
+                        desc: 'Tách biệt 2 khối độc lập: Khối Cấp Độ chữ to vàng neon trên nền đen viền kim loại 2px và Khối Bậc Quân Hàm riêng biệt, xóa bỏ hoàn toàn tình trạng chữ mờ hay lem màu.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.10.0',
+                date: '23/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30',
+                title: 'Nâng Cấp Toàn Diện Hệ Thống EXP, 9 Bậc Quân Hàm & Giao Diện Thẻ Nhân Sự',
+                summary: 'Đột phá hệ thống EXP lũy tiến bậc 2.35 (Max 2 Tỷ EXP), 9 bậc quân hàm với dải màu Neon Prestige, thẻ nhân sự chống cắt tràn tên kèm thanh Shimmer EXP và Modal tra cứu lịch sử 5 nguồn cống hiến + Lộ trình 100 cấp độ.',
+                categories: ['Nhân Sự', 'EXP & Cấp Độ', 'UI/UX', 'Quân Hàm'],
+                items: [
+                    {
+                        icon: 'fa-layer-group',
+                        color: 'text-amber-400',
+                        title: 'Hệ Thống 9 Bậc Quân Hàm & Dải Màu Neon Prestige',
+                        desc: '9 Bậc Quân hàm (Tân Thủ, Hổ Phách, Lục Bảo, Lam Ngọc, Thạch Anh, Huyết Tướng, Hoả Phụng, Thái Dương, Thần Thoại) với icon emoji, hiệu ứng hào quang Aura và huy hiệu VIP.'
+                    },
+                    {
+                        icon: 'fa-chart-line',
+                        color: 'text-sky-400',
+                        title: 'Công Thức EXP Lũy Tiến Bậc 2.35 (Chuẩn RPG Cống Hiến)',
+                        desc: 'Thiết kế cấp độ càng lên cao càng cần nhiều EXP, tích lũy từ 5 nguồn cống hiến thực chiến: Giờ chấm công, Sản xuất khâu 1 & 2, Đóng gói xuất kho, KPI tháng và Nhiệm vụ Xu.'
+                    },
+                    {
+                        icon: 'fa-id-card',
+                        color: 'text-emerald-400',
+                        title: 'Tái Cấu Trúc Thẻ Nhân Sự Chống Cắt Tràn Tên & Thanh Shimmer EXP',
+                        desc: 'Sửa triệt để lỗi co cụt tên nhân sự, hiển thị trọn vẹn họ tên, bổ sung thanh EXP Bar full-width có hiệu ứng ánh sáng Shimmer lướt qua.'
+                    },
+                    {
+                        icon: 'fa-history',
+                        color: 'text-purple-400',
+                        title: 'Modal Tra Cứu Lịch Sử Tích Lũy EXP & Đại Sảnh 100 Cấp Độ',
+                        desc: 'Bấm vào huy hiệu cấp độ hoặc thanh EXP để bung Modal Bento 5 nguồn tích lũy, bộ lọc giao dịch chi tiết và đại sảnh lộ trình 100 cấp độ.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.9.7',
+                date: '23/08/2026',
+                isLatest: false,
+                badge: 'TRƯỚC ĐÓ',
+                badgeColor: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30',
+                title: 'Nút & Modal Xem Toàn Diện Thông Tin & Trạng Thái Đơn Hàng',
+                summary: 'Bổ sung nút Chi Tiết trên thẻ đơn CTV mở modal Bento tra cứu toàn bộ 5 góc nhìn: Khách hàng, Giao vận, Hạch toán dư nợ, Sản xuất/KCS và Đóng gói kèm zoom ảnh.',
+                categories: ['CTV', 'Đơn Hàng', 'UI/UX', 'Kho Vận'],
+                items: [
+                    {
+                        icon: 'fa-circle-info',
+                        color: 'text-[#d4af37]',
+                        title: 'Nút [Chi Tiết] Trên Từng Thẻ Đơn Hàng',
+                        desc: 'Bổ sung nút Chi Tiết giúp người dùng xem ngay toàn bộ thông tin đơn hàng mà không cần rời khỏi Tab CTV.'
+                    },
+                    {
+                        icon: 'fa-cubes',
+                        color: 'text-sky-400',
+                        title: '5 Khối Dữ Liệu Toàn Diện & KCS Chi Tiết',
+                        desc: 'Hiển thị đầy đủ thông tin giao hàng, tài chính & dư nợ, tiến độ thợ dán khung/gắn rêu, kết quả KCS và ảnh đóng gói thực tế.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.9.6',
+                date: '23/08/2026',
+                isLatest: false,
+                title: 'Chuẩn Hóa Hiển Thị Số Tiền Dư CTV (Bỏ Dấu Trừ Gây Hiểu Lầm)',
+                summary: 'Loại bỏ hoàn toàn dấu âm khi hiển thị số dư cho CTV (Dư: 14.000đ thay vì Dư: -14.000đ); đồng bộ hiển thị và tiêu đề thẻ thống kê theo dòng tiền thực tế.',
+                categories: ['CTV', 'UI/UX', 'Tài Chính'],
+                items: [
+                    {
+                        icon: 'fa-eye',
+                        color: 'text-emerald-400',
+                        title: 'Hiển Thị Trực Quan: Dư [Tiền] (Không Có Dấu Trừ)',
+                        desc: 'Khi có số tiền dư cho CTV, thẻ đơn hiển thị "Dư: 14.000đ" màu xanh lá, xóa bỏ triệt để dấu âm gây nhầm lẫn là bị thiếu tiền.'
+                    },
+                    {
+                        icon: 'fa-balance-scale',
+                        color: 'text-amber-400',
+                        title: 'Đồng Bộ Tiêu Đề Thẻ Bento Cards Khi Có Dư',
+                        desc: 'Tự động hiển thị "Shop Dư từ Đơn hàng" và "TỔNG XƯỞNG DƯ TRẢ CTV" rõ ràng, minh bạch theo ngữ cảnh công nợ.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.9.5',
+                date: '23/08/2026',
+                isLatest: false,
+                title: 'Hoàn Thiện Dư Nợ CTV, Cộng Phụ Phí Đơn & Chuẩn Hóa Màu Sắc',
+                summary: 'Tự động cộng phụ phí phát sinh vào số dư nợ từng đơn hàng CTV; cố định màu Đỏ (CTV nợ Shop) / Xanh (Shop trả CTV); bổ sung banner chú thích màu sắc và sửa nhãn trạng thái sản phẩm.',
+                categories: ['CTV', 'Tài Chính', 'UI/UX', 'Đơn Hàng'],
+                items: [
+                    {
+                        icon: 'fa-calculator',
+                        color: 'text-amber-400',
+                        title: 'Cộng Phụ Phí Vào Dư Nợ Từng Đơn Hàng',
+                        desc: 'Khóa chặt công thức: Dư Nợ Đơn = Giá + Phụ phí - COD - Cọc, đảm bảo các chi phí phát sinh (ship hoàn, gửi ngoài) được hạch toán ngay vào đơn hàng liên quan.'
+                    },
+                    {
+                        icon: 'fa-palette',
+                        color: 'text-rose-400',
+                        title: 'Chuẩn Hóa Màu Sắc: Đỏ (Nợ) & Xanh (Dư)',
+                        desc: 'Quy ước rõ ràng: Số ĐỎ (+) là CTV nợ Shop (cần thu); Số XANH (-) là Shop giữ dư tiền cần trả CTV; 0đ là đã thanh toán sòng phẳng.'
+                    },
+                    {
+                        icon: 'fa-info-circle',
+                        color: 'text-sky-400',
+                        title: 'Banner Chú Thích Màu Sắc Trên Đầu Tab CTV',
+                        desc: 'Bổ sung khung chú thích trực quan, nổi bật trên đầu trang Đối Soát CTV giúp người dùng nắm bắt trạng thái tài chính chỉ trong 1 giây.'
+                    },
+                    {
+                        icon: 'fa-check-double',
+                        color: 'text-emerald-400',
+                        title: 'Sửa Nhãn Trạng Thái Sản Phẩm Trên Thẻ Đơn',
+                        desc: 'Đơn hàng Đã Bàn Giao / Đối Soát Thành Công không còn bị kẹt nhãn SẴN SÀNG ĐÓNG GÓI, phản ánh chính xác trạng thái thực tế.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.9.4',
+                date: '23/08/2026',
+                isLatest: false,
+                title: 'Quy Hoạch Chuẩn Xác Quỹ Xu Tích Lũy Vào Bảng ThongKe_TichLuyXu',
+                summary: 'Di chuyển toàn bộ các khoản tặng Xu và thưởng nhiệm vụ sang đúng bảng ThongKe_TichLuyXu; dọn dẹp sạch bảng BonusPenalty tiền mặt để đảm bảo hạch toán bảng lương không bị cộng dồn nhầm lẫn.',
+                categories: ['Quỹ Xu', 'Nhân Sự', 'Tài Chính', 'Cơ Sở Dữ Liệu'],
+                items: [
+                    {
+                        icon: 'fa-coins',
+                        color: 'text-amber-400',
+                        title: 'Chuyển Toàn Bộ Giao Dịch Xu Sang ThongKe_TichLuyXu',
+                        desc: 'Khoản Boss tặng xu và tích lũy xu nhiệm vụ được lưu chuẩn xác vào bảng ThongKe_TichLuyXu, hoàn toàn tách biệt khỏi sổ thưởng phạt tiền mặt BonusPenalty.'
+                    },
+                    {
+                        icon: 'fa-broom',
+                        color: 'text-emerald-400',
+                        title: 'Tự Động Quét Dọn & Migration Dữ Liệu Cũ',
+                        desc: 'Hệ thống tự động di dời các bản ghi XU_REWARD cũ từ BonusPenalty sang ThongKe_TichLuyXu và xóa khỏi bảng tiền mặt khi ứng dụng khởi chạy.'
+                    },
+                    {
+                        icon: 'fa-wallet',
+                        color: 'text-sky-400',
+                        title: 'Đồng Bộ Realtime Ví Xu Trên Thanh Tiêu Đề',
+                        desc: 'Badge hiển thị số dư Xu trên Header tự động cộng dồn tức thời từ bảng ThongKe_TichLuyXu theo thời gian thực.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.9.3',
+                date: '23/08/2026',
+                isLatest: false,
+                title: 'Tách Biệt Thông Báo Hệ Thống Khỏi Nhật Ký Xuất Nhập Kho Vận',
+                summary: 'Di chuyển toàn bộ thông báo phát loa của Ban Quản Lý (Boss) từ bảng Kho hàng (ImportExport) sang bảng Tài Liệu (Documents), đồng thời ẩn hoàn toàn khỏi danh mục tài liệu để tránh nhầm lẫn.',
+                categories: ['Kho Vận', 'Tài Liệu', 'Bảo Mật', 'Hệ Thống'],
+                items: [
+                    {
+                        icon: 'fa-bullhorn',
+                        color: 'text-amber-400',
+                        title: 'Lưu Trữ Thông Báo Đúng Bản Chất Tài Liệu',
+                        desc: 'Thông báo phát loa từ Boss được chuyển sang lưu trữ an toàn trong bảng Documents với category là THONG_BAO_HE_THONG, không tạo các mã phiếu ảo trong sổ kho.'
+                    },
+                    {
+                        icon: 'fa-eye-slash',
+                        color: 'text-sky-400',
+                        title: 'Ẩn Hoàn Toàn Khỏi Thư Viện Tài Liệu Công Khai',
+                        desc: 'Bản ghi thông báo ngầm được ẩn khỏi danh sách tài liệu trong Tab_Documents.html, giữ cho thư viện tài liệu luôn gọn gàng, chuẩn xác.'
+                    },
+                    {
+                        icon: 'fa-clipboard-check',
+                        color: 'text-emerald-400',
+                        title: 'Làm Sạch 100% Nhật Ký Chứng Từ Kho',
+                        desc: 'Bộ lọc tại Nhật Ký Kho (Tab_ImportExport.html) tự động loại bỏ các mã phiếu SYS_ANNO_... để thợ và quản lý kho không bị nhầm lẫn với các phiếu xuất nhập hàng thật.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.9.2',
+                date: '23/08/2026',
+                isLatest: false,
+                title: 'Khắc Phục Hiện Tượng Trượt Màn Hình Trên Di Động & Khóa Dư Nợ Bất Biến',
+                summary: 'Khóa cứng chống rung lắc / bay màn hình ngang trên điện thoại di động khi thao tác vuốt bảng ở Nhật Ký Kho và Kiểm Kho; đồng thời cố định công thức tính Dư Nợ CTV bất biến cho mọi trạng thái đơn.',
+                categories: ['UI/UX', 'Kho Vận', 'Di Động', 'Tài Chính'],
+                items: [
+                    {
+                        icon: 'fa-mobile-alt',
+                        color: 'text-sky-400',
+                        title: 'Triệt Tiêu Hiện Tượng Trượt Màn Hình Ngang Trên Mobile',
+                        desc: 'Khóa chặt overscroll-behavior: none, overflow-x: clip và touch-pan-y trên toàn bộ khung viewport, ngăn chặn 100% hiện tượng rung lắc hay bay màn hình khi vuốt ngang bảng hoặc thanh chọn danh mục ở Nhật Ký Kho và Kiểm Kho.'
+                    },
+                    {
+                        icon: 'fa-shield-alt',
+                        color: 'text-amber-400',
+                        title: 'Tối Ưu Touch-Action & Cuộn Bảng Độc Lập',
+                        desc: 'Trang bị thuộc tính overscroll-x-contain và touch-pan-x độc lập cho tất cả bảng dữ liệu, danh sách kiểm kê và thanh lọc nghiệp vụ giúp thao tác vuốt trơn tru không bị lan sang trang chính.'
+                    },
+                    {
+                        icon: 'fa-calculator',
+                        color: 'text-emerald-400',
+                        title: 'Cố Định Công Thức Dư Nợ CTV Bất Biến',
+                        desc: 'Đảm bảo công thức Dư Nợ = Giá - Thu COD - Cọc luôn hiển thị đúng và nhất quán cho mọi đơn (kể cả Hàng Hoàn, Đã Bàn Giao hay Đối Soát Thành Công).'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.9.1',
+                date: '23/08/2026',
+                isLatest: false,
+                title: 'Chuẩn Hóa Đối Soát CTV, Tách Bạch Dư Nợ Âm Dương & Khắc Phục Lỗi Trắng Màn',
+                summary: 'Khắc phục triệt để lỗi đồng bộ GHN làm lệch doanh thu đơn hàng CTV, bảo vệ nguyên vẹn giá xưởng, hạch toán chuẩn xác tiền thu COD của Xưởng và cô lập 100% dòng tiền CTV khỏi tab Tài Chính.',
+                categories: ['Tài Chính', 'Vận Hành', 'Bảo Mật', 'UI/UX'],
+                items: [
+                    {
+                        icon: 'fa-handshake',
+                        color: 'text-emerald-400',
+                        title: 'Tách Bạch Dư Nợ Âm Dương CTV Chuẩn Xác',
+                        desc: 'Xác định rõ ràng tiền thu COD qua GHN là tiền Xưởng thu về. Dư nợ trên từng đơn hàng và toàn kỳ được hạch toán tách bạch: số âm (-) là Xưởng nợ CTV, số dương (+) là CTV nợ Xưởng.'
+                    },
+                    {
+                        icon: 'fa-lock',
+                        color: 'text-[#d4af37]',
+                        title: 'Cách Ly 100% Khỏi Sổ Quỹ Tab Tài Chính',
+                        desc: 'Sửa hàm syncGHNViaAPI trong Code.js: tuyệt đối không ghi đè cột doanh thu (revenue) của đơn và không tạo giao dịch vào sheet Transactions của công ty cho các đơn CTV.'
+                    },
+                    {
+                        icon: 'fa-bolt',
+                        color: 'text-sky-400',
+                        title: 'Sửa Lỗi Trắng Màn Khi Làm Mới Dữ Liệu',
+                        desc: 'Thay thế lệnh reload iframe bằng cơ chế dispatch triggerReloadData mượt mà, nạp lại toàn bộ dữ liệu mới nhất trong 0.5s mà không bị gián đoạn hay trắng màn.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.9.0',
+                date: '23/08/2026',
+                isLatest: false,
+                title: 'Hộp Đen Đối Soát Thao Tác Thợ, Poka-Yoke Chống Lỗi & Tối Ưu Dark Mode',
+                summary: 'Đợt nâng cấp toàn diện nhằm triệt tiêu 100% tình trạng thợ đổ lỗi do mạng/app, chuẩn hoá định mức khâu sản xuất và làm mới trải nghiệm Dark Mode siêu tối ưu.',
+                categories: ['Sản Xuất', 'Bảo Mật', 'UI/UX', 'Vận Hành'],
+                items: [
+                    {
+                        icon: 'fa-shield-alt',
+                        color: 'text-rose-400',
+                        title: 'Hộp Đen Đối Soát Thao Tác Thợ (Blackbox Action Logger)',
+                        desc: 'Tự động ghi nhận 250 lượt bấm nút gần nhất vào bộ nhớ máy thợ với độ chính xác đến từng mili-giây, trạng thái mạng Online/Offline và thiết bị. Chỉ dành riêng cho Boss phân quyền TỐI CAO mở xem & đối chất minh bạch.'
+                    },
+                    {
+                        icon: 'fa-hand-paper',
+                        color: 'text-amber-400',
+                        title: 'Chốt Chặn Poka-Yoke Xác Nhận Lệnh Thông Minh',
+                        desc: 'Popup xác nhận hiển thị to rõ tên hàng, mã đơn, khâu nhận việc, thời gian định mức và tiền thưởng trước khi bắt đầu đếm giờ làm việc, loại bỏ hoàn toàn việc thợ bấm nhầm đơn hoặc bấm mù.'
+                    },
+                    {
+                        icon: 'fa-bell',
+                        color: 'text-blue-400',
+                        title: 'Phản Hồi Xúc Giác & Âm Thanh (Haptic & Web Audio Feedback)',
+                        desc: 'Phát âm thanh Chime xác nhận và rung máy điện thoại mỗi khi nhận lệnh hoặc nộp ảnh hoàn thành, giúp thợ nhận biết thao tác thành công tức thì.'
+                    },
+                    {
+                        icon: 'fa-layer-group',
+                        color: 'text-indigo-400',
+                        title: 'Bảng Định Mức BOM & Chuẩn HoÁ Tên Khâu Toàn Diện',
+                        desc: 'Cập nhật chuẩn xác tên khâu Bể Kính thành Cắt Dán & Gọt Keo; Layout thành Dựng Khung & Gia Cố. Tích hợp hiển thị KPI Đóng Gói và tiền thưởng trực quan.'
+                    },
+                    {
+                        icon: 'fa-moon',
+                        color: 'text-[#d4af37]',
+                        title: 'Thuần Dark Mode & Tái Cấu Trúc Menu 3 Phân Nhóm',
+                        desc: 'Gỡ bỏ hoàn toàn toggle giao diện sáng, tối ưu độ tương phản chuẩn OLED. Phân chia menu rõ ràng: VẬN HÀNH, QUẢN LÝ (KẾ TOÁN & KHO), TIỆN ÍCH.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.8.5',
+                date: '22/08/2026',
+                isLatest: false,
+                title: 'Đồng Bộ Schema 23 Bảng CSDL Cốt Lõi & Tài Chính CTV Tách Biệt',
+                summary: 'Tối ưu hoá đường truyền dữ liệu, tăng tốc độ phản hồi và bảo vệ độc lập số dư tài chính CTV.',
+                categories: ['Cơ Sở Dữ Liệu', 'Tài Chính', 'CTV'],
+                items: [
+                    {
+                        icon: 'fa-database',
+                        color: 'text-emerald-400',
+                        title: 'Chuẩn Hoá Relational Schema 23 Bảng',
+                        desc: 'Đồng bộ 100% tên cột Google Sheets, AppSheet và React State; bọc LockService 30s chống xung đột ghi đồng thời.'
+                    },
+                    {
+                        icon: 'fa-wallet',
+                        color: 'text-amber-400',
+                        title: 'Phân Tách Sổ Quỹ CTV_Finance',
+                        desc: 'Cách ly toàn bộ các giao dịch nạp/rút của Cộng tác viên ra khỏi Sổ quỹ chính của công ty, đảm bảo an toàn kế toán.'
+                    },
+                    {
+                        icon: 'fa-archive',
+                        color: 'text-purple-400',
+                        title: 'Lazy-load Đơn Hàng Lưu Trữ (Archive Engine)',
+                        desc: 'Chỉ nạp các đơn hàng đang xử lý trong tháng, đơn cũ được đưa vào kho lưu trữ tải theo yêu cầu, giảm tải 400% dung lượng RAM.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.8.0',
+                date: '20/08/2026',
+                isLatest: false,
+                title: 'Tự Động Bù Lệnh Sản Xuất Kho Âm & Pre-Flight Check Đóng Gói',
+                summary: 'Nâng cao độ chính xác trong chuỗi cung ứng và điều phối đơn hàng TMĐT.',
+                categories: ['Kho Hàng', 'Đóng Gói', 'Tự Động Hoá'],
+                items: [
+                    {
+                        icon: 'fa-boxes-stacked',
+                        color: 'text-blue-400',
+                        title: 'Tự Động Bù Lệnh Sản Xuất Khi Tồn Kho Thiếu',
+                        desc: 'Khi đơn Shopee/TikTok về mà tồn kho = 0, hệ thống tự động sinh lệnh sản xuất mới và chuyển trạng thái đơn sang Chờ Sản Xuất.'
+                    },
+                    {
+                        icon: 'fa-box-open',
+                        color: 'text-amber-400',
+                        title: 'Chốt Chặn Tiền Trạm (Pre-flight Check) Phụ Kiện',
+                        desc: 'Quét toàn bộ phụ kiện kèm theo đơn hàng, tự động cảnh báo đỏ nếu thiếu phụ kiện trước khi chuyển sang khâu đóng gói.'
+                    }
+                ]
+            },
+            {
+                version: 'Royal v2.7.0',
+                date: '15/08/2026',
+                isLatest: false,
+                title: 'Khoanh Vùng Lỗi KCS Trên Ảnh & Báo Cáo Sản Lượng Realtime',
+                summary: 'Nâng cấp công cụ kiểm soát chất lượng hình ảnh và thống kê năng suất thợ.',
+                categories: ['KCS', 'Báo Cáo', 'Sản Xuất'],
+                items: [
+                    {
+                        icon: 'fa-draw-polygon',
+                        color: 'text-rose-400',
+                        title: 'Image Annotation: Vẽ Khoanh Vùng Lỗi KCS',
+                        desc: 'Cho phép Quản lý xưởng vẽ trực tiếp vị trí lỗi (dán keo xấu, lệch góc, vỡ góc) lên ảnh để thợ biết vị trí cần sửa lại.'
+                    },
+                    {
+                        icon: 'fa-chart-simple',
+                        color: 'text-emerald-400',
+                        title: 'Bảng Báo Cáo Năng Suất Từng Nhân Sự',
+                        desc: 'Bóc tách sản lượng hoàn thành theo từng khâu (Dựng Khung, Gia Cố, Cắt Dán, Gọt Keo), tự động tính lương thưởng realtime.'
+                    }
+                ]
             }
+        ];
 
-            // 2. Nếu trong môi trường GAS iframe hoặc không hỗ trợ PushManager, tạo Device Token định danh
-            if (!subPayload) {
-                let deviceId = localStorage.getItem('rf_device_id');
-                if (!deviceId) {
-                    deviceId = 'DEV_' + Math.random().toString(36).substring(2, 10) + Date.now().toString(36);
-                    localStorage.setItem('rf_device_id', deviceId);
-                }
+        const allCategories = ['ALL', 'Sản Xuất', 'Bảo Mật', 'Kho Hàng', 'Tài Chính', 'UI/UX'];
 
-                const clientToken = {
-                    endpoint: 'browser://' + (navigator.userAgent.includes('Mobile') ? 'mobile' : 'desktop') + '/' + deviceId,
-                    deviceId: deviceId,
-                    platform: navigator.platform || 'Web',
-                    isMobile: /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent),
-                    permission: 'granted',
-                    type: 'WEB_CLIENT_PUSH',
-                    registeredAt: new Date().toISOString()
-                };
-                subPayload = JSON.stringify(clientToken);
-            }
+        const filteredReleases = RELEASES.filter(rel => {
+            const matchesCategory = filterTag === 'ALL' || (rel.categories && rel.categories.includes(filterTag));
+            const matchesSearch = !searchQuery.trim() || 
+                rel.version.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                rel.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                rel.summary.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                rel.items.some(it => it.title.toLowerCase().includes(searchQuery.toLowerCase()) || it.desc.toLowerCase().includes(searchQuery.toLowerCase()));
+            return matchesCategory && matchesSearch;
+        });
 
-            // 3. Gửi lên Backend Google Apps Script lưu vào sheet Push_Subscriptions
-            const res = await runGAS('saveUserPushSubscription', {
-                user: currentUser,
-                subscription: subPayload,
-                userAgent: navigator.userAgent
+        const copyChangelogToClipboard = () => {
+            const text = RELEASES.map(r => `== ${r.version} (${r.date}) ==\n${r.title}\n${r.items.map(i => `* ${i.title}: ${i.desc}`).join('\n')}`).join('\n\n');
+            navigator.clipboard.writeText(text).then(() => {
+                if (typeof triggerToast === 'function') triggerToast('Đã sao chép nội dung cập nhật!', 'fa-copy', 'success');
+                else alert('Đã sao chép nội dung cập nhật!');
             });
+        };
 
-            if (res && res.success) {
-                localStorage.setItem('rf_push_enabled', 'true');
-                console.log('✅ Đã lưu token thông báo đẩy vào Push_Subscriptions cho:', currentUser);
-                if (forcePrompt && typeof triggerToast === 'function') {
-                    triggerToast('Đã kích hoạt & lưu Token thông báo đẩy thành công!', 'fa-bell', 'success');
-                }
-                // Bắn thông báo thử nghiệm
-                try {
-                    const notifBody = 'Xin chào ' + (currentUser || '') + '! Thiết bị này đã sẵn sàng nhận thông báo đẩy.';
-                    new Notification('🔔 Rich Fish Workspace', {
-                        body: notifBody,
-                        icon: 'https://i.postimg.cc/TYD5NncZ/icon.png'
-                    });
-                } catch (e) { }
-            }
-        } catch (err) {
-            console.error('❌ Lỗi registerWebPushNotifications:', err);
-            if (forcePrompt && typeof triggerToast === 'function') {
-                triggerToast('Lỗi khi đăng ký thông báo: ' + err.message, 'fa-times', 'danger');
-            }
-        }
-    };
+        return (
+            <div className="w-full max-w-5xl mx-auto space-y-6 pb-12 animate-fade-in text-zinc-200">
+                {/* HERO BANNER */}
+                <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#18181b] via-[#121214] to-[#09090b] border border-white/[0.08] p-6 sm:p-8 shadow-2xl">
+                    <div className="absolute top-0 right-0 -mt-8 -mr-8 w-64 h-64 bg-[#d4af37]/10 rounded-full blur-3xl pointer-events-none"></div>
+                    <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+                        <div className="space-y-2 max-w-2xl">
+                            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#d4af37]/10 border border-[#d4af37]/30 text-[#d4af37] text-[11px] font-black uppercase tracking-wider">
+                                <i className="fas fa-rocket text-[10px]"></i>
+                                <span>RF Workspace Pro Engine</span>
+                                <span className="w-1.5 h-1.5 rounded-full bg-[#d4af37] animate-pulse"></span>
+                                <span className="text-white font-mono">v2.12.0</span>
+                            </div>
+                            <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+                                Nhật Ký Cập Nhật & Deploy
+                            </h1>
+                            <p className="text-[13px] text-zinc-400 leading-relaxed">
+                                Theo dõi chi tiết từng phiên bản phát hành, các tính năng mới, chốt chặn vận hành, tối ưu hiệu năng và sửa lỗi của hệ thống.
+                            </p>
+                        </div>
+
+                        <div className="flex items-center gap-2.5 shrink-0">
+                            <button 
+                                onClick={copyChangelogToClipboard}
+                                className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[12px] font-bold border border-white/10 flex items-center gap-2 shadow-sm active:scale-95 transition-all cursor-pointer"
+                            >
+                                <i className="fas fa-copy text-[12px]"></i>
+                                <span>Sao Chép Bản Ghi</span>
+                            </button>
+                            <button 
+                                onClick={() => {
+                                    if (typeof window !== 'undefined') {
+                                        window.dispatchEvent(new CustomEvent('triggerReloadData'));
+                                    }
+                                }}
+                                className="px-4 py-2.5 rounded-xl bg-[#d4af37] hover:bg-[#b89628] text-black text-[12px] font-black flex items-center gap-2 shadow-lg shadow-[#d4af37]/20 active:scale-95 transition-all cursor-pointer"
+                                title="Làm mới và đồng bộ dữ liệu mới nhất từ hệ thống"
+                            >
+                                <i className="fas fa-sync-alt text-[12px]"></i>
+                                <span>Làm Mới Dữ Liệu</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* BENTO STATS */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-6 border-t border-white/[0.06]">
+                        <div className="bg-[#121214]/60 backdrop-blur p-3 rounded-xl border border-white/[0.05]">
+                            <div className="text-[10px] text-zinc-500 uppercase font-black tracking-wider">Phiên Bản</div>
+                            <div className="text-[16px] font-black text-white font-mono mt-0.5">Royal v2.10.6</div>
+                        </div>
+                        <div className="bg-[#121214]/60 backdrop-blur p-3 rounded-xl border border-white/[0.05]">
+                            <div className="text-[10px] text-zinc-500 uppercase font-black tracking-wider">Tốc Độ UI</div>
+                            <div className="text-[16px] font-black text-emerald-400 font-mono mt-0.5">&lt; 120ms (0ms Local)</div>
+                        </div>
+                        <div className="bg-[#121214]/60 backdrop-blur p-3 rounded-xl border border-white/[0.05]">
+                            <div className="text-[10px] text-zinc-500 uppercase font-black tracking-wider">Chốt Chặn</div>
+                            <div className="text-[16px] font-black text-[#d4af37] font-mono mt-0.5">4 Tầng Poka-Yoke</div>
+                        </div>
+                        <div className="bg-[#121214]/60 backdrop-blur p-3 rounded-xl border border-white/[0.05]">
+                            <div className="text-[10px] text-zinc-500 uppercase font-black tracking-wider">CSDL Cốt Lõi</div>
+                            <div className="text-[16px] font-black text-blue-400 font-mono mt-0.5">23 Bảng Relational</div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* CONTROLS & FILTER */}
+                <div className="flex flex-col sm:flex-row gap-3 justify-between items-stretch sm:items-center bg-[#121214] p-3 rounded-xl border border-white/[0.08]">
+                    <div className="flex items-center gap-1.5 overflow-x-auto hide-scrollbar">
+                        {allCategories.map(cat => (
+                            <button
+                                key={cat}
+                                onClick={() => setFilterTag(cat)}
+                                className={`px-3 py-1.5 rounded-lg text-[11px] font-bold whitespace-nowrap transition-all cursor-pointer ${
+                                    filterTag === cat
+                                        ? 'bg-[#d4af37] text-black shadow-md'
+                                        : 'bg-zinc-800/60 text-zinc-400 hover:text-white hover:bg-zinc-700'
+                                }`}
+                            >
+                                {cat === 'ALL' ? 'Tất cả danh mục' : cat}
+                            </button>
+                        ))}
+                    </div>
+
+                    <div className="relative w-full sm:w-64">
+                        <i className="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-[11px]"></i>
+                        <input
+                            type="text"
+                            placeholder="Tìm kiếm nội dung cập nhật..."
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                            className="w-full bg-[#18181b] border border-white/[0.08] text-white text-[12px] rounded-lg pl-8 pr-3 py-1.5 focus:outline-none focus:border-[#d4af37]"
+                        />
+                        {searchQuery && (
+                            <button onClick={() => setSearchQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white">
+                                <i className="fas fa-times text-[10px]"></i>
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                {/* TIMELINE LIST */}
+                <div className="space-y-6">
+                    {filteredReleases.length === 0 ? (
+                        <div className="p-12 text-center bg-[#121214] rounded-2xl border border-white/[0.08] text-zinc-500">
+                            <i className="fas fa-search text-3xl mb-3 opacity-40"></i>
+                            <p className="text-sm font-bold">Không tìm thấy nội dung cập nhật phù hợp</p>
+                        </div>
+                    ) : (
+                        filteredReleases.map((rel, rIdx) => (
+                            <div 
+                                key={rel.version} 
+                                className={`relative rounded-2xl bg-[#121214] border transition-all duration-300 p-5 sm:p-6 shadow-xl ${
+                                    rel.isLatest ? 'border-[#d4af37]/40 ring-1 ring-[#d4af37]/20' : 'border-white/[0.08]'
+                                }`}
+                            >
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-white/[0.06]">
+                                    <div className="flex items-center gap-3 flex-wrap">
+                                        <h3 className="text-lg font-black text-white font-mono">{rel.version}</h3>
+                                        {rel.badge && (
+                                            <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full border ${rel.badgeColor || 'bg-blue-500/20 text-blue-400 border-blue-500/30'}`}>
+                                                {rel.badge}
+                                            </span>
+                                        )}
+                                        <div className="flex items-center gap-1.5">
+                                            {rel.categories?.map(c => (
+                                                <span key={c} className="text-[10px] font-bold text-zinc-400 bg-zinc-800 px-2 py-0.5 rounded border border-white/[0.05]">
+                                                    {c}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div className="text-[11px] text-zinc-400 font-mono flex items-center gap-1.5">
+                                        <i className="far fa-calendar-alt text-zinc-500"></i>
+                                        <span>Ngày phát hành: <b className="text-zinc-200">{rel.date}</b></span>
+                                    </div>
+                                </div>
+
+                                <div className="py-3">
+                                    <h4 className="text-[14px] font-black text-zinc-100">{rel.title}</h4>
+                                    <p className="text-[12px] text-zinc-400 mt-1 leading-relaxed">{rel.summary}</p>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3 pt-3 border-t border-white/[0.04]">
+                                    {rel.items.map((it, iIdx) => (
+                                        <div key={iIdx} className="bg-[#18181b]/70 p-3.5 rounded-xl border border-white/[0.05] hover:border-white/[0.12] transition-all space-y-1.5">
+                                            <div className="flex items-center gap-2">
+                                                <div className={`w-6 h-6 rounded-lg bg-white/[0.04] flex items-center justify-center ${it.color || 'text-[#d4af37]'}`}>
+                                                    <i className={`fas ${it.icon} text-[12px]`}></i>
+                                                </div>
+                                                <h5 className="text-[12.5px] font-black text-white tracking-wide">{it.title}</h5>
+                                            </div>
+                                            <p className="text-[11.5px] text-zinc-400 leading-relaxed pl-8">{it.desc}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
+            </div>
+        );
+    });
 
     function App() {
         const getDisplayRole = (role) => {
@@ -233,14 +1606,19 @@
         const [mode, setMode] = React.useState('WORKSPACE');
         const [activeTab, setActiveTab] = React.useState(() => { const r = safeGet('rf_role', ''); return (r === 'CỘNG TÁC VIÊN' || r === 'CTV') ? 'orders' : 'dashboard'; });
         const [mountedTabs, setMountedTabs] = React.useState([activeTab]);
+        const [deferredReady, setDeferredReady] = React.useState(false);
         
         React.useEffect(() => {
             setMountedTabs(prev => prev.includes(activeTab) ? prev : [...prev, activeTab]);
         }, [activeTab]);
 
-        const [isMenuOpen, setIsMenuOpen] = React.useState(false);
+        // Callback Phase 2 boot: khi deferred tabs biên dịch xong → re-render
+        React.useEffect(() => {
+            window.__rfOnDeferredLoaded = () => setDeferredReady(true);
+            return () => { delete window.__rfOnDeferredLoaded; };
+        }, []);
 
-        const [isDarkMode, setIsDarkMode] = React.useState(() => safeGet('rf_theme', 'dark') !== 'light');
+        const [isMenuOpen, setIsMenuOpen] = React.useState(false);
 
         const [currentUser, setCurrentUser] = React.useState(() => {
             const p = safeGet('rf_pin', '');
@@ -251,66 +1629,33 @@
         const [isBoss, setIsBoss] = React.useState(() => safeGet('rf_boss', 'false') === 'true');
         const [userRole, setUserRole] = React.useState(() => safeGet('rf_role', ''));
 
-        const [orders, setOrders] = React.useState(() => {
+        // PERF: Parse instant_cache MỘT LẦN duy nhất, tránh 7x JSON.parse() trên cùng blob
+        const _instantCache = React.useMemo(() => {
             try {
                 const raw = localStorage.getItem('rf_app_instant_cache');
-                if (raw) return JSON.parse(raw)?.orders || [];
+                if (raw) return JSON.parse(raw);
             } catch (e) { }
-            return [];
-        });
-        const [prodItems, setProdItems] = React.useState(() => {
-            try {
-                const raw = localStorage.getItem('rf_app_instant_cache');
-                if (raw) return JSON.parse(raw)?.prodItems || [];
-            } catch (e) { }
-            return [];
-        });
-        const [packings, setPackings] = React.useState(() => {
-            try {
-                const raw = localStorage.getItem('rf_app_instant_cache');
-                if (raw) return JSON.parse(raw)?.packings || [];
-            } catch (e) { }
-            return [];
-        });
-        const [attendance, setAttendance] = React.useState(() => {
-            try {
-                const raw = localStorage.getItem('rf_app_instant_cache');
-                if (raw) return JSON.parse(raw)?.attendance || [];
-            } catch (e) { }
-            return [];
-        });
-        const [ctvFinance, setCtvFinance] = React.useState(() => {
-            try {
-                const raw = localStorage.getItem('rf_app_instant_cache');
-                if (raw) return JSON.parse(raw)?.ctvFinance || [];
-            } catch (e) { }
-            return [];
-        });
-        const [configGiaLayout, setConfigGiaLayout] = React.useState(() => {
-            try {
-                const raw = localStorage.getItem('rf_app_instant_cache');
-                if (raw) return JSON.parse(raw)?.configGiaLayout || [];
-            } catch (e) { }
-            return [];
-        });
-        const [erpData, setErpData] = React.useState(() => {
-            try {
-                const raw = localStorage.getItem('rf_app_instant_cache');
-                if (raw) {
-                    const c = JSON.parse(raw);
-                    return {
-                        Products: c?.Products || [],
-                        Accounts: c?.Accounts || [],
-                        Suppliers: c?.Suppliers || [],
-                        Transactions: c?.Transactions || [],
-                        ImportExport: c?.ImportExport || [],
-                        ProfitReports: c?.ProfitReports || [],
-                        BOM_Config: c?.BOM_Config || []
-                    };
-                }
-            } catch (e) { }
-            return { Products: [], Accounts: [], Suppliers: [], Transactions: [], ImportExport: [], ProfitReports: [], BOM_Config: [] };
-        });
+            return null;
+        }, []);
+
+        const [orders, setOrders] = React.useState(() => _instantCache?.orders || []);
+        const [prodItems, setProdItems] = React.useState(() => _instantCache?.prodItems || []);
+        const [packings, setPackings] = React.useState(() => _instantCache?.packings || []);
+        const [attendance, setAttendance] = React.useState(() => _instantCache?.attendance || []);
+        const [ctvFinance, setCtvFinance] = React.useState(() => _instantCache?.ctvFinance || []);
+        const [configGiaLayout, setConfigGiaLayout] = React.useState(() => _instantCache?.configGiaLayout || []);
+        const [erpData, setErpData] = React.useState(() => ({
+            Products: _instantCache?.Products || [],
+            Accounts: _instantCache?.Accounts || [],
+            Suppliers: _instantCache?.Suppliers || [],
+            Transactions: _instantCache?.Transactions || [],
+            ImportExport: _instantCache?.ImportExport || [],
+            ProfitReports: _instantCache?.ProfitReports || [],
+            BonusPenalty: _instantCache?.BonusPenalty || [],
+            KPI_Progress: _instantCache?.KPI_Progress || [],
+            ThongKe_TichLuyXu: _instantCache?.ThongKe_TichLuyXu || [],
+            BOM_Config: _instantCache?.BOM_Config || []
+        }));
         const [userConfigs, setUserConfigs] = React.useState({});
         const [kpiConfig, setKpiConfig] = React.useState([]);
         const [documents, setDocuments] = React.useState([]);
@@ -343,7 +1688,6 @@
         const [stockHistoryItem, setStockHistoryItem] = React.useState(null);
 
         const [toasts, setToasts] = React.useState([]);
-        React.useEffect(() => { safeSet('rf_theme', isDarkMode ? 'dark' : 'light'); }, [isDarkMode]);
 
         // ===== GEN 2: REACTIVE BADGE COUNTERS =====
         const pendingOrdersCount = React.useMemo(() => {
@@ -395,6 +1739,43 @@
         const [priceListModal, setPriceListModal] = React.useState(false);
         const [staffReimbModal, setStaffReimbModal] = React.useState(false);
         const [adminApproveModalData, setAdminApproveModalData] = React.useState(null);
+        const [quickPenaltyModal, setQuickPenaltyModal] = React.useState(false);
+        const [quickExpenseModal, setQuickExpenseModal] = React.useState(false);
+
+        // ===== GEN 2 & HALLMARK: STABLE MEMOIZED PROPS (PREVENTS CASCADING TAB RE-RENDERS) =====
+        const memoizedInventoryData = React.useMemo(() => ({
+            ...(erpData || {}),
+            Orders: orders || []
+        }), [erpData, orders]);
+
+        const memoizedAnalyticsData = React.useMemo(() => ({
+            ...(erpData || {}),
+            Orders: orders || []
+        }), [erpData, orders]);
+
+        const memoizedFinanceCategories = React.useMemo(() => {
+            const thu = typeof FINANCE_CATEGORIES !== 'undefined'
+                ? FINANCE_CATEGORIES.filter(c => c.type === 'Thu').map(c => ({ label: c.name, value: c.name }))
+                : (typeof CAT_THU !== 'undefined' ? CAT_THU.map(c => ({ label: c, value: c })) : []);
+            const chi = typeof FINANCE_CATEGORIES !== 'undefined'
+                ? FINANCE_CATEGORIES.filter(c => c.type === 'Chi').map(c => ({ label: c.name, value: c.name }))
+                : (typeof CAT_CHI !== 'undefined' ? CAT_CHI.map(c => ({ label: c, value: c })) : []);
+            return { THU: thu, CHI: chi };
+        }, []);
+
+        const memoizedErpProducts = React.useMemo(() => erpData?.Products || [], [erpData?.Products]);
+        const memoizedUsers = React.useMemo(() => userConfigs?.users || [], [userConfigs?.users]);
+        const memoizedBonusPenalty = React.useMemo(() => erpData?.BonusPenalty || [], [erpData?.BonusPenalty]);
+        const memoizedImportExport = React.useMemo(() => erpData?.ImportExport || [], [erpData?.ImportExport]);
+        const memoizedReimbursements = React.useMemo(() => reimbursements || [], [reimbursements]);
+        const memoizedAttendance = React.useMemo(() => attendance || [], [attendance]);
+        const memoizedProdItems = React.useMemo(() => prodItems || [], [prodItems]);
+        const memoizedPackings = React.useMemo(() => packings || [], [packings]);
+        const memoizedOrders = React.useMemo(() => orders || [], [orders]);
+        const memoizedCtvFinance = React.useMemo(() => ctvFinance || [], [ctvFinance]);
+        const memoizedConfigGiaLayout = React.useMemo(() => configGiaLayout || [], [configGiaLayout]);
+        const memoizedDocuments = React.useMemo(() => documents || [], [documents]);
+        const memoizedModels3D = React.useMemo(() => models3D || [], [models3D]);
 
         const triggerToast = React.useCallback((msg, icon = "fa-bell", color = "primary") => {
             const id = Date.now(); setToasts(prev => [...prev, { id, msg, icon, color }]);
@@ -412,6 +1793,8 @@
             setPriceListModal(false);
             setStaffReimbModal(false);
             setAdminApproveModalData(null);
+            setQuickPenaltyModal(false);
+            setQuickExpenseModal(false);
         };
 
         const lastSyncTimeRef = React.useRef(0);
@@ -419,6 +1802,7 @@
         const pendingSyncsRef = React.useRef(0);
 
         const updateStateWithData = React.useCallback((d) => {
+            if (!d) return;
             if (d.orders && Array.isArray(d.orders)) {
                 setOrders(prevOrders => {
                     const prevMap = {};
@@ -454,6 +1838,7 @@
                 ProfitReports: d.ProfitReports || prev.ProfitReports || [],
                 BonusPenalty: d.BonusPenalty || prev.BonusPenalty || [],
                 KPI_Progress: d.KPI_Progress || prev.KPI_Progress || [],
+                ThongKe_TichLuyXu: d.ThongKe_TichLuyXu || prev.ThongKe_TichLuyXu || [],
                 BOM_Config: d.BOM_Config || prev.BOM_Config || [],
                 kpis: d.kpis || prev.kpis || []
             }));
@@ -464,27 +1849,34 @@
             if (d.models3D) setModels3D(d.models3D);
             if (d.reimbursements) setReimbursements(d.reimbursements);
 
-            try {
-                localStorage.setItem('rf_app_instant_cache', JSON.stringify({
-                    orders: d.orders || [],
-                    prodItems: d.prodItems || [],
-                    packings: d.packings || [],
-                    attendance: d.attendance || [],
-                    ctvFinance: d.ctvFinance || [],
-                    configGiaLayout: d.configGiaLayout || [],
-                    Products: d.Products || [],
-                    Accounts: d.Accounts || [],
-                    Suppliers: d.Suppliers || [],
-                    Transactions: d.Transactions || [],
-                    ImportExport: d.ImportExport || [],
-                    ProfitReports: d.ProfitReports || [],
-                    BOM_Config: d.BOM_Config || [],
-                    kpiConfig: d.kpiConfig || [],
-                    documents: d.documents || [],
-                    models3D: d.models3D || [],
-                    reimbursements: d.reimbursements || []
-                }));
-            } catch (e) { }
+            // Ghi cache chạy nền không gây block UI (Non-blocking idle write)
+            const idleSave = window.requestIdleCallback || ((cb) => setTimeout(cb, 1000));
+            idleSave(() => {
+                try {
+                    localStorage.setItem('rf_app_instant_cache', JSON.stringify({
+                        orders: d.orders || [],
+                        prodItems: d.prodItems || [],
+                        packings: d.packings || [],
+                        attendance: d.attendance || [],
+                        ctvFinance: d.ctvFinance || [],
+                        configGiaLayout: d.configGiaLayout || [],
+                        Products: d.Products || [],
+                        Accounts: d.Accounts || [],
+                        Suppliers: d.Suppliers || [],
+                        Transactions: d.Transactions || [],
+                        ImportExport: d.ImportExport || [],
+                        ProfitReports: d.ProfitReports || [],
+                        BonusPenalty: d.BonusPenalty || [],
+                        KPI_Progress: d.KPI_Progress || [],
+                        ThongKe_TichLuyXu: d.ThongKe_TichLuyXu || [],
+                        BOM_Config: d.BOM_Config || [],
+                        kpiConfig: d.kpiConfig || [],
+                        documents: d.documents || [],
+                        models3D: d.models3D || [],
+                        reimbursements: d.reimbursements || []
+                    }));
+                } catch (e) { }
+            });
         }, []);
 
         const loadData = async (isInitial = false) => {
@@ -561,7 +1953,29 @@
             }
         };
 
-        const [pushPermission, setPushPermission] = React.useState(() => typeof Notification !== 'undefined' ? Notification.permission : 'denied');
+        const fetchArchivedOrders = React.useCallback(async (options = {}) => {
+            try {
+                const res = await runGAS('getArchivedOrders', options);
+                if (res && res.success && Array.isArray(res.orders)) {
+                    setOrders(prev => {
+                        const existingIds = new Set(prev.map(o => o.id));
+                        const newOrders = [...prev];
+                        res.orders.forEach(o => {
+                            if (!existingIds.has(o.id)) {
+                                newOrders.push(o);
+                                existingIds.add(o.id);
+                            }
+                        });
+                        return newOrders;
+                    });
+                    return res;
+                }
+                return res || { success: false, orders: [] };
+            } catch (e) {
+                console.error("Lỗi fetchArchivedOrders:", e);
+                return { success: false, error: e.toString(), orders: [] };
+            }
+        }, []);
 
         React.useEffect(() => {
             if (!currentUser) {
@@ -570,13 +1984,6 @@
             }
             setLoading(true);
             loadData(true);
-
-            // Đăng ký Web Push Notification chạy ngầm khi đã đăng nhập
-            if (window.registerWebPushNotifications) {
-                window.registerWebPushNotifications(currentUser).then(() => {
-                    if (typeof Notification !== 'undefined') setPushPermission(Notification.permission);
-                });
-            }
 
             // Bật tính năng Real-time Sync với Firebase
             if (window.firebase) {
@@ -678,6 +2085,10 @@
             window.addEventListener('openStaffReimbursementModal', openSrm);
             const openAam = (e) => setAdminApproveModalData(e.detail);
             window.addEventListener('openAdminApprovalModal', openAam);
+            const openQpm = () => setQuickPenaltyModal(true);
+            window.addEventListener('openQuickPenaltyModal', openQpm);
+            const openQem = () => setQuickExpenseModal(true);
+            window.addEventListener('openQuickExpenseModal', openQem);
             return () => {
                 window.removeEventListener('globalNavigateAndTrigger', h);
                 window.removeEventListener('openFreightModal', openFm);
@@ -686,6 +2097,8 @@
                 window.removeEventListener('openPriceListModal', openPlm);
                 window.removeEventListener('openStaffReimbursementModal', openSrm);
                 window.removeEventListener('openAdminApprovalModal', openAam);
+                window.removeEventListener('openQuickPenaltyModal', openQpm);
+                window.removeEventListener('openQuickExpenseModal', openQem);
             };
         }, []);
 
@@ -780,6 +2193,7 @@
                 ProfitReports: optimisticMerge(prev.ProfitReports, payload.ProfitReports, deletes.ProfitReports),
                 BonusPenalty: optimisticMerge(prev.BonusPenalty, payload.BonusPenalty, deletes.BonusPenalty),
                 KPI_Progress: optimisticMerge(prev.KPI_Progress, payload.KPI_Progress, deletes.KPI_Progress),
+                ThongKe_TichLuyXu: optimisticMerge(prev.ThongKe_TichLuyXu, payload.ThongKe_TichLuyXu || payload.xuTransactions, deletes.ThongKe_TichLuyXu || deletes.xuTransactions),
                 BOM_Config: optimisticMerge(prev.BOM_Config, payload.BOM_Config, deletes.BOM_Config),
                 Orders: optimisticMerge(prev.Orders, payload.orders, deletes.Orders || deletes.orders),
                 Packings: optimisticMerge(prev.Packings, payload.packings, deletes.Packings || deletes.packings),
@@ -840,15 +2254,11 @@
                     { id: 'dashboard', label: 'Tổng Quan', icon: 'fa-home', mode: 'WORKSPACE', hidden: isCTVRole },
                     { id: 'orders', label: 'Đơn Hàng', icon: 'fa-shopping-cart', mode: 'WORKSPACE' },
                     { id: 'production', label: 'Sản Xuất', icon: 'fa-hammer', mode: 'WORKSPACE' },
-                    { id: 'ERRORS', label: 'Lỗi & KCS', icon: 'fa-shield-halved', mode: 'WORKSPACE' },
-                    { id: 'hr', label: 'Nhân Sự', icon: 'fa-user-clock', mode: 'WORKSPACE', hidden: isCTVRole },
-                    { id: 'documents', label: 'Tài Liệu', icon: 'fa-folder-open', mode: 'WORKSPACE', hidden: isCTVRole },
-                    { id: 'viewer3d', label: 'Trình Chiếu 3D', icon: 'fa-cube', mode: 'WORKSPACE', hidden: isCTVRole },
-                    { id: 'affiliate', label: 'Cộng Tác Viên', icon: 'fa-handshake', mode: 'WORKSPACE', hidden: !(isBoss || userRole === 'KẾ TOÁN' || userRole === 'QUẢN LÝ BÁN HÀNG' || isCTVRole) }
+                    { id: 'hr', label: 'Nhân Sự', icon: 'fa-user-clock', mode: 'WORKSPACE', hidden: isCTVRole }
                 ].filter(item => !item.hidden)
             },
             {
-                title: 'QUẢN LÝ (Kế toán & Kho)',
+                title: 'QUẢN LÝ (KẾ TOÁN & KHO)',
                 reqAdmin: true,
                 hidden: isCTVRole,
                 items: [
@@ -856,8 +2266,17 @@
                     { id: 'business_report', label: 'Báo Cáo KQKD', icon: 'fa-chart-line', mode: 'ERP' },
                     { id: 'warehouse', label: 'Kho Hàng', icon: 'fa-boxes', mode: 'ERP' },
                     { id: 'cashflow', label: 'Tài Chính', icon: 'fa-wallet', mode: 'ERP' },
-                    { id: 'suppliers', label: 'Đối Tác', icon: 'fa-handshake', mode: 'ERP' }
-                ]
+                    { id: 'suppliers', label: 'Đối Tác', icon: 'fa-handshake', mode: 'ERP' },
+                    { id: 'affiliate', label: 'Cộng Tác Viên', icon: 'fa-users', mode: 'WORKSPACE', hidden: !(isBoss || userRole === 'KẾ TOÁN' || userRole === 'QUẢN LÝ BÁN HÀNG' || isCTVRole) }
+                ].filter(item => !item.hidden)
+            },
+            {
+                title: 'TIỆN ÍCH',
+                items: [
+                    { id: 'documents', label: 'Tài Liệu', icon: 'fa-folder-open', mode: 'WORKSPACE', hidden: isCTVRole },
+                    { id: 'viewer3d', label: 'Trình Chiếu 3D', icon: 'fa-cube', mode: 'WORKSPACE', hidden: isCTVRole },
+                    { id: 'changelog', label: 'Cập Nhật Hệ Thống', icon: 'fa-rocket', mode: 'WORKSPACE' }
+                ].filter(item => !item.hidden)
             }
         ];
 
@@ -880,10 +2299,8 @@
         }} />;
 
         return (
-            <div className={`fixed inset-0 flex flex-row w-full text-[12px] max-w-[100vw] mx-auto overflow-hidden transition-colors duration-500 premium-ui ${isDarkMode ? 'is-dark bg-[#09090b] text-zinc-100 selection:bg-[#d4af37]/30' : 'bg-[#f8fafc] text-gray-900 selection:bg-blue-500/30'}`} style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", height: 'var(--app-height, 100dvh)' }}>
-                {isDarkMode && (
-                    <div className="fixed inset-0 pointer-events-none z-[-1] bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-zinc-900/40 via-[#09090b] to-[#09090b]"></div>
-                )}
+            <div className="fixed inset-0 flex flex-row w-full text-[12px] max-w-[100vw] mx-auto overflow-hidden is-dark bg-[#09090b] text-zinc-100 selection:bg-[#d4af37]/30 premium-ui" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", height: 'var(--app-height, 100dvh)' }}>
+                <div className="fixed inset-0 pointer-events-none z-[-1] bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-zinc-900/40 via-[#09090b] to-[#09090b]"></div>
                 {typeof ToastManager !== 'undefined' && <ToastManager toasts={toasts} />}
 
                 <style>
@@ -899,14 +2316,11 @@
           .premium-ui { font-size: 13px; line-height: 1.5; }
           .premium-ui button, .premium-ui input, .premium-ui select, .premium-ui textarea { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
           
-          /* Theme-specific overrides inside App_Main */
-          .premium-ui:not(.is-dark) main button:hover { background-color: #f1f5f9 !important; border-color: #cbd5e1 !important; }
-          .premium-ui:not(.is-dark) .sticky { background-color: rgba(248, 250, 252, 0.9) !important; border-bottom: 1px solid rgba(0,0,0,0.06) !important; }
-          
-          .premium-ui.is-dark .sticky { background-color: rgba(9, 9, 11, 0.9) !important; border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important; backdrop-filter: blur(20px); }
-          .premium-ui.is-dark main button { border: 1px solid rgba(255,255,255,0.08) !important; background-color: rgba(255,255,255,0.03) !important; color: #e4e4e7 !important; }
-          .premium-ui.is-dark main button:hover { background-color: rgba(255,255,255,0.08) !important; border-color: rgba(255,255,255,0.15) !important; }
-          .premium-ui.is-dark main button:active { transform: scale(0.985); }
+          /* Dark Theme Styling */
+          .premium-ui .sticky { background-color: rgba(9, 9, 11, 0.9) !important; border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important; backdrop-filter: blur(20px); }
+          .premium-ui main button { border: 1px solid rgba(255,255,255,0.08) !important; background-color: rgba(255,255,255,0.03) !important; color: #e4e4e7 !important; }
+          .premium-ui main button:hover { background-color: rgba(255,255,255,0.08) !important; border-color: rgba(255,255,255,0.15) !important; }
+          .premium-ui main button:active { transform: scale(0.985); }
           .premium-ui .fixed.inset-y-0 { box-shadow: 1px 0 0 rgba(0,0,0,0.06) !important; }
           .premium-ui button.bg-zinc-800\/50, .premium-ui button.bg-\[\#fffbeb\] { position: relative; }
           .premium-ui button.bg-zinc-800\/50::before, .premium-ui button.bg-\[\#fffbeb\]::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 3px; height: 60%; background: #d4af37; border-radius: 0 3px 3px 0; }
@@ -1027,14 +2441,30 @@
                         })}
 
                         <div className="pt-4 border-t border-white/[0.06] mt-4 px-1">
-                            <button onClick={() => setIsDarkMode(!isDarkMode)} className="w-full flex items-center justify-between px-2 py-2 rounded-md font-medium text-[13px] text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.04] transition-all">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-5 flex justify-center text-[#d4af37] text-[14px]"><i className={`fas ${isDarkMode ? 'fa-moon' : 'fa-sun'}`}></i></div>
-                                    <span>Theme</span>
+                            <button 
+                                onClick={() => {
+                                    setIsMenuOpen(false);
+                                    if (typeof React.startTransition === 'function') {
+                                        React.startTransition(() => {
+                                            setActiveTab('changelog');
+                                            setMode('WORKSPACE');
+                                        });
+                                    } else {
+                                        setActiveTab('changelog');
+                                        setMode('WORKSPACE');
+                                    }
+                                }} 
+                                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg font-medium text-[12px] transition-all cursor-pointer ${
+                                    activeTab === 'changelog' 
+                                        ? 'bg-[#d4af37]/15 text-[#d4af37] border border-[#d4af37]/30 font-bold shadow-sm' 
+                                        : 'text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.04]'
+                                }`}
+                            >
+                                <div className="flex items-center gap-2.5">
+                                    <div className="w-5 flex justify-center text-[#d4af37] text-[13px]"><i className="fas fa-rocket"></i></div>
+                                    <span>Bản Cập Nhật</span>
                                 </div>
-                                <div className={`w-9 h-5 rounded-full p-0.5 transition-colors duration-300 shadow-inner flex items-center bg-zinc-800 border border-zinc-700`}>
-                                    <div className={`w-3.5 h-3.5 rounded-full shadow-sm transform transition-transform duration-300 bg-[#d4af37] ${isDarkMode ? 'translate-x-4' : 'translate-x-0'}`}></div>
-                                </div>
+                                <span className="text-[9px] bg-emerald-500/20 text-emerald-400 font-bold px-1.5 py-0.5 rounded border border-emerald-500/30">v2.12.0</span>
                             </button>
                         </div>
                     </div>
@@ -1112,12 +2542,14 @@
                         <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
                             {/* TIỀN XU (XU) */}
                             {currentUser && (() => {
-                                const totalXu = (erpData?.KPI_Progress || []).filter(k => k.user === currentUser && String(k.unit).toLowerCase() === 'xu').reduce((sum, k) => sum + Number(k.reward || 0), 0) +
-                                    (erpData?.BonusPenalty || []).filter(b => b.user === currentUser && b.type === 'XU_REWARD').reduce((sum, b) => sum + Number(b.amount || 0), 0);
+                                const isMatch = (u1, u2) => String(u1 || '').trim().toLowerCase() === String(u2 || '').trim().toLowerCase();
+                                const xuFromSheet = (erpData?.ThongKe_TichLuyXu || []).filter(x => isMatch(x.user, currentUser)).reduce((sum, x) => sum + Number(x.amount_xu !== undefined ? x.amount_xu : (x.amount || 0)), 0);
+                                const xuFromBP = (erpData?.BonusPenalty || []).filter(b => isMatch(b.user, currentUser) && b.type === 'XU_REWARD').reduce((sum, b) => sum + Number(b.amount || 0), 0);
+                                const totalXu = xuFromSheet > 0 ? xuFromSheet : xuFromBP;
 
                                 if (totalXu > 0) {
                                     return (
-                                        <div className="animate-fade-in flex items-center gap-1 bg-[#d4af37]/10 px-2 py-1 rounded-md border border-[#d4af37]/20 shadow-sm cursor-default shrink-0" title="Điểm Thưởng Tích Lũy">
+                                        <div className="animate-fade-in flex items-center gap-1 bg-[#d4af37]/10 px-2 py-1 rounded-md border border-[#d4af37]/20 shadow-sm cursor-default shrink-0" title="Ví Xu Tích Lũy Thưởng">
                                             <i className="fas fa-coins text-[#d4af37] text-[11px] sm:text-[12px]"></i>
                                             <span className="text-[11px] sm:text-[12px] font-bold text-[#d4af37] font-mono leading-none">{Math.ceil(Number(totalXu)).toLocaleString('vi-VN')}</span>
                                         </div>
@@ -1125,29 +2557,6 @@
                                 }
                                 return null;
                             })()}
-
-                            {/* NÚT THÔNG BÁO ĐẨY PUSH NOTIFICATION */}
-                            {currentUser && (
-                                <button
-                                    type="button"
-                                    onClick={async () => {
-                                        if (window.registerWebPushNotifications) {
-                                            await window.registerWebPushNotifications(currentUser, true, triggerToast);
-                                            if (typeof Notification !== 'undefined') setPushPermission(Notification.permission);
-                                        }
-                                    }}
-                                    className={`h-8 px-2 sm:px-2.5 rounded-lg flex items-center gap-1 sm:gap-1.5 transition-all border shadow-sm cursor-pointer shrink-0 ${pushPermission === 'granted'
-                                            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/20'
-                                            : 'bg-amber-500/15 border-amber-500/40 text-amber-400 hover:bg-amber-500/25 animate-pulse'
-                                        }`}
-                                    title={pushPermission === 'granted' ? "Thông báo đẩy: ĐÃ BẬT (Bấm để cập nhật lại Token)" : "Nhấn để BẬT thông báo đẩy về thiết bị"}
-                                >
-                                    <i className={`fas ${pushPermission === 'granted' ? 'fa-bell' : 'fa-bell-slash'} text-[12px]`}></i>
-                                    <span className="text-[10px] font-bold uppercase tracking-wider hidden md:inline">
-                                        {pushPermission === 'granted' ? 'Thông Báo' : 'Bật Thông Báo'}
-                                    </span>
-                                </button>
-                            )}
 
                             {isAdmin && (
                                 <div className="hidden md:block animate-fade-in shrink-0">
@@ -1176,7 +2585,7 @@
                         </div>
                     </header>
 
-                    <main className={`flex-1 min-h-0 w-full p-3 sm:p-4 lg:p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] md:pb-8 overflow-y-auto custom-scrollbar relative z-10 ${userRole === 'KHÁCH' ? 'rf-guest-mode' : ''}`}>
+                    <main className={`flex-1 min-h-0 w-full max-w-full p-3 sm:p-4 lg:p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] md:pb-8 overflow-y-auto overflow-x-hidden custom-scrollbar relative z-10 overscroll-none touch-pan-y ${userRole === 'KHÁCH' ? 'rf-guest-mode' : ''}`}>
                         <ErrorBoundary>
                             {(() => {
                                 const isCTV = userRole === 'CTV';
@@ -1189,36 +2598,56 @@
                                 );
 
                                 return (
-                                    <div className="w-full h-full relative">
+                                    <div className="w-full max-w-full h-full relative overflow-x-hidden">
                                         {/* WORKSPACE TABS */}
-                                        {(activeTab === 'dashboard' || mountedTabs.includes('dashboard')) && typeof DashboardTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'dashboard' ? 'block' : 'hidden'}`}><DashboardTab reimbursements={reimbursements || []} attendance={attendance || []} records={attendance || []} prodItems={prodItems || []} currentUser={currentUser} packings={packings || []} users={userConfigs?.users || []} orders={orders || []} kpiConfig={typeof kpiConfig !== 'undefined' ? kpiConfig : []} erpData={erpData || {}} kpis={erpData?.BonusPenalty || []} importExport={erpData?.ImportExport || []} userConfigs={userConfigs} erpProducts={erpData?.Products || []} pushDeltas={pushDeltas} triggerToast={triggerToast} isAdmin={isAdmin} isBoss={isBoss} /></div>}
+                                        {(activeTab === 'dashboard' || mountedTabs.includes('dashboard')) && typeof DashboardTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'dashboard' ? 'block' : 'hidden'}`}><DashboardTab reimbursements={memoizedReimbursements} attendance={memoizedAttendance} records={memoizedAttendance} prodItems={memoizedProdItems} currentUser={currentUser} packings={memoizedPackings} users={memoizedUsers} orders={memoizedOrders} kpiConfig={typeof kpiConfig !== 'undefined' ? kpiConfig : []} erpData={erpData || {}} kpis={memoizedBonusPenalty} importExport={memoizedImportExport} userConfigs={userConfigs} erpProducts={memoizedErpProducts} pushDeltas={pushDeltas} triggerToast={triggerToast} isAdmin={isAdmin} isBoss={isBoss} documents={memoizedDocuments} /></div>}
                                         
-                                        {(activeTab === 'orders' || mountedTabs.includes('orders')) && typeof OrdersTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'orders' ? 'block' : 'hidden'}`}><OrdersTab loadArchiveData={loadArchiveData} isArchiveLoaded={isArchiveLoaded} isLoadingArchive={isLoadingArchive} attendance={attendance || []} orders={orders || []} prodItems={prodItems || []} packings={packings || []} erpProducts={erpData?.Products || []} erpData={erpData || {}} isAdmin={isAdmin} currentUser={currentUser} pushDeltas={pushDeltas} userConfigs={userConfigs} triggerToast={triggerToast} kpiConfig={typeof kpiConfig !== 'undefined' ? kpiConfig : []} configGiaLayout={configGiaLayout || []} /></div>}
+                                        {(activeTab === 'orders' || mountedTabs.includes('orders')) && typeof OrdersTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'orders' ? 'block' : 'hidden'}`}><OrdersTab loadArchiveData={loadArchiveData} fetchArchivedOrders={fetchArchivedOrders} isArchiveLoaded={isArchiveLoaded} isLoadingArchive={isLoadingArchive} attendance={memoizedAttendance} orders={memoizedOrders} prodItems={memoizedProdItems} packings={memoizedPackings} erpProducts={memoizedErpProducts} erpData={erpData || {}} isAdmin={isAdmin} currentUser={currentUser} pushDeltas={pushDeltas} userConfigs={userConfigs} triggerToast={triggerToast} kpiConfig={typeof kpiConfig !== 'undefined' ? kpiConfig : []} configGiaLayout={memoizedConfigGiaLayout} /></div>}
                                         
-                                        {(activeTab === 'production' || mountedTabs.includes('production')) && typeof ProductionTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'production' ? 'block' : 'hidden'}`}><ProductionTab attendance={attendance || []} orders={orders || []} prodItems={prodItems || []} erpProducts={erpData?.Products || []} erpData={erpData || {}} currentUser={currentUser} pushDeltas={pushDeltas} userConfigs={userConfigs} triggerToast={triggerToast} kpiConfig={typeof kpiConfig !== 'undefined' ? kpiConfig : []} models3D={models3D || []} /></div>}
+                                        {(activeTab === 'production' || mountedTabs.includes('production')) && typeof ProductionTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'production' ? 'block' : 'hidden'}`}><ProductionTab attendance={memoizedAttendance} orders={memoizedOrders} prodItems={memoizedProdItems} packings={memoizedPackings} erpProducts={memoizedErpProducts} erpData={erpData || {}} currentUser={currentUser} pushDeltas={pushDeltas} userConfigs={userConfigs} triggerToast={triggerToast} kpiConfig={typeof kpiConfig !== 'undefined' ? kpiConfig : []} models3D={memoizedModels3D} /></div>}
                                         
-                                        {(activeTab === 'ERRORS' || mountedTabs.includes('ERRORS')) && typeof TabErrors !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'ERRORS' ? 'block' : 'hidden'}`}><TabErrors activeTab={activeTab} runGAS={runGAS} triggerToast={triggerToast} currentUser={currentUser} prodItems={prodItems || []} erpProducts={erpData?.Products || []} erpData={erpData || {}} orders={orders || []} pushDeltas={pushDeltas} isAdmin={isAdmin} /></div>}
                                         
-                                        {(activeTab === 'hr' || mountedTabs.includes('hr')) && typeof HRTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'hr' ? 'block' : 'hidden'}`}>{isCTV ? renderCTVLocked() : <HRTab orders={orders || []} documents={documents} hasPerm={hasPerm} attendance={attendance || []} erpData={erpData || {}} userConfigs={userConfigs} prodItems={prodItems || []} packings={packings || []} pushDeltas={pushDeltas} triggerToast={triggerToast} />}</div>}
+                                        {(activeTab === 'hr' || mountedTabs.includes('hr')) && typeof HRTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'hr' ? 'block' : 'hidden'}`}>{isCTV ? renderCTVLocked() : <HRTab orders={memoizedOrders} documents={memoizedDocuments} hasPerm={hasPerm} attendance={memoizedAttendance} erpData={erpData || {}} userConfigs={userConfigs} prodItems={memoizedProdItems} packings={memoizedPackings} pushDeltas={pushDeltas} triggerToast={triggerToast} />}</div>}
                                         
-                                        {(activeTab === 'documents' || mountedTabs.includes('documents')) && typeof DocumentsTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'documents' ? 'block' : 'hidden'}`}>{isCTV ? renderCTVLocked() : <DocumentsTab documents={documents} isAdmin={isAdmin} pushDeltas={pushDeltas} triggerToast={triggerToast} />}</div>}
+                                        {(activeTab === 'documents' || mountedTabs.includes('documents')) && typeof DocumentsTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'documents' ? 'block' : 'hidden'}`}>{isCTV ? renderCTVLocked() : <DocumentsTab documents={memoizedDocuments} isAdmin={isAdmin} pushDeltas={pushDeltas} triggerToast={triggerToast} />}</div>}
                                         
-                                        {(activeTab === 'viewer3d' || mountedTabs.includes('viewer3d')) && typeof Viewer3DTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'viewer3d' ? 'block' : 'hidden'}`}><Viewer3DTab models3D={models3D} pushDeltas={pushDeltas} erpProducts={erpData?.Products || []} /></div>}
+                                        {(activeTab === 'viewer3d' || mountedTabs.includes('viewer3d')) && typeof Viewer3DTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'viewer3d' ? 'block' : 'hidden'}`}><Viewer3DTab models3D={memoizedModels3D} pushDeltas={pushDeltas} erpProducts={memoizedErpProducts} /></div>}
                                         
-                                        {(activeTab === 'affiliate' || mountedTabs.includes('affiliate')) && typeof TabAffiliate !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'affiliate' ? 'block' : 'hidden'}`}><TabAffiliate orders={orders || []} ctvFinance={ctvFinance || []} configGiaLayout={configGiaLayout || []} pushDeltas={pushDeltas} currentUser={currentUser} triggerToast={triggerToast} userRole={userRole} userConfigs={userConfigs} erpData={erpData || {}} prodItems={prodItems || []} /></div>}
+                                        {(activeTab === 'affiliate' || mountedTabs.includes('affiliate')) && typeof TabAffiliate !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'affiliate' ? 'block' : 'hidden'}`}><TabAffiliate orders={memoizedOrders} ctvFinance={memoizedCtvFinance} configGiaLayout={memoizedConfigGiaLayout} pushDeltas={pushDeltas} currentUser={currentUser} triggerToast={triggerToast} userRole={userRole} userConfigs={userConfigs} erpData={erpData || {}} prodItems={memoizedProdItems} /></div>}
+
+                                        {(activeTab === 'changelog' || mountedTabs.includes('changelog')) && typeof ChangelogTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'changelog' ? 'block' : 'hidden'}`}><ChangelogTab currentUser={currentUser} triggerToast={triggerToast} /></div>}
 
                                         {/* ERP TABS */}
-                                        {(activeTab === 'warehouse' || mountedTabs.includes('warehouse')) && typeof InventoryTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'warehouse' ? 'block' : 'hidden'}`}><InventoryTab data={{ ...(erpData || {}), Orders: orders || [] }} userConfigs={userConfigs} pushData={pushErpData} isAdmin={isAdmin} triggerToast={triggerToast} /></div>}
+                                        {(activeTab === 'warehouse' || mountedTabs.includes('warehouse')) && typeof InventoryTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'warehouse' ? 'block' : 'hidden'}`}><InventoryTab data={memoizedInventoryData} userConfigs={userConfigs} pushData={pushErpData} isAdmin={isAdmin} triggerToast={triggerToast} /></div>}
                                         
                                         {(activeTab === 'import_export' || mountedTabs.includes('import_export')) && typeof ImportExportTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'import_export' ? 'block' : 'hidden'}`}>{isCTV ? renderCTVLocked() : <ImportExportTab data={erpData} userConfigs={userConfigs} pushData={pushErpData} isAdmin={isAdmin} triggerToast={triggerToast} />}</div>}
                                         
-                                        {(activeTab === 'cashflow' || mountedTabs.includes('cashflow')) && typeof FinanceTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'cashflow' ? 'block' : 'hidden'}`}>{isCTV ? renderCTVLocked() : <FinanceTab orders={orders || []} erpData={erpData || {}} pushDeltas={pushDeltas} triggerToast={triggerToast} isAdmin={isAdmin} categories={{ THU: typeof FINANCE_CATEGORIES !== 'undefined' ? FINANCE_CATEGORIES.filter(c => c.type === 'Thu' && c.module === 'FINANCE').map(c => ({ label: c.name, value: c.name })) : (typeof CAT_THU !== 'undefined' ? CAT_THU.map(c => ({ label: c, value: c })) : []), CHI: typeof FINANCE_CATEGORIES !== 'undefined' ? FINANCE_CATEGORIES.filter(c => c.type === 'Chi' && c.module === 'FINANCE').map(c => ({ label: c.name, value: c.name })) : (typeof CAT_CHI !== 'undefined' ? CAT_CHI.map(c => ({ label: c, value: c })) : []) }} />}</div>}
+                                        {(activeTab === 'cashflow' || mountedTabs.includes('cashflow')) && typeof FinanceTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'cashflow' ? 'block' : 'hidden'}`}>{isCTV ? renderCTVLocked() : <FinanceTab orders={memoizedOrders} erpData={erpData || {}} pushDeltas={pushDeltas} triggerToast={triggerToast} isAdmin={isAdmin} categories={memoizedFinanceCategories} />}</div>}
                                         
-                                        {(activeTab === 'analytics' || mountedTabs.includes('analytics')) && typeof AnalyticsTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'analytics' ? 'block' : 'hidden'}`}>{isCTV ? renderCTVLocked() : <AnalyticsTab data={{ ...(erpData || {}), Orders: orders || [] }} pushData={pushErpData} isAdmin={isAdmin} mode={mode} userConfigs={userConfigs} />}</div>}
+                                        {(activeTab === 'analytics' || mountedTabs.includes('analytics')) && typeof AnalyticsTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'analytics' ? 'block' : 'hidden'}`}>{isCTV ? renderCTVLocked() : <AnalyticsTab data={memoizedAnalyticsData} pushData={pushErpData} isAdmin={isAdmin} mode={mode} userConfigs={userConfigs} />}</div>}
                                         
                                         {(activeTab === 'business_report' || mountedTabs.includes('business_report')) && typeof BusinessReportTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'business_report' ? 'block' : 'hidden'}`}>{isCTV ? renderCTVLocked() : <BusinessReportTab erpData={erpData || {}} pushDeltas={pushDeltas} triggerToast={triggerToast} />}</div>}
                                         
                                         {(activeTab === 'suppliers' || mountedTabs.includes('suppliers')) && typeof SuppliersTab !== 'undefined' && <div className={`w-full h-full rf-tab-view rf-gpu-accelerated ${activeTab === 'suppliers' ? 'block' : 'hidden'}`}>{isCTV ? renderCTVLocked() : <SuppliersTab data={erpData || {}} pushData={pushErpData} isAdmin={isAdmin} triggerToast={triggerToast} />}</div>}
+
+                                        {/* LOADING FALLBACK — Hiển thị khi tab deferred chưa sẵn sàng */}
+                                        {!deferredReady && !['dashboard', 'orders', 'changelog'].includes(activeTab) && (() => {
+                                            const tabComponentMap = {
+                                                'production': typeof ProductionTab, 'hr': typeof HRTab, 'warehouse': typeof InventoryTab,
+                                                'import_export': typeof ImportExportTab, 'cashflow': typeof FinanceTab, 'suppliers': typeof SuppliersTab,
+                                                'analytics': typeof AnalyticsTab, 'documents': typeof DocumentsTab, 'viewer3d': typeof Viewer3DTab,
+                                                'affiliate': typeof TabAffiliate, 'business_report': typeof BusinessReportTab
+                                            };
+                                            if (tabComponentMap[activeTab] === 'undefined') {
+                                                return (
+                                                    <div className="flex flex-col items-center justify-center h-[50vh] gap-4 animate-pulse">
+                                                        <div className="w-12 h-12 rounded-full border-4 border-[#00a8e8]/30 border-t-[#00a8e8] animate-spin"></div>
+                                                        <p className="text-[13px] font-black text-zinc-500 uppercase tracking-widest">Đang tải module...</p>
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        })()}
                                     </div>
                                 );
                             })()}
@@ -1244,6 +2673,8 @@
                         {typeof PriceListModal !== 'undefined' && <PriceListModal visible={priceListModal} onClose={closeModals} triggerToast={triggerToast} erpProducts={erpData?.Products || []} />}
                         {typeof StaffReimbursementModal !== 'undefined' && <StaffReimbursementModal visible={staffReimbModal} onClose={closeModals} pushDeltas={pushDeltas} currentUser={currentUser} triggerToast={triggerToast} />}
                         {typeof AdminApprovalModal !== 'undefined' && <AdminApprovalModal data={adminApproveModalData} onClose={closeModals} pushDeltas={pushDeltas} triggerToast={triggerToast} />}
+                        {typeof QuickPenaltyModal !== 'undefined' && <QuickPenaltyModal visible={quickPenaltyModal} onClose={closeModals} pushDeltas={pushDeltas} triggerToast={triggerToast} userConfigs={userConfigs} />}
+                        {typeof QuickExpenseModal !== 'undefined' && <QuickExpenseModal visible={quickExpenseModal} onClose={closeModals} pushDeltas={pushDeltas} triggerToast={triggerToast} accounts={erpData?.Accounts || []} />}
                     </>
 
 

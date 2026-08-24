@@ -61,6 +61,20 @@ const OperationsHealthWidget = React.memo(function OperationsHealthWidget() {
       {/* Expanded content with strict max-height scrolling */}
       {isExpanded && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3 pt-3 border-t border-[#27272a] animate-fade-in">
+          {alerts.packingEmergency && (
+            <div className="col-span-1 md:col-span-3 bg-red-950/40 border border-red-500/50 rounded-lg p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="text-[11px] font-bold text-red-200 flex items-center gap-2">
+                <i className="fas fa-exclamation-circle text-red-400 text-[13px] animate-pulse"></i>
+                <span>{alerts.packingEmergency.message} (Nhân sự: <strong className="text-white underline">{alerts.packingEmergency.staff}</strong>)</span>
+              </div>
+              <button 
+                onClick={() => window.dispatchEvent(new CustomEvent('globalNavigateAndTrigger', { detail: { tab: 'orders', trigger: 'filterReadyPack', mode: 'WORKSPACE' } }))}
+                className="text-[9px] font-black uppercase bg-red-500 hover:bg-red-600 text-white px-2.5 py-1 rounded transition-colors w-fit shrink-0"
+              >
+                Mở Đơn Đóng Gói
+              </button>
+            </div>
+          )}
           {alerts.sla.length > 0 && (
             <div className="bg-[#121214] border border-[#27272a] rounded-lg p-3">
               <div className="text-[10px] font-black text-orange-400 uppercase mb-2 flex items-center justify-between">
@@ -108,6 +122,852 @@ const OperationsHealthWidget = React.memo(function OperationsHealthWidget() {
                 ))}
               </ul>
             </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+});
+
+// -------------------------------------------------------------------------
+// 🚀 COMPONENT 1: BẢNG NHẮC VIỆC SẢN XUẤT & ĐÓNG GÓI PHÂN LUỒNG THEO THỢ
+// TÂN (DỰNG KHUNG) - TÂM (GIA CỐ) - DƯƠNG (CẮT DÁN) - HƯƠNG (ĐÓNG GÓI)
+// -------------------------------------------------------------------------
+const ProductionStaffDispatchBoard = React.memo(function ProductionStaffDispatchBoard({
+  prodItems = [],
+  orders = [],
+  packings = [],
+  currentUser = '',
+  isAdmin = false,
+  isBoss = false,
+  pushDeltas,
+  triggerToast,
+  kpiConfig = [],
+  erpData = {}
+}) {
+  // selectedStaff: null (mặc định đóng gọn) | 'TAN' | 'TAM' | 'DUONG' | 'HUONG'
+  const [selectedStaff, setSelectedStaff] = React.useState(null);
+
+  // 1. Phân luồng DỰNG KHUNG -> BÁO TÂN (Trần Duy Tân)
+  const tanTasks = React.useMemo(() => {
+    return (prodItems || []).filter(item => {
+      if (!item || item.orderId === 'MATERIAL_REQ') return false;
+      const s = String(item.status || '').toUpperCase().trim();
+      if (s === 'DONE' || s === 'ĐÃ XONG' || s === 'ĐÃ HUỶ' || s === 'HỦY/VỠ' || s === 'HOÀN KHO ĐẠT' || item.fulfilledFromStock) return false;
+      
+      const typeUpper = String(item.type || item.category || '').toUpperCase();
+      const isGlass = typeUpper.includes('BỂ KÍNH') || String(item.name || '').toLowerCase().includes('bể');
+      if (isGlass) return false; // Bể kính dành cho Dương
+
+      // Khâu 1 chưa hoàn thành
+      const p1Status = String(item.phases?.phase1?.status || '').toUpperCase().trim();
+      return p1Status !== 'DONE' && p1Status !== 'ĐÃ XONG' && p1Status !== 'HOÀN THÀNH';
+    });
+  }, [prodItems]);
+
+  // 2. Phân luồng GIA CỐ -> BÁO TÂM (Lại Trường Tâm)
+  const tamTasks = React.useMemo(() => {
+    return (prodItems || []).filter(item => {
+      if (!item || item.orderId === 'MATERIAL_REQ') return false;
+      const s = String(item.status || '').toUpperCase().trim();
+      if (s === 'DONE' || s === 'ĐÃ XONG' || s === 'ĐÃ HUỶ' || s === 'HỦY/VỠ' || s === 'HOÀN KHO ĐẠT' || item.fulfilledFromStock) return false;
+      
+      const typeUpper = String(item.type || item.category || '').toUpperCase();
+      const isGlass = typeUpper.includes('BỂ KÍNH') || String(item.name || '').toLowerCase().includes('bể');
+      if (isGlass) return false;
+
+      // Khâu 1 ĐÃ XONG nhưng Khâu 2 CHƯA XONG -> Chuyển giao sang Tâm gia cố/gắn rêu
+      const p1Status = String(item.phases?.phase1?.status || '').toUpperCase().trim();
+      const p2Status = String(item.phases?.phase2?.status || '').toUpperCase().trim();
+      const isP1Done = p1Status === 'DONE' || p1Status === 'ĐÃ XONG' || p1Status === 'HOÀN THÀNH';
+      const isP2Done = p2Status === 'DONE' || p2Status === 'ĐÃ XONG' || p2Status === 'HOÀN THÀNH';
+
+      return isP1Done && !isP2Done;
+    });
+  }, [prodItems]);
+
+  // 3. Phân luồng CẮT DÁN BỂ KÍNH -> BÁO DƯƠNG (Nguyễn Hoàng Dương)
+  const duongTasks = React.useMemo(() => {
+    return (prodItems || []).filter(item => {
+      if (!item || item.orderId === 'MATERIAL_REQ') return false;
+      const s = String(item.status || '').toUpperCase().trim();
+      if (s === 'DONE' || s === 'ĐÃ XONG' || s === 'ĐÃ HUỶ' || s === 'HỦY/VỠ' || s === 'HOÀN KHO ĐẠT' || item.fulfilledFromStock) return false;
+      
+      const typeUpper = String(item.type || item.category || '').toUpperCase();
+      const nameLower = String(item.name || '').toLowerCase();
+      const isGlass = typeUpper.includes('BỂ KÍNH') || nameLower.includes('bể') || nameLower.includes('kính') || nameLower.includes('bán cạn') || nameLower.includes('terarium');
+      if (!isGlass) return false;
+
+      const p1Status = String(item.phases?.phase1?.status || '').toUpperCase().trim();
+      const p2Status = String(item.phases?.phase2?.status || '').toUpperCase().trim();
+      const isBothDone = (p1Status === 'DONE' || p1Status === 'ĐÃ XONG') && (p2Status === 'DONE' || p2Status === 'ĐÃ XONG');
+      return !isBothDone;
+    });
+  }, [prodItems]);
+
+  // 4. Phân luồng ĐÓNG GÓI -> BÁO HƯƠNG (Nguyễn Thị Diệu Hương)
+  const huongTasks = React.useMemo(() => {
+    const allPackings = packings || erpData?.Packings || [];
+    return (orders || []).filter(o => {
+      if (!o) return false;
+      const ch = String(o.channel || '').toUpperCase().trim();
+      if (ch === 'SẢN XUẤT TỒN' || ch === 'SẢN XUẤT BÙ KHO' || ch.includes('SẢN XUẤT TỒN') || ch.includes('BÙ KHO') || ch.includes('SX TỒN')) {
+        return false;
+      }
+
+      const s = String(o._effectiveStatus || o.status || '').toUpperCase().trim();
+      const exclude = ['ĐÃ BÀN GIAO', 'HOÀN THÀNH', 'ĐƠN HUỶ', 'HÀNG HOÀN', 'ĐÃ NHẬP KHO', 'ĐỐI SOÁT THÀNH CÔNG', 'ĐÃ GIAO', 'DELIVERED', 'COMPLETED', 'CANCELLED', 'RETURNED'];
+      if (exclude.includes(s)) return false;
+
+      const oIdStr = String(o.id || '').trim();
+      const oCodeStr = String(o.orderCode || '').trim();
+      const baseCodeStr = oCodeStr.split(' | ')[0].split('|')[0].trim();
+
+      const hasDonePack = allPackings.some(p => {
+        const pOrd = String(p.orderId || '').trim();
+        const isMatch = pOrd && (pOrd === oIdStr || pOrd === oCodeStr || pOrd === baseCodeStr);
+        const ps = String(p.status || '').toUpperCase().trim();
+        return isMatch && (ps === 'DONE' || ps === 'ĐÃ ĐÓNG GÓI' || ps === 'HOÀN THÀNH' || ps === 'ĐÃ XONG') && (!p.note || !p.note.includes('kho'));
+      });
+      if (hasDonePack) return false;
+
+      const linkedProds = (prodItems || []).filter(p => {
+        const pOrd = String(p.orderId || '').trim();
+        return pOrd && (pOrd === oIdStr || pOrd === oCodeStr || pOrd === baseCodeStr);
+      });
+
+      if (linkedProds.length > 0) {
+        return linkedProds.every(p => {
+          const ps = String(p.status || '').toUpperCase().trim();
+          return ps === 'DONE' || ps === 'ĐÃ XONG' || ps === 'HOÀN KHO ĐẠT' || p.fulfilledFromStock;
+        });
+      }
+
+      return s === 'SẴN SÀNG ĐÓNG GÓI' || s === 'SẴN SÀNG' || s === 'READY_PACK';
+    });
+  }, [orders, prodItems, packings, erpData?.Packings]);
+
+  const effectiveKpi = React.useMemo(() => {
+    return (kpiConfig && kpiConfig.length > 0) ? kpiConfig : (erpData?.Config_KPI || []);
+  }, [kpiConfig, erpData?.Config_KPI]);
+
+  // Helper tính thưởng công khoán đóng gói từ Config_KPI chuẩn hoá
+  const calcOrderPackingReward = React.useCallback((order) => {
+    if (!order) return 0;
+    if (typeof getPackingReward === 'function') {
+      return getPackingReward(order, effectiveKpi, order.channel || '');
+    }
+    if (typeof calculatePackingReward === 'function') {
+      return calculatePackingReward(order, effectiveKpi);
+    }
+    return 0;
+  }, [effectiveKpi]);
+
+  // Helper tính thưởng công khoán sản xuất từ Config_KPI chuẩn hoá
+  const calcProdItemReward = React.useCallback((item, phase) => {
+    if (!item) return 0;
+    if (phase === 'phase1') {
+      let r = Number(item.phases?.phase1?.reward_vnd || item.p1_reward_vnd || 0);
+      if (r === 0 && typeof calculateKPI === 'function') {
+        r = calculateKPI(item.name || item.type || '', 'khâu 1', effectiveKpi, item.channel || '').reward || 0;
+      }
+      return r;
+    }
+    if (phase === 'phase2') {
+      let r = Number(item.phases?.phase2?.reward_vnd || item.p2_reward_vnd || 0);
+      if (r === 0 && typeof calculateKPI === 'function') {
+        r = calculateKPI(item.name || item.type || '', 'khâu 2', effectiveKpi, item.channel || '').reward || 0;
+      }
+      return r;
+    }
+    if (phase === 'both') {
+      let r1 = Number(item.phases?.phase1?.reward_vnd || item.p1_reward_vnd || 0);
+      let r2 = Number(item.phases?.phase2?.reward_vnd || item.p2_reward_vnd || 0);
+      if (r1 === 0 && typeof calculateKPI === 'function') {
+        r1 = calculateKPI(item.name || item.type || '', 'khâu 1', effectiveKpi, item.channel || '').reward || 0;
+      }
+      if (r2 === 0 && typeof calculateKPI === 'function') {
+        r2 = calculateKPI(item.name || item.type || '', 'khâu 2', effectiveKpi, item.channel || '').reward || 0;
+      }
+      return r1 + r2;
+    }
+    return 0;
+  }, [effectiveKpi]);
+
+  // Tổng số việc đang chờ
+  const totalTasks = tanTasks.length + tamTasks.length + duongTasks.length + huongTasks.length;
+
+  // Tính tổng thưởng công khoán đang chờ nhận cho từng thợ từ Config_KPI thực tế
+  const tanReward = React.useMemo(() => {
+    return tanTasks.reduce((sum, item) => sum + calcProdItemReward(item, 'phase1'), 0);
+  }, [tanTasks, calcProdItemReward]);
+
+  const tamReward = React.useMemo(() => {
+    return tamTasks.reduce((sum, item) => sum + calcProdItemReward(item, 'phase2'), 0);
+  }, [tamTasks, calcProdItemReward]);
+
+  const duongReward = React.useMemo(() => {
+    return duongTasks.reduce((sum, item) => sum + calcProdItemReward(item, 'both'), 0);
+  }, [duongTasks, calcProdItemReward]);
+
+  const huongReward = React.useMemo(() => {
+    return huongTasks.reduce((sum, order) => sum + calcOrderPackingReward(order), 0);
+  }, [huongTasks, calcOrderPackingReward]);
+
+  // Điều hướng nhanh đến Tab Sản Xuất / Đơn Hàng
+  const handleNavigateToProduction = (itemId) => {
+    window.dispatchEvent(new CustomEvent('globalNavigateAndTrigger', {
+      detail: { tab: 'production', trigger: 'focusItem', data: { id: itemId } }
+    }));
+  };
+
+  const handleNavigateToPacking = (order) => {
+    window.dispatchEvent(new CustomEvent('globalNavigateAndTrigger', {
+      detail: { tab: 'orders', trigger: 'filterReadyPack', mode: 'WORKSPACE' }
+    }));
+  };
+
+  // Cấu hình metadata cho 4 thợ
+  const staffConfigs = [
+    {
+      key: 'TAN',
+      name: 'Trần Duy Tân',
+      shortName: 'Tân',
+      role: 'Cần Dựng Khung',
+      phaseLabel: 'Khâu 1 Layout',
+      icon: 'fa-hammer',
+      tasks: tanTasks,
+      reward: tanReward,
+      theme: {
+        accent: 'amber',
+        border: 'border-amber-500/30',
+        borderActive: 'border-amber-500',
+        bgActive: 'bg-amber-950/25',
+        ringActive: 'ring-1 ring-amber-500/50',
+        glow: 'shadow-[0_0_20px_rgba(245,158,11,0.15)]',
+        text: 'text-amber-400',
+        badge: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+        countActive: 'bg-amber-500 text-black',
+        hoverBorder: 'hover:border-amber-500/40'
+      }
+    },
+    {
+      key: 'TAM',
+      name: 'Lại Trường Tâm',
+      shortName: 'Tâm',
+      role: 'Cần Gia Cố',
+      phaseLabel: 'Khâu 2 Gắn Rêu',
+      icon: 'fa-shield-alt',
+      tasks: tamTasks,
+      reward: tamReward,
+      theme: {
+        accent: 'emerald',
+        border: 'border-emerald-500/30',
+        borderActive: 'border-emerald-500',
+        bgActive: 'bg-emerald-950/25',
+        ringActive: 'ring-1 ring-emerald-500/50',
+        glow: 'shadow-[0_0_20px_rgba(16,185,129,0.15)]',
+        text: 'text-emerald-400',
+        badge: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+        countActive: 'bg-emerald-500 text-black',
+        hoverBorder: 'hover:border-emerald-500/40'
+      }
+    },
+    {
+      key: 'DUONG',
+      name: 'Nguyễn Hoàng Dương',
+      shortName: 'Dương',
+      role: 'Cần Cắt Dán Bể',
+      phaseLabel: 'Bể Kính / Mài Keo',
+      icon: 'fa-cube',
+      tasks: duongTasks,
+      reward: duongReward,
+      theme: {
+        accent: 'sky',
+        border: 'border-sky-500/30',
+        borderActive: 'border-sky-500',
+        bgActive: 'bg-sky-950/25',
+        ringActive: 'ring-1 ring-sky-500/50',
+        glow: 'shadow-[0_0_20px_rgba(14,165,233,0.15)]',
+        text: 'text-sky-400',
+        badge: 'bg-sky-500/15 text-sky-400 border-sky-500/30',
+        countActive: 'bg-sky-500 text-black',
+        hoverBorder: 'hover:border-sky-500/40'
+      }
+    },
+    {
+      key: 'HUONG',
+      name: 'Nguyễn Thị Diệu Hương',
+      shortName: 'Hương',
+      role: 'Cần Đóng Gói',
+      phaseLabel: 'Đóng Gói / Giao Vận',
+      icon: 'fa-boxes',
+      tasks: huongTasks,
+      reward: huongReward,
+      theme: {
+        accent: 'purple',
+        border: 'border-purple-500/30',
+        borderActive: 'border-purple-500',
+        bgActive: 'bg-purple-950/25',
+        ringActive: 'ring-1 ring-purple-500/50',
+        glow: 'shadow-[0_0_20px_rgba(168,85,247,0.15)]',
+        text: 'text-purple-400',
+        badge: 'bg-purple-500/15 text-purple-400 border-purple-500/30',
+        countActive: 'bg-purple-500 text-white',
+        hoverBorder: 'hover:border-purple-500/40'
+      }
+    }
+  ];
+
+  // Nhân sự hiện đang được chọn mở danh sách
+  const activeStaffConfig = React.useMemo(() => {
+    return staffConfigs.find(s => s.key === selectedStaff) || null;
+  }, [selectedStaff, tanTasks, tamTasks, duongTasks, huongTasks]);
+
+  // Toggle nhân sự
+  const handleToggleStaff = (staffKey) => {
+    setSelectedStaff(prev => (prev === staffKey ? null : staffKey));
+  };
+
+  return (
+    <div className="bg-[#09090b] border border-[#27272a] rounded-xl p-3.5 sm:p-4 shadow-sm relative overflow-hidden">
+      {/* Background Subtle Ambient Glow */}
+      <div className="absolute top-0 left-1/4 w-80 h-28 bg-amber-500/5 rounded-full blur-[60px] pointer-events-none"></div>
+
+      {/* HEADER SECTION (GỌN GÀNG, KHÔNG Ô TÌM KIẾM) */}
+      <div className="flex items-center justify-between gap-3 pb-3 border-b border-[#27272a] relative z-10">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-amber-500/20 to-orange-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shadow-sm shrink-0">
+            <i className="fas fa-clipboard-list text-[12px]"></i>
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="font-black text-[12.5px] sm:text-[13.5px] text-zinc-100 uppercase tracking-wider">
+                Bảng Nhắc Việc Sản Xuất & Đóng Gói
+              </h2>
+              <span className={`px-2 py-0.5 rounded-full text-[9.5px] font-black font-mono border ${
+                totalTasks > 0 ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+              }`}>
+                {totalTasks} việc đang chờ
+              </span>
+            </div>
+            <p className="text-[10.5px] text-zinc-400 font-medium truncate mt-0.5">
+              Bấm vào từng thợ để mở / thu gọn danh sách việc cần xử lý
+            </p>
+          </div>
+        </div>
+
+        {/* Trạng thái xem hiện tại */}
+        {activeStaffConfig && (
+          <button 
+            onClick={() => setSelectedStaff(null)}
+            className="hidden sm:flex items-center gap-1.5 text-[10px] font-bold text-zinc-400 hover:text-zinc-200 bg-[#121214] hover:bg-[#18181b] px-2.5 py-1 rounded-lg border border-[#27272a] transition-all shrink-0 cursor-pointer"
+            title="Thu gọn danh sách việc"
+          >
+            <i className="fas fa-chevron-up text-[9px] text-zinc-500"></i>
+            <span>Đóng việc của {activeStaffConfig.shortName}</span>
+          </button>
+        )}
+      </div>
+
+      {/* 4 THẺ THỢ CỐT LÕI (BẤM VÀO THỢ ĐỂ THẢ DANH SÁCH VIỆC) */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-2.5 my-3 relative z-10">
+        {staffConfigs.map((staff) => {
+          const isSelected = selectedStaff === staff.key;
+          const count = staff.tasks.length;
+
+          return (
+            <div 
+              key={staff.key}
+              onClick={() => handleToggleStaff(staff.key)}
+              className={`p-2.5 sm:p-3 rounded-xl border transition-all cursor-pointer select-none relative overflow-hidden group ${
+                isSelected 
+                  ? `${staff.theme.bgActive} ${staff.theme.borderActive} ${staff.theme.glow} ${staff.theme.ringActive}` 
+                  : `bg-[#121214] border-[#27272a] ${staff.theme.hoverBorder} hover:bg-[#161619]`
+              }`}
+            >
+              {/* Hàng trên: Vai trò + Số lượng */}
+              <div className="flex items-center justify-between gap-1">
+                <span className={`text-[9.5px] font-black uppercase tracking-wider flex items-center gap-1.5 ${staff.theme.text}`}>
+                  <i className={`fas ${staff.icon} text-[10px]`}></i> {staff.role}
+                </span>
+                <span className={`px-1.5 py-0.5 rounded-full text-[9.5px] font-black font-mono transition-colors ${
+                  count > 0 
+                    ? (isSelected ? staff.theme.countActive : 'bg-zinc-800 text-zinc-200 group-hover:bg-zinc-700') 
+                    : 'bg-zinc-900 text-zinc-600'
+                }`}>
+                  {count}
+                </span>
+              </div>
+
+              {/* Hàng giữa: Tên thợ */}
+              <div className="mt-1.5">
+                <div className="text-[12px] font-black text-zinc-100 group-hover:text-white transition-colors truncate">
+                  {staff.name}
+                </div>
+              </div>
+
+              {/* Hàng dưới: Thưởng + Nút thả xuống (Accordion Indicator) */}
+              <div className="mt-2 pt-1.5 border-t border-[#1f1f23] flex items-center justify-between text-[9.5px]">
+                {staff.reward > 0 ? (
+                  <span className={`font-mono font-bold ${staff.theme.text} bg-[#18181b] px-1 py-0.5 rounded border border-[#27272a]`}>
+                    +{staff.reward.toLocaleString('vi-VN')}đ
+                  </span>
+                ) : (
+                  <span className="text-zinc-600 font-mono text-[9px]">—</span>
+                )}
+
+                <div className={`flex items-center gap-1 font-bold transition-transform ${isSelected ? `${staff.theme.text} font-black` : 'text-zinc-500 group-hover:text-zinc-300'}`}>
+                  <span className="text-[9px]">{isSelected ? 'Thu gọn' : 'Xem việc'}</span>
+                  <i className={`fas fa-chevron-down text-[8px] transition-transform duration-200 ${isSelected ? 'rotate-180' : ''}`}></i>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* DANH SÁCH VIỆC THẢ XUỐNG CỦA THỢ ĐƯỢC CHỌN (ACCORDION DRAWER) */}
+      {activeStaffConfig && (
+        <div className={`mt-3 pt-3 border-t ${activeStaffConfig.theme.border} relative z-10 animate-in fade-in duration-200`}>
+          {/* Thanh tiêu đề của danh sách được mở */}
+          <div className="flex items-center justify-between mb-2.5 px-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded border ${activeStaffConfig.theme.badge}`}>
+                <i className={`fas ${activeStaffConfig.icon} mr-1`}></i>
+                Việc của {activeStaffConfig.shortName}
+              </span>
+              <span className="text-[11px] font-bold text-zinc-300">
+                ({activeStaffConfig.tasks.length} việc cần xử lý)
+              </span>
+              {activeStaffConfig.reward > 0 && (
+                <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                  Tổng thưởng: +{activeStaffConfig.reward.toLocaleString('vi-VN')} đ
+                </span>
+              )}
+            </div>
+
+            <button 
+              onClick={() => setSelectedStaff(null)}
+              className="text-zinc-400 hover:text-zinc-200 text-[10.5px] font-bold flex items-center gap-1 hover:underline cursor-pointer"
+            >
+              <i className="fas fa-times text-[10px]"></i> Thu gọn
+            </button>
+          </div>
+
+          {/* Danh sách các công việc cụ thể */}
+          <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1 custom-scrollbar">
+            {activeStaffConfig.tasks.length === 0 ? (
+              <div className="text-center py-7 bg-[#121214] rounded-xl border border-dashed border-[#27272a] text-zinc-500 text-[11px] font-medium">
+                <i className="fas fa-check-circle text-emerald-500/70 text-base mb-1 block"></i>
+                Tuyệt vời! <strong className="text-zinc-300">{activeStaffConfig.name}</strong> không có việc nào đang bị tồn đọng.
+              </div>
+            ) : (
+              activeStaffConfig.tasks.map((item, idx) => {
+                const isOrder = activeStaffConfig.key === 'HUONG';
+                const itemReward = isOrder 
+                  ? calcOrderPackingReward(item)
+                  : (activeStaffConfig.key === 'TAN' 
+                      ? calcProdItemReward(item, 'phase1')
+                      : (activeStaffConfig.key === 'TAM'
+                          ? calcProdItemReward(item, 'phase2')
+                          : calcProdItemReward(item, 'both')
+                        )
+                    );
+
+                return (
+                  <div 
+                    key={item.id || idx}
+                    className={`p-2.5 sm:p-3 bg-[#121214] border border-[#27272a] rounded-xl flex items-center justify-between gap-2.5 transition-all ${activeStaffConfig.theme.hoverBorder} group`}
+                  >
+                    {/* Cột trái: Thông tin lệnh / đơn */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                        <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded border ${activeStaffConfig.theme.badge}`}>
+                          {activeStaffConfig.role}
+                        </span>
+                        <span className="text-[9.5px] font-mono font-bold text-zinc-400 bg-[#18181b] px-1.5 py-0.5 rounded border border-[#27272a]">
+                          {isOrder ? (item.orderCode || item.id) : (item.orderId || 'Sản Xuất Tồn')}
+                        </span>
+                        {item.channel && (
+                          <span className="text-[9px] font-bold text-zinc-400">
+                            ({item.channel})
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="text-[11.5px] font-extrabold text-zinc-100 truncate group-hover:text-white transition-colors">
+                        {isOrder ? (item.customer ? `${item.customer} - ${item.phone || ''}` : `Đơn hàng ${item.orderCode}`) : item.name}
+                      </div>
+
+                      {/* Chi tiết phụ kiện / ghi chú */}
+                      <div className="text-[10px] text-zinc-400 mt-1 flex items-center gap-2 flex-wrap">
+                        {item.note && (
+                          <span className="text-zinc-400 italic truncate max-w-xs sm:max-w-md">
+                            <i className="fas fa-info-circle mr-1 text-[8.5px]"></i>{item.note}
+                          </span>
+                        )}
+                        {item.deadline && (
+                          <span className="text-amber-400/90 font-medium font-mono text-[9px] shrink-0">
+                            <i className="fas fa-clock mr-1"></i>Hạn: {item.deadline.split('T')[0] || item.deadline}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Cột phải: Thưởng & Nút làm việc nhanh */}
+                    <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                      {itemReward > 0 && (
+                        <div className="text-right hidden sm:block">
+                          <span className="text-[10.5px] font-black font-mono text-emerald-400">
+                            +{itemReward.toLocaleString('vi-VN')} đ
+                          </span>
+                          <span className="text-[8.5px] text-zinc-500 block">Thưởng khâu</span>
+                        </div>
+                      )}
+
+                      {isOrder ? (
+                        <button 
+                          onClick={() => handleNavigateToPacking(item)}
+                          className="px-2.5 sm:px-3 py-1.5 bg-purple-500 hover:bg-purple-600 text-white font-black text-[9.5px] uppercase tracking-wide rounded-lg transition-all flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer"
+                        >
+                          <i className="fas fa-box-open"></i> Đóng Gói
+                        </button>
+                      ) : (
+                        <button 
+                          onClick={() => handleNavigateToProduction(item.id)}
+                          className="px-2.5 sm:px-3 py-1.5 bg-[#1f1f23] hover:bg-[#27272a] text-zinc-200 hover:text-white border border-[#333] hover:border-amber-500/40 font-bold text-[9.5px] uppercase tracking-wide rounded-lg transition-all flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer"
+                        >
+                          <i className="fas fa-tools text-amber-400"></i> Xem / Làm
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+
+// -------------------------------------------------------------------------
+// 📋 COMPONENT 2: BẢNG LỊCH SỬ BỊ TRỪ LƯƠNG TRONG THÁNG (GỌN GÀNG & DROPDOWN)
+// -------------------------------------------------------------------------
+const MonthlyPenaltyLedger = React.memo(function MonthlyPenaltyLedger({
+  bonusPenalty = [],
+  attendance = [],
+  currentUser = '',
+  isAdmin = false,
+  isBoss = false,
+  pushDeltas,
+  triggerToast
+}) {
+  const currentMonthStr = React.useMemo(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  }, []);
+
+  const [selectedMonth, setSelectedMonth] = React.useState(currentMonthStr);
+  const [isOpenDetails, setIsOpenDetails] = React.useState(false);
+  const [processingId, setProcessingId] = React.useState(null);
+
+  // 1. Quét và chuẩn hoá toàn bộ dữ liệu bị trừ lương (BonusPenalty + Attendance Penalties)
+  const allPenaltyRecords = React.useMemo(() => {
+    let list = [];
+
+    // Nguồn 1: BonusPenalty (Chỉ lấy các khoản PHẠT / VI PHẠM THẬT SỰ - LOẠI TRỪ TUYỆT ĐỐI TẠM ỨNG & CHO VAY)
+    (bonusPenalty || []).forEach(bp => {
+      if (!bp) return;
+      const typeStr = String(bp.type || '').trim();
+      const typeUpper = typeStr.toUpperCase();
+      const noteUpper = String(bp.note || '').toUpperCase();
+
+      // Loại trừ TUYỆT ĐỐI các giao dịch tài chính cá nhân (Tạm ứng, cho vay, hoàn ứng, thanh toán lương)
+      if (
+        typeUpper.includes('TẠM ỨNG') || 
+        typeUpper.includes('CHO VAY') || 
+        typeUpper.includes('ĐÃ TRẢ') || 
+        typeUpper.includes('THƯỞNG') || 
+        typeUpper.includes('VAY') ||
+        typeUpper.includes('ỨNG LƯƠNG') ||
+        noteUpper.includes('TẠM ỨNG') ||
+        noteUpper.includes('CHO VAY') ||
+        noteUpper.includes('THANH TOÁN DỨT ĐIỂM')
+      ) {
+        return;
+      }
+
+      const amt = Number(bp.amount || 0);
+      const isPenaltyType = typeStr.includes('Phạt') || typeStr.includes('Trừ') || typeStr.includes('Bảo Hành') || typeStr.includes('Vi Phạm') || typeStr.includes('SLA') || typeStr.includes('Kỷ Luật') || typeStr.includes('Chậm') || typeStr.includes('Vỡ') || typeStr.includes('Lỗi') || noteUpper.includes('PHẠT') || noteUpper.includes('TRỪ');
+      
+      if (isPenaltyType && amt !== 0) {
+        const absAmt = Math.abs(amt);
+        list.push({
+          id: bp.id,
+          rawId: bp.id,
+          user: bp.user || 'Nhân sự',
+          amount: absAmt,
+          type: bp.type || 'Phạt Vi Phạm',
+          note: bp.note || 'Trừ lương vi phạm',
+          date: bp.date || '',
+          orderCode: bp.orderCode || '',
+          source: 'BonusPenalty'
+        });
+      }
+    });
+
+    // Nguồn 2: Attendance (Phạt đi trễ / chấm công)
+    (attendance || []).forEach(att => {
+      if (!att) return;
+      const pen = Number(att.penalty || 0);
+      if (pen > 0) {
+        list.push({
+          id: 'ATT_PEN_' + (att.id || (att.user + '_' + att.date)),
+          rawId: att.id,
+          user: att.user || 'Nhân sự',
+          amount: pen,
+          type: 'Đi trễ / Chấm công',
+          note: att.note ? `Chấm công: ${att.note}` : `Vi phạm giờ giấc ca làm (${att.timeIn || att.morningIn || 'Đi trễ'})`,
+          date: att.date || '',
+          orderCode: '',
+          source: 'Attendance',
+          attRecord: att
+        });
+      }
+    });
+
+    // Sắp xếp thời gian mới nhất lên đầu
+    list.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+    return list;
+  }, [bonusPenalty, attendance]);
+
+  // 2. Lọc theo Tháng được chọn
+  const filteredRecords = React.useMemo(() => {
+    if (selectedMonth === 'ALL') return allPenaltyRecords;
+    return allPenaltyRecords.filter(rec => String(rec.date || '').startsWith(selectedMonth));
+  }, [allPenaltyRecords, selectedMonth]);
+
+  // 3. Thống Kê Tổng Quan Trong Tháng Được Chọn
+  const totalDeductedAmount = filteredRecords.reduce((sum, r) => sum + r.amount, 0);
+  const totalIncidents = filteredRecords.length;
+
+  // Danh sách các tháng có dữ liệu phạt
+  const monthOptions = React.useMemo(() => {
+    const set = new Set();
+    set.add(currentMonthStr);
+    allPenaltyRecords.forEach(r => {
+      if (r.date && r.date.length >= 7) {
+        set.add(r.date.slice(0, 7));
+      }
+    });
+    return Array.from(set).sort().reverse();
+  }, [allPenaltyRecords, currentMonthStr]);
+
+  // Xoá / Miễn phạt (Chỉ dành cho Admin / Boss)
+  const handleForgivePenalty = async (record) => {
+    if (!isAdmin && !isBoss) {
+      triggerToast('Chỉ Ban Quản Trị mới có quyền miễn trừ khoản phạt!', 'fa-lock', 'warning');
+      return;
+    }
+
+    if (!window.confirm(`Xác nhận XOÁ / MIỄN PHẠM cho ${record.user} số tiền -${record.amount.toLocaleString('vi-VN')}đ?\nLý do: ${record.note}`)) {
+      return;
+    }
+
+    setProcessingId(record.id);
+    try {
+      if (record.source === 'BonusPenalty') {
+        await pushDeltas({ deletes: { BonusPenalty: [record.rawId] } }, `Đã miễn phạt -${record.amount.toLocaleString('vi-VN')}đ cho ${record.user}!`, 'fa-trash');
+      } else if (record.source === 'Attendance' && record.attRecord) {
+        const updAtt = { ...record.attRecord, penalty: 0, note: (record.attRecord.note || '') + ' [Đã miễn phạt]' };
+        await pushDeltas({ Attendance: [updAtt] }, `Đã miễn phạt chấm công cho ${record.user}!`, 'fa-check');
+      }
+      triggerToast('Đã xoá bản ghi phạt thành công!', 'fa-check', 'success');
+    } catch (e) {
+      triggerToast('Lỗi khi xoá bản ghi phạt!', 'fa-times', 'danger');
+    }
+    setProcessingId(null);
+  };
+
+  return (
+    <div className="bg-[#09090b] border border-[#27272a] rounded-2xl p-3.5 sm:p-4 shadow-sm relative overflow-hidden">
+      {/* Accent Glow */}
+      <div className="absolute top-0 right-1/4 w-60 h-24 bg-rose-500/5 rounded-full blur-[50px] pointer-events-none"></div>
+
+      {/* HEADER SECTION */}
+      <div className="flex items-center justify-between gap-2 pb-3 border-b border-[#27272a] relative z-10">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-rose-500/20 to-red-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
+            <i className="fas fa-gavel text-[11px]"></i>
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <h2 className="font-black text-[12px] sm:text-[13px] text-zinc-100 uppercase tracking-wide truncate">
+                Lịch Sử Trừ Lương
+              </h2>
+              <span className="bg-rose-500/15 text-rose-400 border border-rose-500/30 px-1.5 py-0.2 rounded-full text-[9px] font-black font-mono">
+                {filteredRecords.length}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Nút Phạt Nhanh & Lọc Tháng */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <select 
+            value={selectedMonth} 
+            onChange={e => setSelectedMonth(e.target.value)}
+            className="bg-[#121214] border border-[#27272a] focus:border-rose-500/50 text-zinc-200 text-[10.5px] font-bold rounded-lg px-2.5 py-1 outline-none cursor-pointer"
+          >
+            <option value="ALL">Tất cả tháng</option>
+            {monthOptions.map(m => (
+              <option key={m} value={m}>Tháng {m.split('-')[1]}/{m.split('-')[0]}</option>
+            ))}
+          </select>
+
+          {(isAdmin || isBoss) && (
+            <button 
+              onClick={() => window.dispatchEvent(new Event('openQuickPenaltyModal'))}
+              className="bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 hover:border-rose-500/50 font-bold text-[9.5px] px-2.5 py-1 rounded-lg flex items-center gap-1 uppercase tracking-wide transition-all cursor-pointer active:scale-95"
+              title="Lập biên bản phạt vi phạm"
+            >
+              <i className="fas fa-plus text-[8.5px]"></i> Phạt
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* COMPACT SUMMARY METRICS (2 COLUMNS) */}
+      <div className="grid grid-cols-2 gap-2.5 my-2.5 relative z-10">
+        
+        {/* Card 1: Tổng tiền trừ lương */}
+        <div className="p-2.5 sm:p-3 bg-[#121214] border border-[#27272a] rounded-xl flex items-center justify-between">
+          <div>
+            <div className="text-[9.5px] sm:text-[10px] font-bold text-zinc-400 uppercase tracking-tight flex items-center gap-1.5">
+              <i className="fas fa-money-bill-wave text-rose-400 text-[10px]"></i>
+              <span>Tổng Đã Trừ</span>
+            </div>
+            <div className="text-[14px] sm:text-[16px] font-black font-mono text-rose-400 mt-0.5">
+              -{totalDeductedAmount.toLocaleString('vi-VN')}đ
+            </div>
+          </div>
+          <div className="w-8 h-8 rounded-lg bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 text-sm shrink-0">
+            <i className="fas fa-hand-holding-usd"></i>
+          </div>
+        </div>
+
+        {/* Card 2: Số lượt vi phạm */}
+        <div className="p-2.5 sm:p-3 bg-[#121214] border border-[#27272a] rounded-xl flex items-center justify-between">
+          <div>
+            <div className="text-[9.5px] sm:text-[10px] font-bold text-zinc-400 uppercase tracking-tight flex items-center gap-1.5">
+              <i className="fas fa-exclamation-triangle text-amber-400 text-[10px]"></i>
+              <span>Số Vụ Vi Phạm</span>
+            </div>
+            <div className="text-[14px] sm:text-[16px] font-black font-mono text-amber-400 mt-0.5">
+              {totalIncidents} lượt
+            </div>
+          </div>
+          <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 text-sm shrink-0">
+            <i className="fas fa-clipboard-list"></i>
+          </div>
+        </div>
+
+      </div>
+
+      {/* ACCORDION TOGGLE BUTTON */}
+      <div className="pt-1.5 border-t border-[#1f1f23] relative z-10">
+        <button
+          onClick={() => setIsOpenDetails(prev => !prev)}
+          className={`w-full py-2 px-3 rounded-xl border text-[10.5px] font-bold flex items-center justify-between transition-all cursor-pointer active:scale-[0.99] ${
+            isOpenDetails 
+              ? 'bg-rose-500/10 border-rose-500/30 text-rose-300' 
+              : 'bg-[#121214] hover:bg-[#18181b] border-[#27272a] hover:border-zinc-700 text-zinc-300'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <i className={`fas fa-list-ul ${isOpenDetails ? 'text-rose-400' : 'text-zinc-400'}`}></i>
+            <span>
+              {isOpenDetails ? 'Thu gọn danh sách vi phạm' : `Xem chi tiết ${filteredRecords.length} vi phạm`}
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 font-mono text-[9.5px] text-zinc-400">
+            <span>{isOpenDetails ? 'Ẩn' : 'Mở'}</span>
+            <i className={`fas fa-chevron-down text-[8.5px] transition-transform duration-200 ${isOpenDetails ? 'rotate-180 text-rose-400' : ''}`}></i>
+          </div>
+        </button>
+      </div>
+
+      {/* DROPDOWN VIOLATION DETAIL LIST */}
+      {isOpenDetails && (
+        <div className="space-y-1.5 mt-2.5 max-h-[340px] overflow-y-auto pr-1 custom-scrollbar relative z-10 animate-in fade-in duration-200">
+          {filteredRecords.length === 0 ? (
+            <div className="text-center py-6 bg-[#121214] rounded-xl border border-dashed border-[#27272a] text-zinc-500 text-[10.5px] font-bold">
+              <i className="fas fa-medal text-amber-400/60 text-base mb-1 block"></i>
+              Tuyệt vời! Không có bản ghi trừ lương nào trong tháng này.
+            </div>
+          ) : (
+            filteredRecords.map((rec, idx) => {
+              const isAttendance = rec.source === 'Attendance';
+              const badgeBg = isAttendance 
+                ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' 
+                : 'bg-rose-500/10 text-rose-400 border-rose-500/30';
+
+              return (
+                <div 
+                  key={rec.id || idx}
+                  className="p-2.5 bg-[#121214] border border-[#27272a] hover:border-rose-900/40 rounded-xl flex items-center justify-between gap-2.5 transition-all group"
+                >
+                  {/* Cột trái: Thông tin người bị trừ & lý do */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                      <span className="text-[11.5px] font-black text-zinc-100 group-hover:text-rose-300 transition-colors">
+                        {rec.user}
+                      </span>
+                      <span className={`text-[8.5px] font-bold uppercase px-1.5 py-0.5 rounded border ${badgeBg}`}>
+                        {rec.type}
+                      </span>
+                      {rec.orderCode && (
+                        <span className="text-[9px] font-mono font-bold text-zinc-400 bg-[#18181b] px-1.5 py-0.5 rounded border border-[#27272a]">
+                          Đơn: {rec.orderCode}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="text-[10.5px] text-zinc-300 font-medium line-clamp-2">
+                      {rec.note}
+                    </div>
+
+                    <div className="text-[9px] text-zinc-500 font-mono mt-1 flex items-center gap-2">
+                      <span><i className="fas fa-calendar-alt mr-1"></i>{rec.date}</span>
+                      <span>• {isAttendance ? 'Chấm công tự động' : 'Kỷ luật / Vận hành'}</span>
+                    </div>
+                  </div>
+
+                  {/* Cột phải: Số tiền trừ & Nút xoá phạt */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div className="text-right">
+                      <span className="text-[12px] sm:text-[13px] font-black font-mono text-rose-400 block">
+                        -{rec.amount.toLocaleString('vi-VN')}đ
+                      </span>
+                    </div>
+
+                    {(isAdmin || isBoss) && (
+                      <button 
+                        onClick={() => handleForgivePenalty(rec)}
+                        disabled={processingId === rec.id}
+                        className="w-6 h-6 flex items-center justify-center bg-[#18181b] hover:bg-rose-500/20 text-zinc-400 hover:text-rose-400 border border-[#27272a] hover:border-rose-500/40 rounded-lg transition-colors cursor-pointer"
+                        title="Ân xá / Miễn trừ khoản phạt này"
+                      >
+                        <i className={`fas ${processingId === rec.id ? 'fa-spinner fa-spin' : 'fa-trash'} text-[9px]`}></i>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })
           )}
         </div>
       )}
@@ -464,7 +1324,7 @@ const RealtimeClock = React.memo(function RealtimeClock() {
     return <>{time} - {day}, {dateStr}</>;
 });
 
-const DashboardTab = React.memo(function DashboardTab({ reimbursements = [], orders = [], prodItems = [], attendance = [], packings = [], kpis = [], importExport = [], users = [], userConfigs = [], erpProducts = [], pushDeltas, triggerToast, erpData = {}, isAdmin = false, isBoss = false }) {
+const DashboardTab = React.memo(function DashboardTab({ reimbursements = [], orders = [], prodItems = [], attendance = [], packings = [], kpis = [], importExport = [], users = [], userConfigs = [], erpProducts = [], pushDeltas, triggerToast, erpData = {}, isAdmin = false, isBoss = false, documents = [] }) {
   const currentUser = localStorage.getItem('rf_user') || '';
   const currentRole = localStorage.getItem('rf_role') || '';
   const isSuperAdmin = isAdmin || isBoss || currentRole === 'TỐI CAO';
@@ -520,12 +1380,21 @@ const DashboardTab = React.memo(function DashboardTab({ reimbursements = [], ord
 
 
   // ==================== THÔNG BÁO TỪ BAN QUẢN LÝ (BOSS) ====================
-  const noticeLogs = React.useMemo(() => {
+  const noticeDocs = React.useMemo(() => {
+      // Ưu tiên đọc từ bảng Documents (category = 'THONG_BAO_HE_THONG')
+      const docList = (documents || erpData?.documents || []).filter(d => 
+          d.category === 'THONG_BAO_HE_THONG' || d.category === 'THÔNG BÁO HỆ THỐNG'
+      );
+      if (docList.length > 0) return docList;
+      // Fallback dữ liệu cũ từ importExport nếu chưa có trong documents
       return (importExport || []).filter(log => log.type === 'THONG_BAO_HE_THONG');
-  }, [importExport]);
+  }, [documents, erpData?.documents, importExport]);
+
   const latestServerNotice = React.useMemo(() => {
-      return noticeLogs.length > 0 ? noticeLogs[noticeLogs.length - 1].note : 'Chưa có thông báo nội bộ nào.';
-  }, [noticeLogs]);
+      if (noticeDocs.length === 0) return 'Chưa có thông báo nội bộ nào.';
+      const last = noticeDocs[noticeDocs.length - 1];
+      return last.description || last.note || last.title || 'Chưa có thông báo nội bộ nào.';
+  }, [noticeDocs]);
 
   const [optimisticNotice, setOptimisticNotice] = React.useState(null);
   const displayNotice = optimisticNotice !== null ? optimisticNotice : latestServerNotice;
@@ -542,15 +1411,19 @@ const DashboardTab = React.memo(function DashboardTab({ reimbursements = [], ord
     setOptimisticNotice(tempNotice);
     setIsEditingNotice(false);
 
+    // Lưu vào bảng Documents với category là 'THONG_BAO_HE_THONG' (ẩn khỏi danh sách tài liệu công cộng)
     const payload = {
-        ImportExport: [{
+        documents: [{
             id: 'SYS_ANNO_' + Date.now(),
-            type: 'THONG_BAO_HE_THONG',
-            target: 'ALL',
-            totalAmount: 0,
-            date: new Date().toISOString().replace('T', ' ').slice(0, 19),
-            note: tempNotice,
-            itemsData: '[]'
+            category: 'THONG_BAO_HE_THONG',
+            title: 'Thông báo hệ thống',
+            description: tempNotice,
+            createdAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
+            createdBy: currentUser || 'Boss',
+            link: '',
+            attachments: '[]',
+            testLink: '',
+            readBy: '[]'
         }]
     };
     
@@ -561,29 +1434,113 @@ const DashboardTab = React.memo(function DashboardTab({ reimbursements = [], ord
     }
   };
 
-  // ==================== LẤY DANH SÁCH NHÂN SỰ ĐI LÀM HÔM NAY ====================
-  const attendingStaffList = React.useMemo(() => {
-      const staffMap = new Map();
-      (attendance || []).forEach(a => {
-          if (a.user === 'Khách') return;
-          if (String(a.date).includes(todayStr)) {
-              let timeStr = '';
-              if (a.timeIn) timeStr = `Vào: ${a.timeIn}`;
-              else if (a.morningIn) timeStr = `Vào sáng: ${a.morningIn}`;
-              else if (a.afternoonIn) timeStr = `Vào chiều: ${a.afternoonIn}`;
-              
-              if (timeStr) {
-                  staffMap.set(a.user, {
-                      name: a.user,
-                      time: timeStr.replace(/'/g, '').trim()
-                  });
-              }
-          }
-      });
-      return Array.from(staffMap.values());
-  }, [attendance, todayStr]);
+  // ==================== LẤY DANH SÁCH TẤT CẢ NHÂN SỰ CHÍNH THỨC CỦA XƯỞNG ====================
+  const allStaffNames = React.useMemo(() => {
+    let list = [];
+    if (userConfigs && userConfigs.pins) {
+      list = Object.values(userConfigs.pins)
+        .map(p => p.name || p.username || p.user)
+        .filter(Boolean);
+    }
+    if (list.length === 0 && Array.isArray(users) && users.length > 0) {
+      list = users.filter(u => u !== 'Khách' && u !== 'Guest' && !u.includes('CTV'));
+    }
+    if (list.length === 0 && erpData?.Config_NhanSu) {
+      list = erpData.Config_NhanSu.map(r => r['Tên Nhân Sự'] || r.user || r.name).filter(Boolean);
+    }
+    return Array.from(new Set(list)).filter(u => u && u !== 'Khách' && u !== 'Guest');
+  }, [userConfigs, users, erpData?.Config_NhanSu]);
 
-  const countAttendance = attendingStaffList.length;
+  // ==================== HỢP NHẤT ĐỘI NGŨ & THEO DÕI CHẤM CÔNG HÔM NAY ====================
+  const rosterAndAttendance = React.useMemo(() => {
+    const todayAtts = (attendance || []).filter(a => String(a.date || '').includes(todayStr));
+    
+    // 1. Danh sách xin nghỉ
+    const leaveList = [];
+    todayAtts.forEach(a => {
+      const isLeave = a.leaveType || (a.status && String(a.status).toUpperCase().includes('NGHỈ')) || a.leaveReportAt;
+      if (isLeave) {
+        leaveList.push({
+          name: a.user,
+          reason: a.leaveType || a.status || 'Nghỉ phép',
+          note: a.note || ''
+        });
+      }
+    });
+    const leaveUsernames = new Set(leaveList.map(s => s.name));
+
+    // 2. Danh sách nhân sự đi làm / chấm công
+    const cleanTime = (t) => {
+      if (!t) return '';
+      let s = String(t).replace(/'/g, '').trim();
+      if (s.length > 5 && s.indexOf(':') !== -1) {
+        // Rút gọn HH:mm:ss -> HH:mm
+        const parts = s.split(':');
+        if (parts.length >= 2) s = `${parts[0]}:${parts[1]}`;
+      }
+      return s;
+    };
+
+    const staffRoster = allStaffNames.map(staffName => {
+      if (leaveUsernames.has(staffName)) {
+        const lv = leaveList.find(s => s.name === staffName);
+        return {
+          name: staffName,
+          status: 'LEAVE',
+          reason: lv?.reason || 'Nghỉ phép',
+          inTime: '',
+          outTime: ''
+        };
+      }
+
+      const userAtt = todayAtts.find(a => a.user === staffName);
+      if (!userAtt) {
+        return {
+          name: staffName,
+          status: 'UNCHECKED_IN',
+          inTime: '',
+          outTime: ''
+        };
+      }
+
+      const inTime = cleanTime(userAtt.timeIn || userAtt.morningIn || userAtt.afternoonIn);
+      const outTime = cleanTime(userAtt.timeOut || userAtt.afternoonOut || userAtt.morningOut);
+
+      if (!inTime) {
+        return {
+          name: staffName,
+          status: 'UNCHECKED_IN',
+          inTime: '',
+          outTime: ''
+        };
+      }
+
+      return {
+        name: staffName,
+        status: outTime ? 'CHECKED_OUT' : 'WORKING',
+        inTime,
+        outTime
+      };
+    });
+
+    // Sắp xếp: Đang làm -> Đã ra ca -> Chưa vào -> Nghỉ
+    const sortOrder = { 'WORKING': 1, 'CHECKED_OUT': 2, 'UNCHECKED_IN': 3, 'LEAVE': 4 };
+    staffRoster.sort((a, b) => (sortOrder[a.status] || 99) - (sortOrder[b.status] || 99));
+
+    const workingCount = staffRoster.filter(s => s.status === 'WORKING' || s.status === 'CHECKED_OUT').length;
+    const unCheckedInCount = staffRoster.filter(s => s.status === 'UNCHECKED_IN').length;
+    const unCheckedOutCount = staffRoster.filter(s => s.status === 'WORKING').length;
+
+    return {
+      staffRoster,
+      workingCount,
+      unCheckedInCount,
+      unCheckedOutCount,
+      leaveList
+    };
+  }, [attendance, todayStr, allStaffNames]);
+
+  const countAttendance = rosterAndAttendance.workingCount;
 
 
 
@@ -621,6 +1578,87 @@ const DashboardTab = React.memo(function DashboardTab({ reimbursements = [], ord
   const filteredLogs = categoryFilter === 'Tất cả' ? allLogs : allLogs.filter(log => log.category === categoryFilter);
   const categories = ['Tất cả', 'Đơn hàng', 'Sản xuất', 'Đóng gói', 'Chấm công', 'KPI / Thưởng', 'Xuất nhập kho'];
 
+  // =========================================================================
+  // 🚨 BỘ LỌC TỰ ĐỘNG: CẢNH BÁO ĐÓNG GÓI SAU 19:00 & GHI COMBAT LOG (TRỪ CHỦ NHẬT)
+  // =========================================================================
+  const readyToPackOrders = React.useMemo(() => {
+    // Ngày Chủ Nhật xưởng nghỉ -> Không tính đơn tồn SLA đóng gói trong ngày
+    const isSunday = new Date().getDay() === 0;
+    if (isSunday) return [];
+
+    const allPackings = packings || erpData?.Packings || [];
+    return (orders || []).filter(o => {
+      // 1. Loại bỏ hoàn toàn các lệnh nội bộ sản xuất tồn / bù kho (Không phải đơn giao khách của bộ phận đóng gói)
+      const ch = String(o.channel || '').toUpperCase().trim();
+      if (ch === 'SẢN XUẤT TỒN' || ch === 'SẢN XUẤT BÙ KHO' || ch.includes('SẢN XUẤT TỒN') || ch.includes('BÙ KHO') || ch.includes('SX TỒN')) {
+        return false;
+      }
+
+      const s = String(o._effectiveStatus || o.status || '').toUpperCase().trim();
+      const exclude = ['ĐÃ BÀN GIAO', 'HOÀN THÀNH', 'ĐƠN HUỶ', 'HÀNG HOÀN', 'ĐÃ NHẬP KHO', 'ĐỐI SOÁT THÀNH CÔNG', 'ĐÃ GIAO', 'DELIVERED', 'COMPLETED', 'CANCELLED', 'RETURNED'];
+      if (exclude.includes(s)) return false;
+
+      const oIdStr = String(o.id || '').trim();
+      const oCodeStr = String(o.orderCode || '').trim();
+      const baseCodeStr = oCodeStr.split(' | ')[0].split('|')[0].trim();
+
+      const hasDonePack = allPackings.some(p => {
+        const pOrd = String(p.orderId || '').trim();
+        const isMatch = pOrd && (pOrd === oIdStr || pOrd === oCodeStr || pOrd === baseCodeStr);
+        const ps = String(p.status || '').toUpperCase().trim();
+        return isMatch && (ps === 'DONE' || ps === 'ĐÃ ĐÓNG GÓI' || ps === 'HOÀN THÀNH' || ps === 'ĐÃ XONG') && (!p.note || !p.note.includes('kho'));
+      });
+      if (hasDonePack) return false;
+
+      const linkedProds = (prodItems || []).filter(p => {
+        const pOrd = String(p.orderId || '').trim();
+        return pOrd && (pOrd === oIdStr || pOrd === oCodeStr || pOrd === baseCodeStr);
+      });
+
+      if (linkedProds.length > 0) {
+        return linkedProds.every(p => {
+          const ps = String(p.status || '').toUpperCase().trim();
+          return ps === 'DONE' || ps === 'ĐÃ XONG' || ps === 'HOÀN KHO ĐẠT' || p.fulfilledFromStock;
+        });
+      }
+
+      return s === 'SẴN SÀNG ĐÓNG GÓI' || s === 'SẴN SÀNG' || s === 'READY_PACK';
+    });
+  }, [orders, prodItems, packings, erpData?.Packings]);
+
+  const isAfter1900 = React.useMemo(() => {
+    const now = new Date();
+    // Chủ nhật xưởng nghỉ -> Tuyệt đối không bật cảnh báo SLA đóng gói
+    if (now.getDay() === 0) return false;
+    return now.getHours() >= 19;
+  }, [currentTimeMins]);
+
+  // Nhân sự phụ trách đóng gói chính thức của xưởng
+  const packingStaffResponsible = React.useMemo(() => {
+    const todayAtt = (attendance || []).find(a => {
+      const d = String(a.date || '');
+      const u = String(a.user || '');
+      return d.includes(todayStr) && (u.includes('Diệu Hương') || u.includes('Hương'));
+    });
+    return todayAtt ? todayAtt.user : 'Nguyễn Thị Diệu Hương';
+  }, [attendance, todayStr]);
+
+  // Tự động kích hoạt ghi nhận vi phạm vào Combat Log & BonusPenalty khi phát hiện sau 19:00 (trừ Chủ Nhật)
+  React.useEffect(() => {
+    const isSunday = new Date().getDay() === 0;
+    if (!isSunday && isAfter1900 && readyToPackOrders.length > 0) {
+      const cacheKey = `rf_sla_pack_logged_${todayStr}`;
+      if (!sessionStorage.getItem(cacheKey)) {
+        sessionStorage.setItem(cacheKey, 'true');
+        if (typeof window.runGAS === 'function') {
+          window.runGAS('api_auditEndOfDayPackingSLA')
+            .then(res => console.log('⚡ Đã ghi nhận cảnh báo đóng gói sau 19:00 vào Combat Log:', res))
+            .catch(err => console.warn('Lỗi ghi nhận Combat Log:', err));
+        }
+      }
+    }
+  }, [isAfter1900, readyToPackOrders.length, todayStr]);
+
   const getCategoryStyle = (category) => {
     switch (category) {
       case 'Đơn hàng': return { icon: <i className="fas fa-file-invoice-dollar"></i>, color: '#3b82f6', bg: 'bg-[#3b82f6]/10' };
@@ -633,26 +1671,82 @@ const DashboardTab = React.memo(function DashboardTab({ reimbursements = [], ord
     }
   };
 
+  // State bật/tắt xem danh sách đơn tồn
+  const [showOrderList, setShowOrderList] = React.useState(false);
+
   return (
     <div className="space-y-5 pb-10 w-full relative">
       
-      {/* HEADER: ĐỒNG HỒ & GREETING */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-[#222] pb-4">
+      {/* HEADER: ĐỒNG HỒ & TIÊU ĐỀ (TRÊN CÙNG) */}
+      <div className="flex items-center justify-between border-b border-[#222] pb-3">
         <div>
-          <h1 className="text-[24px] font-black text-white tracking-wide">Tổng Quan</h1>
-          <p className="text-[#34d399] text-[11px] font-bold flex items-center gap-1.5 mt-1 font-mono">
+          <h1 className="text-[22px] sm:text-[24px] font-black text-white tracking-wide">Tổng Quan</h1>
+          <p className="text-[#34d399] text-[11px] font-bold flex items-center gap-1.5 mt-0.5 font-mono">
               <i className="fas fa-clock text-[10px] animate-pulse"></i>
               <RealtimeClock />
           </p>
         </div>
-        <div className="flex items-center gap-3 bg-[#141414] p-3 rounded-2xl border border-[#222]">
-          <div className="w-9 h-9 rounded-full bg-[#d4af37]/10 border border-[#d4af37]/20 flex items-center justify-center text-[#d4af37] text-sm"><i className="fas fa-user-shield"></i></div>
-          <div>
-            <div className="text-[9px] text-gray-500 font-black uppercase">Đăng nhập tài khoản</div>
-            <div className="font-black text-[#d4af37] text-[13px]">{currentUser || 'Guest'} <span className="text-[10px] text-gray-500 font-bold">({currentRole})</span></div>
-          </div>
-        </div>
       </div>
+
+      {/* 🚨 BÁO ĐỘNG SLA ĐÓNG GÓI SAU 19:00 (GIAO DIỆN SIÊU GỌN GÀNG) */}
+      {isAfter1900 && readyToPackOrders.length > 0 && (
+        <div className="w-full bg-[#13090b] border border-rose-800/60 rounded-xl p-2.5 sm:p-3 shadow-sm relative overflow-hidden transition-all">
+          <div className="absolute top-0 left-0 w-1 h-full bg-rose-500"></div>
+
+          <div className="flex items-center justify-between gap-3 pl-1">
+            {/* Cột trái: Thông tin vi phạm */}
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-6 h-6 rounded bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400 text-[11px] shrink-0">
+                <i className="fas fa-exclamation-triangle"></i>
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-black text-[12px] text-zinc-100 uppercase tracking-wider">
+                    Cảnh Báo SLA Đóng Gói (Sau 19:00)
+                  </span>
+                  <span className="bg-rose-500/20 border border-rose-500/40 text-rose-300 font-mono font-bold text-[10px] px-2 py-0.2 rounded-full">
+                    {readyToPackOrders.length} đơn tồn
+                  </span>
+                </div>
+                <div className="text-[10.5px] text-zinc-400 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                  <span>Phụ trách: <strong className="text-zinc-200 bg-black/40 px-1.5 py-0.2 rounded border border-zinc-800">{packingStaffResponsible}</strong></span>
+                  <span className="text-zinc-600 hidden sm:inline">•</span>
+                  <span className="text-amber-400/90 text-[10px] font-medium"><i className="fas fa-clock text-[9px] mr-1"></i>21:00 phạt 20k/đơn Shopee VN</span>
+                  <span className="text-zinc-600 hidden sm:inline">•</span>
+                  <span className="text-rose-400/90 text-[10px] font-medium"><i className="fas fa-camera text-[9px] mr-1"></i>Ảnh không khớp trừ 10.000đ</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Cột phải: Nút Chi tiết nhỏ gọn */}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button 
+                onClick={() => setShowOrderList(prev => !prev)}
+                className="bg-[#1c1013] hover:bg-[#28151a] text-zinc-300 hover:text-white text-[10px] font-bold px-2.5 py-1 rounded-md border border-rose-900/50 transition-colors flex items-center gap-1.5 cursor-pointer"
+                title={showOrderList ? 'Thu gọn danh sách đơn' : 'Xem chi tiết danh sách đơn'}
+              >
+                <span>{showOrderList ? 'Thu gọn' : 'Chi tiết'}</span>
+                <i className={`fas fa-chevron-${showOrderList ? 'up' : 'down'} text-[8px]`}></i>
+              </button>
+            </div>
+          </div>
+
+          {/* Dải chip danh sách đơn (chỉ hiện khi bấm Chi tiết) */}
+          {showOrderList && (
+            <div className="flex flex-wrap gap-1.5 mt-2.5 pt-2 border-t border-rose-950/80 pl-1">
+              {readyToPackOrders.map((o, idx) => (
+                <span key={idx} className="text-[10px] font-mono font-medium bg-[#1a0f12] text-rose-300/90 border border-rose-900/40 px-2 py-0.5 rounded flex items-center gap-1">
+                  <i className="fas fa-box text-[8px] text-amber-500/80"></i>
+                  <span className="text-zinc-200">{o.orderCode || o.id}</span>
+                  <span className={`text-[9px] ${String(o.channel || '').toUpperCase().includes('SHOPEE') ? 'text-amber-400 font-bold' : 'text-zinc-500'}`}>
+                    ({o.channel || 'Trực tiếp'})
+                  </span>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* THÔNG BÁO TỪ BAN QUẢN LÝ (BOSS) */}
       <div className="bg-[#121214] border border-[#27272a] rounded-xl p-5 relative overflow-hidden shadow-sm group">
@@ -698,6 +1792,20 @@ const DashboardTab = React.memo(function DashboardTab({ reimbursements = [], ord
         )}
       </div>
 
+      {/* 🚀 BẢNG NHẮC VIỆC SẢN XUẤT & ĐÓNG GÓI THEO THỢ (TÂN, TÂM, DƯƠNG, HƯƠNG) */}
+      <ProductionStaffDispatchBoard 
+        prodItems={prodItems || []}
+        orders={orders || []}
+        packings={packings || erpData?.Packings || []}
+        currentUser={currentUser}
+        isAdmin={isSuperAdmin}
+        isBoss={isBoss}
+        pushDeltas={pushDeltas}
+        triggerToast={triggerToast}
+        kpiConfig={typeof kpiConfig !== 'undefined' ? kpiConfig : []}
+        erpData={erpData || {}}
+      />
+
       {/* QUICK ACTIONS FRAME 2.0 - HALLMARK BENTO */}
       <div className="bg-[#09090b] border border-[#27272a] p-5 rounded-xl shadow-sm relative overflow-hidden group/container">
           <div className="flex items-center justify-between mb-5 relative z-10 border-b border-[#27272a] pb-3">
@@ -709,83 +1817,117 @@ const DashboardTab = React.memo(function DashboardTab({ reimbursements = [], ord
               </div>
           </div>
           
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 relative z-10">
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-9 gap-2.5 relative z-10">
               
-              {/* Button: Lên Đơn Mới */}
+              {/* Button 1: Lên Đơn Mới (Bán Lẻ) */}
               <button 
-                  onClick={() => window.dispatchEvent(new CustomEvent('globalNavigateAndTrigger', { detail: { tab: 'orders', trigger: 'triggerCreateOrder' } }))} 
-                  className="bg-[#121214] hover:bg-[#18181b] p-4 rounded-lg border border-[#27272a] hover:border-emerald-500/50 flex flex-col items-center justify-center transition-colors group"
+                  onClick={() => window.dispatchEvent(new CustomEvent('globalNavigateAndTrigger', { detail: { tab: 'orders', trigger: 'triggerCreateOrder', data: { channel: 'Bán Lẻ' } } }))} 
+                  className="bg-[#121214] hover:bg-[#18181b] p-3 rounded-xl border border-[#27272a] hover:border-emerald-500/50 flex flex-col items-center justify-center transition-all group active:scale-95 shadow-sm cursor-pointer"
+                  title="Lên đơn bán lẻ mới"
               >
-                  <div className="w-10 h-10 rounded bg-emerald-500/10 text-emerald-500 flex items-center justify-center text-lg mb-2 group-hover:bg-emerald-500/20 transition-colors"><i className="fas fa-cart-plus"></i></div>
+                  <div className="w-9 h-9 rounded-lg bg-emerald-500/10 text-emerald-500 flex items-center justify-center text-base mb-1.5 group-hover:bg-emerald-500/20 group-hover:scale-105 transition-all"><i className="fas fa-cart-plus"></i></div>
                   <span className="text-[10px] font-bold text-zinc-300 text-center uppercase tracking-wide group-hover:text-emerald-400 transition-colors">Lên Đơn</span>
               </button>
 
-              {/* Button: Bảng giá */}
+              {/* Button 2: Bảng Giá */}
               <button 
                   onClick={() => window.dispatchEvent(new Event('openPriceListModal'))} 
-                  className="bg-[#121214] hover:bg-[#18181b] p-4 rounded-lg border border-[#27272a] hover:border-amber-500/50 flex flex-col items-center justify-center transition-colors group"
+                  className="bg-[#121214] hover:bg-[#18181b] p-3 rounded-xl border border-[#27272a] hover:border-amber-500/50 flex flex-col items-center justify-center transition-all group active:scale-95 shadow-sm cursor-pointer"
+                  title="Tra cứu bảng giá và tồn kho"
               >
-                  <div className="w-10 h-10 rounded bg-amber-500/10 text-amber-500 flex items-center justify-center text-lg mb-2 group-hover:bg-amber-500/20 transition-colors"><i className="fas fa-tags"></i></div>
+                  <div className="w-9 h-9 rounded-lg bg-amber-500/10 text-amber-500 flex items-center justify-center text-base mb-1.5 group-hover:bg-amber-500/20 group-hover:scale-105 transition-all"><i className="fas fa-tags"></i></div>
                   <span className="text-[10px] font-bold text-zinc-300 text-center uppercase tracking-wide group-hover:text-amber-400 transition-colors">Bảng Giá</span>
               </button>
 
-              {/* Button: Xuất Nhập Kho */}
+              {/* Button 3: Tính Giá Bể */}
+              <button 
+                  onClick={() => window.dispatchEvent(new Event('openTankPriceModal'))} 
+                  className="bg-[#121214] hover:bg-[#18181b] p-3 rounded-xl border border-[#27272a] hover:border-sky-500/50 flex flex-col items-center justify-center transition-all group active:scale-95 shadow-sm cursor-pointer"
+                  title="Định giá bể kính theo kích thước"
+              >
+                  <div className="w-9 h-9 rounded-lg bg-sky-500/10 text-sky-400 flex items-center justify-center text-base mb-1.5 group-hover:bg-sky-500/20 group-hover:scale-105 transition-all"><i className="fas fa-box-open"></i></div>
+                  <span className="text-[10px] font-bold text-zinc-300 text-center uppercase tracking-wide group-hover:text-sky-400 transition-colors">Giá Bể Kính</span>
+              </button>
+
+              {/* Button 4: Thanh Khoản (Hoàn Tiền Vật Tư) */}
+              <button 
+                  onClick={() => window.dispatchEvent(new Event('openStaffReimbursementModal'))} 
+                  className="bg-[#121214] hover:bg-[#18181b] p-3 rounded-xl border border-[#27272a] hover:border-rose-500/50 flex flex-col items-center justify-center transition-all group active:scale-95 shadow-sm cursor-pointer"
+                  title="Đề nghị hoàn tiền mua hộ vật tư xưởng"
+              >
+                  <div className="w-9 h-9 rounded-lg bg-rose-500/10 text-rose-400 flex items-center justify-center text-base mb-1.5 group-hover:bg-rose-500/20 group-hover:scale-105 transition-all"><i className="fas fa-hand-holding-usd"></i></div>
+                  <span className="text-[10px] font-bold text-zinc-300 text-center uppercase tracking-wide group-hover:text-rose-400 transition-colors">Thanh Khoản</span>
+              </button>
+
+              {/* Button 5: Nhập Kho */}
               <button 
                   onClick={() => {
                       window.pendingAction = 'createImportTicket';
-                      window.dispatchEvent(new CustomEvent('globalNavigateAndTrigger', { detail: { tab: 'import_export', trigger: 'triggerCreateImportTicket', data: {}, mode: 'ERP' } }));
+                      window.dispatchEvent(new CustomEvent('globalNavigateAndTrigger', { detail: { tab: 'import_export', trigger: 'triggerCreateImportTicket', data: { type: 'NHAP' }, mode: 'ERP' } }));
                   }} 
-                  className="bg-[#121214] hover:bg-[#18181b] p-4 rounded-lg border border-[#27272a] hover:border-blue-500/50 flex flex-col items-center justify-center transition-colors group"
+                  className="bg-[#121214] hover:bg-[#18181b] p-3 rounded-xl border border-[#27272a] hover:border-blue-500/50 flex flex-col items-center justify-center transition-all group active:scale-95 shadow-sm cursor-pointer"
+                  title="Tạo phiếu nhập kho vật tư / hàng hoá"
               >
-                  <div className="w-10 h-10 rounded bg-blue-500/10 text-blue-500 flex items-center justify-center text-lg mb-2 group-hover:bg-blue-500/20 transition-colors"><i className="fas fa-exchange-alt"></i></div>
-                  <span className="text-[10px] font-bold text-zinc-300 text-center uppercase tracking-wide group-hover:text-blue-400 transition-colors">Phiếu Kho</span>
+                  <div className="w-9 h-9 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center text-base mb-1.5 group-hover:bg-blue-500/20 group-hover:scale-105 transition-all"><i className="fas fa-boxes"></i></div>
+                  <span className="text-[10px] font-bold text-zinc-300 text-center uppercase tracking-wide group-hover:text-blue-400 transition-colors">Nhập Kho</span>
               </button>
               
-              {/* Button: Tính Giá Cước */}
+              {/* Button 6: Tính Giá Cước */}
               <button 
                   onClick={() => window.dispatchEvent(new CustomEvent('openFreightModal'))} 
-                  className="bg-[#121214] hover:bg-[#18181b] p-4 rounded-lg border border-[#27272a] hover:border-purple-500/50 flex flex-col items-center justify-center transition-colors group"
+                  className="bg-[#121214] hover:bg-[#18181b] p-3 rounded-xl border border-[#27272a] hover:border-purple-500/50 flex flex-col items-center justify-center transition-all group active:scale-95 shadow-sm cursor-pointer"
+                  title="Tính cước phí vận chuyển"
               >
-                  <div className="w-10 h-10 rounded bg-purple-500/10 text-purple-500 flex items-center justify-center text-lg mb-2 group-hover:bg-purple-500/20 transition-colors"><i className="fas fa-truck-moving"></i></div>
+                  <div className="w-9 h-9 rounded-lg bg-purple-500/10 text-purple-500 flex items-center justify-center text-base mb-1.5 group-hover:bg-purple-500/20 group-hover:scale-105 transition-all"><i className="fas fa-truck-moving"></i></div>
                   <span className="text-[10px] font-bold text-zinc-300 text-center uppercase tracking-wide group-hover:text-purple-400 transition-colors">Tính Cước</span>
               </button>
 
-              {/* Button: Thu Chi Chuyển */}
+              {/* Button 7: Chi Tiền Xưởng (Mở ngay tại Dashboard) */}
               <button 
-                  onClick={() => {
-                      window.pendingAction = 'createTransaction';
-                      window.dispatchEvent(new CustomEvent('globalNavigateAndTrigger', { detail: { tab: 'cashflow', trigger: 'triggerCreateTransaction', data: {}, mode: 'ERP' } }));
-                  }} 
-                  className="bg-[#121214] hover:bg-[#18181b] p-4 rounded-lg border border-cyan-500/30 hover:border-cyan-500/80 flex flex-col items-center justify-center transition-colors group relative"
+                  onClick={() => window.dispatchEvent(new Event('openQuickExpenseModal'))} 
+                  className="bg-[#121214] hover:bg-[#18181b] p-3 rounded-xl border border-[#27272a] hover:border-cyan-500/50 flex flex-col items-center justify-center transition-all group active:scale-95 shadow-sm cursor-pointer"
+                  title="Lập phiếu chi tiền xưởng nhanh"
               >
-                  <div className="w-10 h-10 rounded bg-cyan-500/10 text-cyan-500 flex items-center justify-center text-lg mb-2 group-hover:bg-cyan-500/20 transition-colors relative z-10"><i className="fas fa-file-invoice-dollar"></i></div>
-                  <span className="text-[10px] font-bold text-zinc-300 text-center uppercase tracking-wide group-hover:text-cyan-400 transition-colors relative z-10">Thu Chi Quỹ</span>
+                  <div className="w-9 h-9 rounded-lg bg-cyan-500/10 text-cyan-500 flex items-center justify-center text-base mb-1.5 group-hover:bg-cyan-500/20 group-hover:scale-105 transition-all"><i className="fas fa-file-invoice-dollar"></i></div>
+                  <span className="text-[10px] font-bold text-zinc-300 text-center uppercase tracking-wide group-hover:text-cyan-400 transition-colors">Chi Tiền</span>
               </button>
 
-              {/* Button: Tính Giá Layout */}
+              {/* Button 8: Giá Layout */}
               <button 
                   onClick={() => window.dispatchEvent(new CustomEvent('openLayoutCalcModal'))} 
-                  className="bg-[#121214] hover:bg-[#18181b] p-4 rounded-lg border border-[#27272a] hover:border-pink-500/50 flex flex-col items-center justify-center transition-colors group"
+                  className="bg-[#121214] hover:bg-[#18181b] p-3 rounded-xl border border-[#27272a] hover:border-pink-500/50 flex flex-col items-center justify-center transition-all group active:scale-95 shadow-sm cursor-pointer"
+                  title="Định giá layout thuỷ sinh"
               >
-                  <div className="w-10 h-10 rounded bg-pink-500/10 text-pink-500 flex items-center justify-center text-lg mb-2 group-hover:bg-pink-500/20 transition-colors"><i className="fas fa-drafting-compass"></i></div>
+                  <div className="w-9 h-9 rounded-lg bg-pink-500/10 text-pink-500 flex items-center justify-center text-base mb-1.5 group-hover:bg-pink-500/20 group-hover:scale-105 transition-all"><i className="fas fa-drafting-compass"></i></div>
                   <span className="text-[10px] font-bold text-zinc-300 text-center uppercase tracking-wide group-hover:text-pink-400 transition-colors">Giá Layout</span>
               </button>
 
-              {/* Button: Lịch Làm Việc (HR) */}
+              {/* Button 9: Phạt Nhanh (Ghi phạt trực tiếp vào bảng lương) */}
               <button 
-                  onClick={() => window.dispatchEvent(new CustomEvent('globalNavigateAndTrigger', { detail: { tab: 'hr', trigger: 'none' } }))} 
-                  className="bg-[#121214] hover:bg-[#18181b] p-4 rounded-lg border border-[#27272a] hover:border-orange-500/50 flex flex-col items-center justify-center transition-colors group"
+                  onClick={() => window.dispatchEvent(new Event('openQuickPenaltyModal'))} 
+                  className="bg-[#121214] hover:bg-[#18181b] p-3 rounded-xl border border-rose-900/40 hover:border-rose-600 flex flex-col items-center justify-center transition-all group active:scale-95 shadow-sm cursor-pointer"
+                  title="Phạt vi phạm nhanh ghi nhận trực tiếp vào bảng lương"
               >
-                  <div className="w-10 h-10 rounded bg-orange-500/10 text-orange-500 flex items-center justify-center text-lg mb-2 group-hover:bg-orange-500/20 transition-colors"><i className="fas fa-calendar-alt"></i></div>
-                  <span className="text-[10px] font-bold text-zinc-300 text-center uppercase tracking-wide group-hover:text-orange-400 transition-colors">Nhân Sự</span>
+                  <div className="w-9 h-9 rounded-lg bg-rose-500/10 text-rose-400 flex items-center justify-center text-base mb-1.5 group-hover:bg-rose-500/20 group-hover:scale-105 transition-all"><i className="fas fa-gavel"></i></div>
+                  <span className="text-[10px] font-bold text-rose-300 text-center uppercase tracking-wide group-hover:text-rose-400 transition-colors">Phạt Nhanh</span>
               </button>
 
           </div>
       </div>
 
+      {/* 📋 BẢNG LỊCH SỬ BỊ TRỪ LƯƠNG TRONG THÁNG (CẬP NHẬT LIÊN TỤC) */}
+      <MonthlyPenaltyLedger 
+        bonusPenalty={erpData?.BonusPenalty || kpis || []}
+        attendance={attendance || []}
+        currentUser={currentUser}
+        isAdmin={isSuperAdmin}
+        isBoss={isBoss}
+        pushDeltas={pushDeltas}
+        triggerToast={triggerToast}
+        allStaffNames={allStaffNames || []}
+      />
 
       {/* KHUNG GIAO VIỆC / NHẮC VIỆC & NHIỆM VỤ CHUNG */}
-      <OperationsHealthWidget />
       <DashboardTasksSection 
           prodItems={prodItems} 
           currentUser={currentUser} 
@@ -799,37 +1941,99 @@ const DashboardTab = React.memo(function DashboardTab({ reimbursements = [], ord
 
 
 
-      {/* DANH SÁCH NHÂN SỰ ĐANG ĐI LÀM (LIVE ROSTER) */}
-      <div className="bg-[#09090b] border border-[#27272a] p-4 rounded-xl shadow-sm relative overflow-hidden group">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/5 rounded-full blur-[50px] -mr-10 -mt-10 pointer-events-none group-hover:bg-blue-500/10 transition-colors"></div>
-          <div className="flex justify-between items-center mb-4 relative z-10 border-b border-[#27272a] pb-3">
-              <div className="flex items-center gap-2.5">
-                  <div className="w-6 h-6 rounded-md bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
-                      <i className="fas fa-users text-blue-500 text-[11px]"></i>
-                  </div>
-                  <span className="font-black text-[12px] text-zinc-100 uppercase tracking-widest">Đội ngũ hôm nay ({countAttendance})</span>
+      {/* 👥 ĐỘI NGŨ & CHẤM CÔNG HÔM NAY (HỢP NHẤT SIÊU GỌN GÀNG) */}
+      <div className="bg-[#09090b] border border-[#27272a] rounded-xl p-3.5 sm:p-4 shadow-sm relative overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center justify-between pb-2.5 border-b border-[#27272a]">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-md bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 text-[11px]">
+              <i className="fas fa-users"></i>
+            </div>
+            <span className="font-black text-[12px] text-zinc-100 uppercase tracking-wider">
+              Đội Ngũ & Chấm Công Hôm Nay ({rosterAndAttendance.workingCount}/{allStaffNames.length})
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 text-[10px] font-bold">
+            {rosterAndAttendance.unCheckedInCount > 0 && (
+              <span className="text-rose-400 bg-rose-950/40 px-2 py-0.5 rounded border border-rose-800/40">
+                {rosterAndAttendance.unCheckedInCount} chưa vào
+              </span>
+            )}
+            {rosterAndAttendance.unCheckedOutCount > 0 && (
+              <span className="text-amber-400 bg-amber-950/40 px-2 py-0.5 rounded border border-amber-800/40">
+                {rosterAndAttendance.unCheckedOutCount} chưa ra
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Danh sách thẻ nhân sự: Họ tên, giờ vào, giờ ra */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 py-3">
+          {rosterAndAttendance.staffRoster.filter(s => s.status !== 'LEAVE').map((st, i) => {
+            const isWorking = st.status === 'WORKING';
+            const isDone = st.status === 'CHECKED_OUT';
+            const isMissingIn = st.status === 'UNCHECKED_IN';
+
+            return (
+              <div 
+                key={i} 
+                className={`flex flex-col justify-between p-2 rounded-lg border transition-colors ${
+                  isWorking ? 'bg-[#12141a] border-blue-500/30' :
+                  isDone ? 'bg-[#101412] border-emerald-500/20' :
+                  'bg-[#140f10] border-rose-900/30 opacity-70'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-[11px] font-bold text-zinc-200 truncate" title={st.name}>
+                    {st.name}
+                  </span>
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                    isWorking ? 'bg-emerald-400' :
+                    isDone ? 'bg-blue-400' :
+                    'bg-rose-500'
+                  }`}></span>
+                </div>
+
+                <div className="mt-1 flex items-center justify-between text-[9.5px] font-mono">
+                  {isMissingIn ? (
+                    <span className="text-rose-400 font-bold">Chưa vào</span>
+                  ) : (
+                    <>
+                      <span className="text-emerald-400 font-bold" title="Giờ vào">
+                        V: {st.inTime}
+                      </span>
+                      <span className={st.outTime ? 'text-zinc-300 font-bold' : 'text-amber-400 font-bold'} title="Giờ ra">
+                        {st.outTime ? `R: ${st.outTime}` : 'Chưa ra'}
+                      </span>
+                    </>
+                  )}
+                </div>
               </div>
-              <span className="text-[10px] font-medium text-zinc-500 hidden sm:block">Chấm công trực tuyến</span>
-          </div>
-          <div className="relative z-10">
-              {attendingStaffList.length === 0 ? (
-                  <div className="text-center py-6 text-zinc-500 italic text-[11px] font-bold bg-[#121214] rounded-lg border border-[#27272a] border-dashed">
-                      Chưa có nhân sự nào điểm danh hôm nay.
-                  </div>
-              ) : (
-                  <div className="flex flex-wrap gap-2.5">
-                      {attendingStaffList.map((st, i) => (
-                          <div key={i} className="flex items-center gap-2.5 bg-[#121214] border border-[#27272a] rounded-lg px-3 py-2 shadow-sm animate-fade-in hover:border-blue-500/30 transition-colors group/item">
-                              <div className="w-6 h-6 rounded bg-blue-500/10 text-blue-500 border border-blue-500/20 font-black text-[11px] flex items-center justify-center select-none uppercase group-hover/item:bg-blue-500/20 transition-colors">{st.name.charAt(0)}</div>
-                              <div>
-                                  <div className="text-[11px] font-bold text-zinc-200 leading-tight">{st.name}</div>
-                                  <div className="text-[9px] font-black text-emerald-500/90 mt-0.5"><i className="fas fa-sign-in-alt text-[8px] mr-0.5"></i> {st.time}</div>
-                              </div>
-                          </div>
-                      ))}
-                  </div>
-              )}
-          </div>
+            );
+          })}
+        </div>
+
+        {/* 1 DÒNG BÁO AI XIN NGHỈ HÔM NAY NGAY DƯỚI */}
+        <div className="pt-2.5 border-t border-[#1f1f23] flex items-center gap-2 flex-wrap text-[11px]">
+          <span className="font-bold text-zinc-400 flex items-center gap-1 shrink-0">
+            <i className="fas fa-umbrella-beach text-sky-400 text-[10px]"></i> Xin nghỉ hôm nay:
+          </span>
+          {rosterAndAttendance.leaveList.length === 0 ? (
+            <span className="text-zinc-500 italic text-[10.5px]">
+              Hôm nay không có nhân sự nào xin nghỉ (Đi làm đủ 100%).
+            </span>
+          ) : (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {rosterAndAttendance.leaveList.map((st, idx) => (
+                <span key={idx} className="bg-sky-950/40 text-sky-300 border border-sky-800/50 text-[10px] font-bold px-2 py-0.5 rounded flex items-center gap-1">
+                  <span className="text-white">{st.name}</span>
+                  <span className="text-sky-400/90 text-[9px] font-normal">({st.reason})</span>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
 

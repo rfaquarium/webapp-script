@@ -16,7 +16,7 @@ const USER_PINS = {}; // Đã chuyển sang quản lý qua sheet Config_NhanSu �
 const ADMIN_PIN = ''; // Đã chuyển sang quản lý qua sheet Config_NhanSu – xem validatePin() ở backend
 const CHANNELS = ['Shopee VN', 'Tiktok Shop', 'Bán Lẻ', 'Bán Sỉ', 'Cộng Tác Viên', 'Shopee SG', 'Shopee MA', 'Shopee TH', 'Shopee PH', 'Bảo Hành'];
 const ORDER_STATUS = { AUTO_SCAN: 'Quét Tự Động', PENDING_PROD: 'Chờ Sản Xuất', READY_PACK: 'Sẵn sàng đóng gói', PENDING_HANDOVER: 'Chờ Bàn Giao', HANDED_OVER: 'Đã Bàn Giao', CANCELLED: 'Đơn Huỷ' };
-const CATEGORIES = ['LAYOUT', 'BỂ KÍNH', 'PHỤ KIỆN', 'DANH MỤC SẢN XUẤT', 'HÀNG HỎNG VỠ'];
+const CATEGORIES = ['LAYOUT', 'BỂ KÍNH', 'PHỤ KIỆN', 'DANH MỤC SẢN XUẤT'];
 const SUB_CATEGORIES = { 
     'LAYOUT': ['LINH THÚ', 'VÁCH SUỐI', 'HẺM NÚI', 'NATURE', 'NHẤT TRỤ', 'TRĂNG', 'BONSAI', 'CẦU VỒNG', 'BIOTOP CUỘI', 'HANG ĐỘNG', 'RỪNG', 'ĐẢO BAY', 'CỔNG VÒM', 'COVER'], 
     'BỂ KÍNH': ['BỂ MINI', 'TERRARIUM', 'BÁN CẠN', 'BỂ BETTA', 'BỂ NÂNG ĐÁY'], 
@@ -179,6 +179,110 @@ const getLocalISODate = () => {
 
 const formatMoney = (m) => new Intl.NumberFormat('vi-VN').format(Math.round(m || 0)) + 'đ';
 
+/**
+ * Thuật toán Tự Động Định Giá & Ước Tính Định Mức BOM cho Layout / Cover
+ */
+const calcLayoutPricingAndBOM = ({ l, w, h, selectedMaterial, configGiaLayout = [], kpiConfig = [] }) => {
+    const lNum = Math.max(0, Number(l) || 0);
+    const wNum = Math.max(0, Number(w) || 0);
+    const hNum = Math.max(0, Number(h) || 0);
+    if (!lNum || !wNum || !hNum) return null;
+
+    const dimStr = `${lNum}x${wNum}x${hNum}cm`;
+    const skuSuffix = `${lNum}${wNum}${hNum}`;
+    const volume = (lNum * wNum * hNum) / 1000; // Thể tích lít
+    const maxSize = Math.max(lNum, wNum, hNum);
+
+    // 1. Tính Giá Bán Lẻ theo Barem Thể Tích & Config_GiaLayout
+    const LAYOUT_BASE_MODES = [
+        { volume: 8, basePrice: 350000 },
+        { volume: 12, basePrice: 500000 },
+        { volume: 23, basePrice: 700000 },
+        { volume: 36, basePrice: 800000 },
+        { volume: 45, basePrice: 900000 },
+        { volume: 54, basePrice: 1100000 },
+        { volume: 96, basePrice: 1250000 }
+    ];
+    const sortedModes = [...LAYOUT_BASE_MODES].sort((a, b) => a.volume - b.volume);
+    let baseRetailPrice = 0;
+    const minMode = sortedModes[0];
+    const maxMode = sortedModes[sortedModes.length - 1];
+
+    if (volume <= minMode.volume) {
+        baseRetailPrice = minMode.basePrice;
+    } else if (volume >= maxMode.volume) {
+        baseRetailPrice = maxMode.basePrice + (volume - maxMode.volume) * 10000;
+    } else {
+        for (let i = 0; i < sortedModes.length - 1; i++) {
+            if (volume >= sortedModes[i].volume && volume <= sortedModes[i + 1].volume) {
+                const modeA = sortedModes[i];
+                const modeB = sortedModes[i + 1];
+                baseRetailPrice = modeA.basePrice + ((volume - modeA.volume) / (modeB.volume - modeA.volume)) * (modeB.basePrice - modeA.basePrice);
+                break;
+            }
+        }
+    }
+
+    // Tra cứu phụ phí theo barem Size_Max nếu có
+    let matchingRows = (configGiaLayout || []).filter(r => Number(r.Size_Max || 0) >= maxSize).sort((a, b) => Number(a.Size_Max) - Number(b.Size_Max));
+    let heSoGia = 1.0;
+    if (matchingRows.length > 0 && matchingRows[0].He_So_Gia) {
+        const val = Number(matchingRows[0].He_So_Gia) || 1.0;
+        // Chỉ nhận nếu là hệ số nhân hợp lệ (0.1 -> 3.0). Tránh nhân với số tiền trực tiếp (VD: 540.000đ) gây ra giá hàng trăm tỷ!
+        if (val >= 0.1 && val <= 3.0) {
+            heSoGia = val;
+        }
+    }
+    const finalRetailPrice = Math.round((baseRetailPrice * heSoGia) / 10000) * 10000;
+
+    // 2. Tính Định Mức BOM Vật Tư Ước Tính
+    // Lượng nguyên liệu chính (Lũa/Đá): ~0.14 kg / Lít thể tích bể
+    const matQty = Math.round((volume * 0.14) * 10) / 10;
+    const matPrice = Number(selectedMaterial?.costPrice || selectedMaterial?.price || 35000);
+    const matCostTotal = Math.round(matQty * matPrice);
+
+    // Keo dán layout: tối thiểu 1 tuýp, cứ 25L thêm 1 tuýp
+    const glueQty = Math.max(1, Math.round(volume / 25));
+    const glueCostTotal = glueQty * 18000; // ~18.000đ/tuýp keo
+
+    // Mút/bông chèn: 1 gói nhỏ ~ 15.000đ
+    const spongeCostTotal = 15000;
+
+    // Tiền công thợ khâu 1 + khâu 2 (ước tính theo thể tích)
+    let laborCost = 150000;
+    if (volume <= 15) laborCost = 90000;
+    else if (volume <= 30) laborCost = 120000;
+    else if (volume <= 60) laborCost = 160000;
+    else laborCost = 220000;
+
+    const calculatedCostPrice = Math.round((matCostTotal + glueCostTotal + spongeCostTotal + laborCost) / 1000) * 1000;
+    const minSafeCost = Math.round((finalRetailPrice * 0.48) / 1000) * 1000;
+    const finalCostPrice = Math.max(minSafeCost, calculatedCostPrice);
+
+    // Chuẩn bị danh sách BOM Items
+    const bomItems = [];
+    if (selectedMaterial && selectedMaterial.sku) {
+        bomItems.push({
+            materialSku: selectedMaterial.sku,
+            materialName: selectedMaterial.name || 'Nguyên liệu chính',
+            defaultQty: matQty,
+            unit: selectedMaterial.unit || 'Kg'
+        });
+    }
+
+    return {
+        dimStr,
+        skuSuffix,
+        volume: Math.round(volume * 10) / 10,
+        suggestedPrice: finalRetailPrice,
+        suggestedCostPrice: finalCostPrice,
+        matQty,
+        glueQty,
+        laborCost,
+        bomItems
+    };
+};
+
 const extractTime = (val) => { 
     if(!val) return '';
     let s = String(val).replace(/'/g, '').trim(); 
@@ -314,13 +418,16 @@ const getShiftStatus = (inTime, outTime, isMorning, leaveType, recordDate) => {
 const getAutoDeadline = (ch) => { 
     const d = new Date();
     const h = d.getHours(); const m = d.getMinutes(); 
-    let add = 0; let th = 18;
-    if (String(ch).includes('Shopee') || String(ch).includes('Tiktok')) { 
-        if (h > 17 || (h === 17 && m >= 30)) { add = 1; th = 12; } else if (h < 8) { add = 0; th = 12; } 
-    } else if (String(ch) === 'Bán Lẻ' || String(ch) === 'Cộng Tác Viên' || String(ch) === 'Nội Bộ') {
-        add = 2;
-    } else if (String(ch) === 'Bán Sỉ') {
-        add = 5;
+    let add = 6; let th = 18;
+    const chStr = String(ch || '').toUpperCase();
+    if (chStr.includes('SHOPEE') || chStr.includes('TIKTOK')) { 
+        if (h > 17 || (h === 17 && m >= 30)) { add = 1; th = 12; } else if (h < 8) { add = 0; th = 12; } else { add = 1; th = 14; }
+    } else if (chStr.includes('BÁN LẺ') || chStr.includes('CỘNG TÁC VIÊN') || chStr === 'CTV' || chStr.includes('BÁN SỈ') || chStr.includes('NỘI BỘ')) {
+        add = 6; // Đơn Bán Lẻ & Cộng Tác Viên: Đẩy deadline lên trên 5 ngày (6 ngày hoàn thành)
+        th = 18;
+    } else {
+        add = 6;
+        th = 18;
     }
     d.setDate(d.getDate() + add); d.setHours(th, 0, 0, 0);
     return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); 
@@ -443,44 +550,118 @@ function getSopAndReward(item, phaseName, kpiConfig = [], channel = '') {
   return { time, reward };
 }
 
-function getPackingReward(itemName, kpiConfig, channel = '') {
-  const mult = isExportChannel(channel) ? 3 : 1;
-  if (!itemName || !kpiConfig || kpiConfig.length === 0) return 1000 * mult;
-  const rawName = String(itemName).toLowerCase().trim();
+function getPackingReward(itemInput, kpiConfig = [], channel = '') {
+  const mult = (typeof isExportChannel === 'function' ? isExportChannel(channel) : /SG|MY|TH|PH|MA|TW|Quốc Tế|Xuất Khẩu/i.test(channel)) ? 3 : 1;
+  if (!kpiConfig || kpiConfig.length === 0) return 0;
 
-  const normalizeName = (name) => {
-    return name.replace(/ver\.?\s*\d+/gi, '').replace(/-\s*size\s*\d+/gi, '').replace(/rừng|đảo|bonsai|trang|cover|nature/gi, '').replace(/[-\s]+/g, ' ').trim();
-  };
+  // 1. Thu thập danh sách tên sản phẩm
+  let namesToScan = [];
+  if (Array.isArray(itemInput)) {
+    itemInput.forEach(i => {
+      if (typeof i === 'string' && i.trim()) namesToScan.push(i.trim());
+      else if (i && typeof i === 'object') {
+        if (i.name) namesToScan.push(String(i.name).trim());
+        if (i.sku) namesToScan.push(String(i.sku).trim());
+      }
+    });
+  } else if (itemInput && typeof itemInput === 'object') {
+    if (itemInput.items && Array.isArray(itemInput.items)) {
+      itemInput.items.forEach(i => { if (i?.name) namesToScan.push(String(i.name).trim()); });
+    }
+    if (itemInput.products) {
+      if (Array.isArray(itemInput.products)) {
+        itemInput.products.forEach(i => { if (i?.name) namesToScan.push(String(i.name).trim()); });
+      } else if (typeof itemInput.products === 'string') {
+        try {
+          const parsed = JSON.parse(itemInput.products);
+          if (Array.isArray(parsed)) parsed.forEach(i => { if (i?.name) namesToScan.push(String(i.name).trim()); });
+          else namesToScan.push(itemInput.products);
+        } catch (e) {
+          namesToScan.push(itemInput.products);
+        }
+      }
+    }
+    if (itemInput.name) namesToScan.push(String(itemInput.name).trim());
+  } else if (typeof itemInput === 'string' && itemInput.trim()) {
+    const splitNames = itemInput.split(/[\n,;+]/).map(s => s.trim()).filter(Boolean);
+    namesToScan = splitNames.length > 0 ? splitNames : [itemInput.trim()];
+  }
 
-  const normalizedItem = normalizeName(rawName);
-  let matchedRow = kpiConfig.find(row => {
-    const rowName = normalizeName(String(row['Tên Hàng'] || ''));
-    return rowName && (normalizedItem === rowName || normalizedItem.includes(rowName) || rowName.includes(normalizedItem));
-  });
+  if (namesToScan.length === 0) {
+    const defaultRow = kpiConfig.find(row => {
+      const n = String(row['Tên Hàng'] || row['Nhóm Hàng'] || row['Từ Khoá'] || '').toLowerCase();
+      return n.includes('mặc định') || n.includes('đơn thường') || n.includes('khác') || n.includes('phụ kiện');
+    });
+    const defReward = defaultRow ? (Number(defaultRow['Thưởng Đóng Gói']) || Number(defaultRow['Tiền Đóng Gói']) || 0) : 0;
+    return defReward * mult;
+  }
 
-  if (!matchedRow) {
-    const sizeMatch = rawName.match(/(\d{2,3})[x×]/);
-    const size = sizeMatch ? parseInt(sizeMatch[1]) : 0;
+  // 2. Tìm mức thưởng đóng gói cao nhất từ danh sách sản phẩm khớp với Config_KPI
+  let maxReward = 0;
 
-    if (size > 0) {
-      matchedRow = kpiConfig.find(row => {
-        const rowName = String(row['Tên Hàng'] || '').toLowerCase();
-        if (size >= 130) return rowName.includes('130');
-        if (size >= 110) return rowName.includes('110') || rowName.includes('120');
-        if (size >= 90)  return rowName.includes('90') || rowName.includes('100');
-        if (size >= 70)  return rowName.includes('70') || rowName.includes('80');
-        if (size >= 60)  return rowName.includes('60');
-        if (size >= 50)  return rowName.includes('50');
-        if (size >= 40)  return rowName.includes('40');
-        if (size >= 30)  return rowName.includes('30');
-        if (size >= 20)  return rowName.includes('20');
-        return false;
-      });
+  for (const rawName of namesToScan) {
+    const lowerName = rawName.toLowerCase().trim();
+    if (!lowerName) continue;
+
+    // A. Khớp chính xác hoặc chứa Từ Khoá / Tên Hàng trong Config_KPI
+    let matchedRow = kpiConfig.find(row => {
+      const sku = String(row['Từ Khoá'] || '').toLowerCase().trim();
+      const name = String(row['Tên Hàng'] || '').toLowerCase().trim();
+      if (sku && (lowerName.includes(sku) || sku === lowerName)) return true;
+      if (name && (lowerName.includes(name) || name === lowerName)) return true;
+      return false;
+    });
+
+    // B. Khớp theo Size (nếu là Layout hoặc Bể hoặc sản phẩm có kích thước)
+    if (!matchedRow) {
+      const sizeMatch = lowerName.match(/size\s*(\d{2,3})|(\d{2,3})\s*(x|×|\*|cm|\s|$)/i);
+      const size = sizeMatch ? parseInt(sizeMatch[1] || sizeMatch[2]) : 0;
+      if (size > 0) {
+        matchedRow = kpiConfig.find(row => {
+          const rowName = String(row['Tên Hàng'] || row['Từ Khoá'] || '').toLowerCase();
+          if (size >= 130 && (rowName.includes('130') || rowName.includes('140') || rowName.includes('150'))) return true;
+          if (size >= 110 && (rowName.includes('110') || rowName.includes('120'))) return true;
+          if (size >= 90 && (rowName.includes('90') || rowName.includes('100'))) return true;
+          if (size >= 70 && (rowName.includes('70') || rowName.includes('80'))) return true;
+          if (size >= 60 && rowName.includes('60')) return true;
+          if (size >= 50 && rowName.includes('50')) return true;
+          if (size >= 40 && rowName.includes('40')) return true;
+          if (size >= 30 && rowName.includes('30')) return true;
+          if (size >= 20 && rowName.includes('20')) return true;
+          if (size >= 10 && (rowName.includes('10') || rowName.includes('15'))) return true;
+          return false;
+        });
+      }
+    }
+
+    // C. Khớp theo nhóm ngành hàng (Bể kính, Layout, Đèn, Cây, Lũa...)
+    if (!matchedRow) {
+      if (lowerName.includes('bể') || lowerName.includes('hồ') || lowerName.includes('kính') || lowerName.includes('tank')) {
+        matchedRow = kpiConfig.find(row => {
+          const grp = String(row['Nhóm Hàng'] || row['Tên Hàng'] || '').toLowerCase();
+          return grp.includes('bể') || grp.includes('kính') || grp.includes('tank');
+        });
+      } else if (lowerName.includes('layout') || lowerName.includes('rừng') || lowerName.includes('bonsai') || lowerName.includes('núi') || lowerName.includes('hang')) {
+        matchedRow = kpiConfig.find(row => {
+          const grp = String(row['Nhóm Hàng'] || row['Tên Hàng'] || '').toLowerCase();
+          return grp.includes('layout') || grp.includes('rừng') || grp.includes('bonsai');
+        });
+      }
+    }
+
+    if (matchedRow) {
+      const itemReward = Number(matchedRow['Thưởng Đóng Gói']) || Number(matchedRow['Tiền Đóng Gói']) || 0;
+      if (itemReward > maxReward) maxReward = itemReward;
     }
   }
 
-  let reward = matchedRow ? (Number(matchedRow['Thưởng Đóng Gói']) || Number(matchedRow['Tiền Đóng Gói']) || 1000) : 1000;
-  return reward * mult;
+  // 3. Nếu vẫn chưa tìm thấy dòng khớp, lấy mức đóng gói từ dòng đầu tiên có thưởng trong Config_KPI
+  if (maxReward === 0) {
+    const fallbackRow = kpiConfig.find(row => (Number(row['Thưởng Đóng Gói']) || Number(row['Tiền Đóng Gói'])) > 0);
+    maxReward = fallbackRow ? (Number(fallbackRow['Thưởng Đóng Gói']) || Number(fallbackRow['Tiền Đóng Gói']) || 0) : 0;
+  }
+
+  return maxReward * mult;
 }
 
 

@@ -1,7 +1,8 @@
 <script type="text/babel">
-// ==========================================
-// 1. COMPONENT HỆ THỐNG & TIỆN ÍCH CORE
-// ==========================================
+// =========================================================================
+// 👑 FILE: Components.html
+// CHỨC NĂNG: Hệ thống Atomic Components chuẩn Hallmark Royal Workbench v2.12.0
+// =========================================================================
 
 window.safeJSONParse = (jsonString) => {
     if (!jsonString) return [];
@@ -26,30 +27,27 @@ class ErrorBoundary extends React.Component {
         if (this.state.hasError) {
             if (this.state.error && this.state.error.message === "FATAL_DATA_CORRUPTION") {
                 return (
-                    <div className="fixed inset-0 z-[999999] bg-red-950 flex flex-col items-center justify-center text-white p-8 animate-fade-in">
-                        <i className="fas fa-skull-crossbones text-7xl mb-6 text-red-500 animate-pulse"></i>
-                        <h1 className="text-3xl font-black mb-4 uppercase text-center text-red-400">Hệ Thống Tạm Khoá Tránh Mất Dữ Liệu</h1>
-                        <p className="text-sm text-center max-w-2xl mb-8 leading-relaxed text-red-200">
-                            Phát hiện dữ liệu lưu trữ bị hỏng hoặc mất định dạng (có thể do giới hạn 50,000 ký tự của Google Sheets). 
-                            <br/><br/>
-                            Để bảo vệ an toàn dữ liệu và <b className="text-white">chặn đứng việc ghi đè xoá trắng</b>, hệ thống đã tự động khoá mọi thao tác. Vui lòng liên hệ IT để khôi phục dữ liệu từ bản sao lưu trước khi tiếp tục.
+                    <div className="fixed inset-0 z-[999999] bg-[#09090b] flex flex-col items-center justify-center text-white p-8 animate-fade-in">
+                        <i className="fas fa-skull-crossbones text-6xl mb-6 text-rose-500 animate-pulse"></i>
+                        <h1 className="text-2xl font-black mb-4 uppercase text-center text-rose-400">Hệ Thống Tạm Khoá Tránh Mất Dữ Liệu</h1>
+                        <p className="text-sm text-center max-w-2xl mb-8 leading-relaxed text-zinc-300">
+                            Phát hiện dữ liệu lưu trữ bị gián đoạn. Để bảo vệ an toàn dữ liệu và <b className="text-white">chống đè xoá</b>, hệ thống đã tạm khoá thao tác.
                         </p>
-                        <button onClick={() => window.location.reload()} className="bg-red-600 text-white px-8 py-3 rounded-xl font-black uppercase tracking-widest hover:bg-red-500 shadow-[0_0_20px_rgba(220,38,38,0.4)] transition-all">Tải Lại Trang (F5)</button>
+                        <button onClick={() => window.location.reload()} className="bg-rose-600 hover:bg-rose-500 text-white px-8 py-3 rounded-xl font-bold uppercase tracking-wider transition-all">Tải Lại Trang (F5)</button>
                     </div>
                 );
             }
             return (
-                <div className="p-8 text-center bg-[#111] text-white min-h-screen flex flex-col justify-center items-center">
-                    <i className="fas fa-exclamation-triangle text-5xl text-amber-500 mb-4"></i>
-                    <h2 className="text-xl font-bold mb-2">Đã xảy ra lỗi giao diện</h2>
-                    <p className="text-gray-400 text-sm">{this.state.error?.toString()}</p>
+                <div className="p-8 text-center bg-[#09090b] text-white min-h-[400px] flex flex-col justify-center items-center rounded-2xl border border-white/10 m-4">
+                    <i className="fas fa-exclamation-triangle text-4xl text-amber-400 mb-4"></i>
+                    <h2 className="text-lg font-bold mb-2 text-zinc-100">Đã xảy ra lỗi hiển thị khối giao diện</h2>
+                    <p className="text-zinc-400 text-xs font-mono max-w-lg truncate">{this.state.error?.toString()}</p>
                 </div>
             );
         }
         return this.props.children;
     }
 }
-
 
 const getDrivePreviewUrl = (url) => {
     if (!url) return '';
@@ -58,7 +56,70 @@ const getDrivePreviewUrl = (url) => {
     return url;
 };
 
-window.resizeImage = (file, maxWidth = 600, maxHeight = 600, initialQuality = 0.7) => {
+// PERF: Chuyển đổi Google Drive URL sang thumbnail proxy nhẹ hơn ~10-20x
+// size: 'sm' (120px), 'md' (300px), 'lg' (600px), 'full' (ảnh gốc)
+window.rfOptimizeImageUrl = (url, size = 'sm') => {
+    if (!url || typeof url !== 'string') return '';
+    const str = url.trim();
+    
+    // Đã là thumbnail proxy rồi thì không cần convert lại
+    if (str.includes('lh3.googleusercontent.com/d/')) return str;
+    
+    // Nếu là postimg, imgur, hoặc URL ngoài thì giữ nguyên
+    if (!str.includes('drive.google.com') && !str.includes('googleusercontent.com')) return str;
+    
+    // Extract Google Drive file ID
+    let fileId = null;
+    const patterns = [
+        /\/d\/([a-zA-Z0-9_-]{20,})/,         // /file/d/ID/...
+        /id=([a-zA-Z0-9_-]{20,})/,            // ?id=ID
+        /[-\w]{25,}/                            // raw ID fallback
+    ];
+    for (const p of patterns) {
+        const m = str.match(p);
+        if (m) { fileId = m[1] || m[0]; break; }
+    }
+    if (!fileId) return str;
+    
+    // Chuyển sang lh3 proxy với kích thước nhỏ
+    const sizeMap = { sm: 'w120-h120', md: 'w300-h300', lg: 'w600-h600', full: 'w0' };
+    const sizeParam = sizeMap[size] || sizeMap.sm;
+    return `https:\x2F\x2Flh3.googleusercontent.com/d/${fileId}=${sizeParam}`;
+};
+
+// PERF: Component ảnh tối ưu — lazy load, skeleton, tự nén URL Drive
+window.RFImage = React.memo(function RFImage({ src, alt = 'img', className = '', size = 'sm', onClick, title, style }) {
+    const [loaded, setLoaded] = React.useState(false);
+    const [errored, setErrored] = React.useState(false);
+    const optimizedSrc = React.useMemo(() => window.rfOptimizeImageUrl(src, size), [src, size]);
+    
+    if (!optimizedSrc || errored) {
+        return (
+            <div className={`bg-[#18181c] border border-white/[0.08] flex items-center justify-center text-zinc-600 ${className}`} style={style}>
+                <i className="fas fa-box text-[11px] opacity-60"></i>
+            </div>
+        );
+    }
+    
+    return (
+        <div className={`relative overflow-hidden ${className}`} style={style}>
+            {!loaded && <div className="absolute inset-0 skeleton-loader rounded"></div>}
+            <img
+                src={optimizedSrc}
+                alt={alt}
+                loading="lazy"
+                decoding="async"
+                className={`w-full h-full object-cover transition-opacity duration-200 ${loaded ? 'opacity-100' : 'opacity-0'} ${onClick ? 'cursor-pointer' : ''}`}
+                onLoad={() => setLoaded(true)}
+                onError={() => setErrored(true)}
+                onClick={onClick}
+                title={title}
+            />
+        </div>
+    );
+});
+
+window.resizeImage = (file, maxWidth = 800, maxHeight = 800, initialQuality = 0.5) => {
     return new Promise((resolve, reject) => {
         if (!file || !file.type.match(/image.*/)) return reject(new Error("Not an image"));
         const reader = new FileReader();
@@ -83,10 +144,9 @@ window.resizeImage = (file, maxWidth = 600, maxHeight = 600, initialQuality = 0.
                     dataUrl = canvas.toDataURL('image/jpeg', Math.max(0.1, quality));
                 }
                 
-                // If it's still too large, we must scale down dimensions
                 while (dataUrl.length > 45000 && width > 100) {
-                    width = Math.round(width * 0.8);
-                    height = Math.round(height * 0.8);
+                    width = Math.round(width * 0.7);
+                    height = Math.round(height * 0.7);
                     canvas.width = width; canvas.height = height;
                     ctx.drawImage(image, 0, 0, width, height);
                     dataUrl = canvas.toDataURL('image/jpeg', quality);
@@ -102,10 +162,10 @@ window.resizeImage = (file, maxWidth = 600, maxHeight = 600, initialQuality = 0.
     });
 };
 
-const RFLogo = ({ className = "w-10 h-10", size = 40 }) => (
+const RFLogo = React.memo(({ className = "w-9 h-9", size = 36 }) => (
   <svg width={size} height={size} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
     <defs>
-      <linearGradient id="sharkFinGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <linearGradient id="rfFinGrad" x1="0%" y1="100%" x2="100%" y2="0%">
         <stop offset="0%" stopColor="#1e3a8a" />
         <stop offset="40%" stopColor="#0284c7" />
         <stop offset="70%" stopColor="#06b6d4" />
@@ -114,56 +174,61 @@ const RFLogo = ({ className = "w-10 h-10", size = 40 }) => (
     </defs>
     <path 
       d="M25,80 C25,80 30,45 50,30 C65,18 80,25 78,35 C75,45 60,52 65,65 C70,78 78,80 78,80 C50,80 37,80 25,80 Z" 
-      fill="url(#sharkFinGrad)" 
-      style={{ filter: "drop-shadow(0px 3px 6px rgba(6, 182, 212, 0.4))" }}
+      fill="url(#rfFinGrad)" 
+      style={{ filter: "drop-shadow(0px 2px 4px rgba(6, 182, 212, 0.35))" }}
     />
   </svg>
-);
+));
 
+// =========================================================================
+// ATOMIC COMPONENTS (CORE DESIGN SYSTEM - ROYAL WORKBENCH)
+// =========================================================================
 
-// ==========================================
-// 1. ATOMIC COMPONENTS (CORE DESIGN SYSTEM)
-// Premium Dark Mode + Glassmorphism
-// ==========================================
-
-const RFCard = ({ children, className = "", noPadding = false, onClick = null }) => {
+const RFCard = React.memo(({ children, className = "", noPadding = false, onClick = null }) => {
     return (
         <div 
             onClick={onClick}
-            className={`bg-[#141414]/90 backdrop-blur-xl border border-[#2a2a2a] rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.4)] overflow-hidden transition-all duration-300 ${onClick ? 'cursor-pointer hover:border-[#d4af37]/50 hover:shadow-[0_8px_30px_rgba(212,175,55,0.15)]' : ''} ${noPadding ? '' : 'p-4'} ${className}`}
+            className={`bg-[#121215] border border-white/[0.08] rounded-2xl shadow-[0_4px_20px_rgba(0,0,0,0.3)] overflow-hidden transition-all duration-200 ${onClick ? 'cursor-pointer hover:border-[#d4af37]/40 hover:shadow-[0_4px_24px_rgba(212,175,55,0.12)] active:scale-[0.99]' : ''} ${noPadding ? '' : 'p-3.5 sm:p-4'} ${className}`}
         >
             {children}
         </div>
     );
-};
+});
 
-const RFButton = ({ children, onClick, variant = 'primary', className = "", disabled = false, icon = null, isLoading = false }) => {
-    let baseStyles = "relative overflow-hidden rounded-xl font-black text-[11px] uppercase tracking-wider transition-all duration-300 flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50 disabled:active:scale-100 disabled:cursor-not-allowed";
+const RFButton = React.memo(({ children, onClick, variant = 'primary', className = "", disabled = false, icon = null, isLoading = false, title = "" }) => {
+    let baseStyles = "relative overflow-hidden rounded-xl font-bold text-[11.5px] uppercase tracking-wider transition-all duration-180 flex items-center justify-center gap-1.5 active:scale-95 disabled:opacity-40 disabled:active:scale-100 disabled:cursor-not-allowed select-none whitespace-nowrap";
     
     const variants = {
-        primary: "bg-gradient-to-r from-[#d4af37] to-[#f3e5ab] text-[#111] shadow-[0_0_15px_rgba(212,175,55,0.3)] hover:shadow-[0_0_25px_rgba(212,175,55,0.5)] border border-[#f3e5ab]/50",
-        secondary: "bg-[#1a1a1a] text-[#f5f5f5] border border-[#333] hover:border-[#555] hover:bg-[#222]",
-        danger: "bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-[0_0_15px_rgba(225,29,72,0.3)] hover:shadow-[0_0_25px_rgba(225,29,72,0.5)] border border-rose-400/50",
-        success: "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-[0_0_15px_rgba(5,150,105,0.3)] hover:shadow-[0_0_25px_rgba(5,150,105,0.5)] border border-emerald-400/50",
-        outline: "bg-transparent text-[#d4af37] border border-[#d4af37]/50 hover:bg-[#d4af37]/10",
-        ghost: "bg-transparent text-gray-400 hover:text-white hover:bg-white/5"
+        primary: "bg-gradient-to-r from-[#d4af37] to-[#f0ca5e] text-[#09090b] shadow-[0_2px_12px_rgba(212,175,55,0.25)] hover:shadow-[0_4px_18px_rgba(212,175,55,0.4)] border border-[#f0ca5e]/40 font-black",
+        secondary: "bg-[#18181c] text-zinc-200 border border-white/[0.08] hover:border-white/[0.18] hover:bg-[#222228]",
+        danger: "bg-gradient-to-r from-rose-600 to-red-600 text-white shadow-[0_2px_12px_rgba(225,29,72,0.25)] hover:shadow-[0_4px_18px_rgba(225,29,72,0.4)] border border-rose-400/30",
+        success: "bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-[0_2px_12px_rgba(5,150,105,0.25)] hover:shadow-[0_4px_18px_rgba(5,150,105,0.4)] border border-emerald-400/30",
+        outline: "bg-transparent text-[#d4af37] border border-[#d4af37]/40 hover:bg-[#d4af37]/10",
+        ghost: "bg-transparent text-zinc-400 hover:text-white hover:bg-white/5"
+    };
+
+    const handleClick = (e) => {
+        if (disabled || isLoading) return;
+        try { if (navigator.vibrate) navigator.vibrate(15); } catch(err) {}
+        if (onClick) onClick(e);
     };
 
     return (
         <button 
-            onClick={onClick} 
+            onClick={handleClick} 
             disabled={disabled || isLoading} 
-            className={`${baseStyles} ${variants[variant] || variants.primary} py-2.5 px-4 ${className}`}
+            title={title}
+            className={`${baseStyles} ${variants[variant] || variants.primary} py-2.5 px-3.5 ${className}`}
         >
-            {isLoading ? <i className="fas fa-spinner fa-spin"></i> : (icon && <i className={`fas ${icon}`}></i>)}
-            {children}
+            {isLoading ? <i className="fas fa-spinner fa-spin text-xs"></i> : (icon && <i className={`fas ${icon} text-xs`}></i>)}
+            <span>{children}</span>
         </button>
     );
-};
+});
 
-const RFBadge = ({ text, type = 'default', className = "", icon = null }) => {
+const RFBadge = React.memo(({ text, type = 'default', className = "", icon = null }) => {
     const types = {
-        default: "bg-[#222] text-gray-300 border-[#333]",
+        default: "bg-zinc-800/80 text-zinc-300 border-white/[0.08]",
         warning: "bg-amber-500/10 text-amber-400 border-amber-500/30",
         danger: "bg-rose-500/10 text-rose-400 border-rose-500/30",
         success: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
@@ -173,71 +238,67 @@ const RFBadge = ({ text, type = 'default', className = "", icon = null }) => {
     };
     
     return (
-        <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-[9px] font-black tracking-widest uppercase border ${types[type] || types.default} ${className}`}>
-            {icon && <i className={`fas ${icon}`}></i>}
-            {text}
+        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[9.5px] font-bold tracking-wider uppercase border whitespace-nowrap ${types[type] || types.default} ${className}`}>
+            {icon && <i className={`fas ${icon} text-[8.5px]`}></i>}
+            <span>{text}</span>
         </span>
     );
-};
+});
 
-const RFInput = ({ value, onChange, placeholder, icon, type = "text", className = "", label = null }) => {
+const RFInput = React.memo(({ value, onChange, placeholder, icon, type = "text", className = "", label = null }) => {
     return (
         <div className="flex flex-col w-full">
-            {label && <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">{label}</label>}
+            {label && <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">{label}</label>}
             <div className="relative w-full">
-                {icon && <i className={`fas ${icon} absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500 text-sm`}></i>}
+                {icon && <i className={`fas ${icon} absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-500 text-xs`}></i>}
                 <input 
                     type={type}
                     value={value}
                     onChange={onChange}
                     placeholder={placeholder}
-                    className={`rf-input-glass rounded-xl px-4 py-3 text-[13px] text-white outline-none font-medium placeholder-zinc-600 w-full ${icon ? 'pl-10' : ''} ${className}`}
+                    className={`rf-input-glass rounded-xl px-4 py-2.5 text-[13px] text-white outline-none font-medium placeholder-zinc-600 w-full ${icon ? 'pl-9' : ''} ${className}`}
                 />
             </div>
         </div>
     );
-};
+});
 
-// ==========================================
-// NÚT TẢI LẠI TRANG
-// ==========================================
 function ReloadAppButton() {
-    // Nút đã được chuyển lên Avatar ở thanh Top Nav Bar (App_Main.html)
     return null;
 }
 
 const trackAction = (action, details = '') => {
-    const userName = localStorage.getItem('rf_user') || 'Ẩn danh';
-    const userRole = localStorage.getItem('rf_role') || 'Không rõ';
-    google.script.run
-        .withSuccessHandler(() => { console.log("Đã lưu vết hành vi: ", action); })
-        .withFailureHandler((err) => { console.error("Lỗi lưu vết: ", err); })
-        .logBehavior(action, details);
+    if (typeof google !== 'undefined' && google.script && google.script.run) {
+        google.script.run
+            .withSuccessHandler(() => { console.log("Đã lưu vết hành vi: ", action); })
+            .withFailureHandler((err) => { console.error("Lỗi lưu vết: ", err); })
+            .logBehavior(action, details);
+    }
 };
 
-function ToastManager({ toasts }) { 
-    if(toasts.length === 0) return null;
+const ToastManager = React.memo(function ToastManager({ toasts }) { 
+    if (!toasts || toasts.length === 0) return null;
     return ( 
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[99999] flex flex-col items-center gap-3 pointer-events-none w-[90%] max-w-sm"> 
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[99999] flex flex-col items-center gap-2 pointer-events-none w-[90%] max-w-sm"> 
             {toasts.map(t => {
-                let bgColors = "bg-[#141414]/95 border-[#333] text-[#f5f5f5]";
-                if(t.color === 'success') bgColors = "bg-[#064e3b]/95 border-[#10b981]/50 text-[#34d399]";
-                if(t.color === 'danger') bgColors = "bg-[#4c0519]/95 border-[#e11d48]/50 text-[#fb7185]";
-                if(t.color === 'primary') bgColors = "bg-[#1e3a8a]/95 border-[#3b82f6]/50 text-[#60a5fa]";
-                if(t.color === 'warning') bgColors = "bg-[#78350f]/95 border-[#f59e0b]/50 text-[#fbbf24]";
+                let bgColors = "bg-[#141418]/95 border-white/10 text-zinc-100";
+                if(t.color === 'success') bgColors = "bg-[#064e3b]/95 border-emerald-500/40 text-emerald-300";
+                if(t.color === 'danger') bgColors = "bg-[#4c0519]/95 border-rose-500/40 text-rose-300";
+                if(t.color === 'primary') bgColors = "bg-[#1e3a8a]/95 border-sky-500/40 text-sky-300";
+                if(t.color === 'warning') bgColors = "bg-[#78350f]/95 border-amber-500/40 text-amber-300";
                 
                 return (
-                    <div key={t.id} className={`animate-slide-down flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.5)] border ${bgColors} text-[12px] font-bold tracking-wide w-full backdrop-blur-xl`}> 
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center bg-black/20 shrink-0`}><i className={`fas ${t.icon}`}></i></div> 
+                    <div key={t.id} className={`animate-slide-down flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.6)] border ${bgColors} text-[12px] font-bold tracking-wide w-full backdrop-blur-xl`}> 
+                        <div className="w-7 h-7 rounded-full flex items-center justify-center bg-black/25 shrink-0"><i className={`fas ${t.icon} text-xs`}></i></div> 
                         <span className="flex-1 leading-snug">{t.msg}</span> 
                     </div> 
                 );
             })} 
         </div> 
-    ) 
-}
+    );
+});
 
-function Avatar({ name, userConfigs, className="" }) { 
+const Avatar = React.memo(function Avatar({ name, userConfigs, className="" }) { 
     const [hasError, setHasError] = React.useState(false);
     let id = null;
     try {
@@ -267,70 +328,70 @@ function Avatar({ name, userConfigs, className="" }) {
 
     if (cleanId && !hasError) { 
         const isFullUrl = String(cleanId).startsWith('http://') || String(cleanId).startsWith('https://');
-        const imgSrc = isFullUrl ? cleanId : ('https:\x2F\x2Fdrive.google.com/thumbnail?id=' + cleanId + '&sz=w150');
-        return <img src={imgSrc} className={`object-cover rounded-full shadow-sm bg-[#1a1a1a] ${className}`} alt={name} onError={() => setHasError(true)} />;
+        const imgSrc = isFullUrl ? cleanId : ('https:\x2F\x2Flh3.googleusercontent.com/d/' + cleanId + '=w120-h120');
+        return <img src={imgSrc} className={`object-cover rounded-full shadow-sm bg-[#18181c] ${className}`} alt={name} onError={() => setHasError(true)} />;
     } 
-    return <div className={`flex items-center justify-center rounded-full bg-[#111] text-[#666] border border-[#333] ${className}`}><i className="fas fa-user text-[10px]"></i></div>;
-}
+    return <div className={`flex items-center justify-center rounded-full bg-[#18181c] text-zinc-500 border border-white/[0.08] ${className}`}><i className="fas fa-user text-[11px]"></i></div>;
+});
 
-function TimePicker24h({ value, onChange, label }) { 
+const TimePicker24h = React.memo(function TimePicker24h({ value, onChange, label }) { 
     const currentH = value ? value.split(':')[0] : '';
     const currentM = value ? value.split(':')[1] : ''; 
     const hours = Array.from({length:24}, (_,i) => String(i).padStart(2,'0'));
     const mins = Array.from({length:60}, (_,i) => String(i).padStart(2,'0')); 
     return ( 
         <div className="flex flex-col"> 
-            {label && <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1.5">{label}</label>} 
+            {label && <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-1.5">{label}</label>} 
             <div className="flex items-center gap-1.5"> 
-                <select value={currentH} onChange={e=>onChange(`${e.target.value}:${currentM||'00'}`)} className="rf-input-glass rounded-xl px-4 py-3 text-[13px] text-white outline-none font-medium placeholder-zinc-600 flex-1 appearance-none text-center"> 
+                <select value={currentH} onChange={e=>onChange(`${e.target.value}:${currentM||'00'}`)} className="rf-input-glass rounded-xl px-3 py-2 text-[13px] text-white outline-none font-medium flex-1 appearance-none text-center"> 
                     <option value="">Giờ</option> 
                     {hours.map(h => <option key={`h${h}`} value={h}>{h}h</option>)} 
                 </select> 
-                <span className="text-gray-500 font-black">:</span> 
-                <select value={currentM} onChange={e=>onChange(`${currentH||'00'}:${e.target.value}`)} className="rf-input-glass rounded-xl px-4 py-3 text-[13px] text-white outline-none font-medium placeholder-zinc-600 flex-1 appearance-none text-center"> 
+                <span className="text-zinc-500 font-bold">:</span> 
+                <select value={currentM} onChange={e=>onChange(`${currentH||'00'}:${e.target.value}`)} className="rf-input-glass rounded-xl px-3 py-2 text-[13px] text-white outline-none font-medium flex-1 appearance-none text-center"> 
                     <option value="">Phút</option> 
                     {mins.map(m => <option key={`m${m}`} value={m}>{m}p</option>)} 
                 </select> 
             </div> 
         </div> 
-    ) 
-}
+    );
+});
 
-function NavBtn({ icon, label, active, onClick }) { 
+const NavBtn = React.memo(function NavBtn({ icon, label, active, onClick }) { 
     return ( 
-        <button onClick={onClick} className="flex flex-col items-center justify-center w-16 pt-2 pb-1 transition-all relative group active:scale-95"> 
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center mb-1 transition-all duration-300 ${active ? 'bg-[#d4af37]/20 text-[#d4af37] scale-110 shadow-[0_0_10px_rgba(212,175,55,0.3)]' : 'text-gray-500 group-hover:text-gray-300'}`}> 
-                <i className={`fas ${icon} text-lg`}></i> 
+        <button onClick={onClick} className="flex flex-col items-center justify-center w-14 pt-2 pb-1 transition-all relative group active:scale-95"> 
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center mb-1 transition-all duration-200 ${active ? 'bg-[#d4af37]/20 text-[#d4af37] shadow-[0_0_12px_rgba(212,175,55,0.3)]' : 'text-zinc-500 group-hover:text-zinc-300'}`}> 
+                <i className={`fas ${icon} text-base`}></i> 
             </div> 
-            <span className={`text-[8px] font-black tracking-wider uppercase transition-colors ${active ? 'text-[#d4af37]' : 'text-gray-500 group-hover:text-gray-300'}`}>{label}</span> 
-            {active && <div className="absolute -bottom-1 w-1 h-1 rounded-full bg-[#d4af37]"></div>}
+            <span className={`text-[8.5px] font-bold tracking-wider uppercase transition-colors truncate max-w-full ${active ? 'text-[#d4af37]' : 'text-zinc-500 group-hover:text-zinc-300'}`}>{label}</span> 
+            {active && <div className="absolute -bottom-0.5 w-1.5 h-1.5 rounded-full bg-[#d4af37]"></div>}
         </button> 
     );
-}
+});
 
-function TimeFilter({ filter, setFilter, start, setStart, end, setEnd }) { 
+const TimeFilter = React.memo(function TimeFilter({ filter, setFilter, start, setStart, end, setEnd }) { 
     const isInvalidRange = start && end && start > end;
     return ( 
-        <div className="bg-[#141414] p-3 rounded-2xl border border-[#2a2a2a] shadow-sm mb-3"> 
-            <div className="flex gap-1.5 overflow-x-auto custom-scrollbar pb-1"> 
+        <div className="bg-[#121215] p-3 rounded-2xl border border-white/[0.08] shadow-sm mb-3"> 
+            <div className="flex gap-1.5 overflow-x-auto custom-scrollbar pb-0.5"> 
                 {['Tất Cả', 'Hôm Nay', 'Tháng Này', 'Tuỳ Chỉnh'].map(f => ( 
-                    <button key={f} onClick={()=>setFilter(f)} className={`flex-shrink-0 px-4 py-2 text-[10px] font-black uppercase tracking-wider rounded-xl transition-all shadow-sm ${filter===f ? 'bg-[#2563eb] text-white border border-[#1d4ed8]' : 'bg-[#1a1a1a] text-gray-400 border border-[#333] hover:text-white'}`}>{f}</button> 
+                    <button key={f} onClick={()=>setFilter(f)} className={`flex-shrink-0 px-3.5 py-1.5 text-[10.5px] font-bold uppercase tracking-wider rounded-xl transition-all shadow-sm ${filter===f ? 'bg-[#d4af37] text-zinc-950 font-black' : 'bg-[#18181c] text-zinc-400 border border-white/[0.06] hover:text-white'}`}>{f}</button> 
                 ))} 
             </div> 
             {filter === 'Tuỳ Chỉnh' && ( 
-                <div className="flex flex-col gap-2 mt-3 pt-3 border-t border-[#222] animate-fade-in"> 
+                <div className="flex flex-col gap-2 mt-2.5 pt-2.5 border-t border-white/[0.06] animate-fade-in"> 
                     <div className="flex gap-2">
-                        <div className="flex-1"><label className="text-[9px] text-gray-500 font-black uppercase tracking-wider block mb-1">Từ ngày</label><input type="date" className="w-full p-2.5 bg-[#0a0a0a] border border-[#333] text-gray-200 rounded-xl text-xs font-bold outline-none focus:border-[#2563eb] transition-colors" value={start} onChange={e=>setStart(e.target.value)} /></div> 
-                        <div className="flex-1"><label className="text-[9px] text-gray-500 font-black uppercase tracking-wider block mb-1">Đến ngày</label><input type="date" className="w-full p-2.5 bg-[#0a0a0a] border border-[#333] text-gray-200 rounded-xl text-xs font-bold outline-none focus:border-[#2563eb] transition-colors" value={end} onChange={e=>setEnd(e.target.value)} /></div> 
+                        <div className="flex-1"><label className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider block mb-1">Từ ngày</label><input type="date" className="rf-input-glass w-full" value={start} onChange={e=>setStart(e.target.value)} /></div> 
+                        <div className="flex-1"><label className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider block mb-1">Đến ngày</label><input type="date" className="rf-input-glass w-full" value={end} onChange={e=>setEnd(e.target.value)} /></div> 
                     </div> 
                     {isInvalidRange && (
-                        <div className="text-rose-500 text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 mt-1 animate-pulse">
+                        <div className="text-rose-400 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 mt-1">
                             <i className="fas fa-exclamation-triangle"></i> Từ ngày không thể lớn hơn Đến ngày!
                         </div>
                     )}
                 </div> 
             )} 
         </div> 
-    ) 
-}
+    );
+});
 </script>
