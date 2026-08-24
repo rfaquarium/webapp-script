@@ -2,12 +2,27 @@
 <html lang="vi">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>RF Workspace Pro</title>
+
+  <!-- PWA Meta Tags -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="RF Workspace">
+  <meta name="theme-color" content="#09090b">
+  <meta name="format-detection" content="telephone=no">
+  <meta name="description" content="RF Workspace Pro - Hệ thống quản trị xưởng Rich Fish Aquarium">
+
+  <!-- Icons -->
   <link rel="apple-touch-icon" href="https://i.postimg.cc/TYD5NncZ/icon.png">
   <link rel="shortcut icon" href="https://i.postimg.cc/TYD5NncZ/icon.png" type="image/png">
+
+  <!-- PWA Manifest (inline data URI to avoid extra file) -->
+  <link rel="manifest" href="/manifest.json">
+
   <style>
-    /* 1. Reset toàn bộ margin/padding của trang bọc ngoài */
+    /* ===== HARD RESET ===== */
     *, *::before, *::after {
       box-sizing: border-box;
       margin: 0;
@@ -20,15 +35,20 @@
       min-height: 100vh;
       min-height: 100dvh;
       overflow: hidden;
-      background-color: #09090b; /* Màu nền Obsidian trùng khớp với app */
-      position: fixed; /* Khóa chặt không cho viewport ngoài nảy (bounce) */
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
+      background-color: #09090b;
+      color: #fafafa;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      /* iOS safe area: đảm bảo không che tai thỏ / home indicator */
+      padding:
+        env(safe-area-inset-top, 0px)
+        env(safe-area-inset-right, 0px)
+        env(safe-area-inset-bottom, 0px)
+        env(safe-area-inset-left, 0px);
     }
 
-    /* 2. Ép iframe full 100% tràn viền không hở mép */
+    /* ===== IFRAME FULL SCREEN ===== */
     .gas-frame {
       display: block;
       width: 100%;
@@ -37,15 +57,127 @@
       outline: 0;
       margin: 0;
       padding: 0;
+      position: absolute;
+      top: 0; left: 0;
+      z-index: 1;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+    .gas-frame.loaded {
+      opacity: 1;
+    }
+
+    /* ===== LOADING SCREEN ===== */
+    .loading-screen {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      z-index: 0;
+      background-color: #09090b;
+    }
+    .loading-screen.hidden {
+      display: none;
+    }
+
+    .loading-logo {
+      width: 72px;
+      height: 72px;
+      border-radius: 18px;
+      box-shadow: 0 0 40px rgba(212, 175, 55, 0.15);
+    }
+
+    .loading-text {
+      font-size: 13px;
+      font-weight: 500;
+      color: #71717a;
+      letter-spacing: 0.5px;
+    }
+
+    .loading-spinner {
+      width: 28px;
+      height: 28px;
+      border: 2.5px solid rgba(212, 175, 55, 0.15);
+      border-top-color: #d4af37;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* ===== iOS BOUNCE FIX ===== */
+    @supports (-webkit-touch-callout: none) {
+      html, body {
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: none;
+      }
     }
   </style>
 </head>
 <body>
-  <iframe 
+  <!-- Loading Screen (hiện khi iframe đang tải GAS) -->
+  <div class="loading-screen" id="loadingScreen">
+    <img class="loading-logo" src="https://i.postimg.cc/TYD5NncZ/icon.png" alt="RF" width="72" height="72">
+    <div class="loading-spinner"></div>
+    <div class="loading-text">Đang kết nối xưởng…</div>
+  </div>
+
+  <!-- GAS App iframe (full-screen, border-less) -->
+  <iframe
+    id="gasFrame"
     class="gas-frame"
     src="https://script.google.com/macros/s/AKfycbytd9c_FzcqJ_65nqNI-xplYVRD3gstZcIL6PBk34P81XdSqXTNcRWsYt5bbeqjg66N/exec"
     allow="geolocation; microphone; camera; clipboard-read; clipboard-write"
-    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals">
+    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"
+    loading="eager">
   </iframe>
+
+  <script>
+    // 1. Phát hiện iframe đã load xong → fade in + ẩn loading
+    var frame = document.getElementById('gasFrame');
+    var loadingScreen = document.getElementById('loadingScreen');
+
+    frame.addEventListener('load', function() {
+      frame.classList.add('loaded');
+      setTimeout(function() {
+        loadingScreen.classList.add('hidden');
+      }, 350);
+    });
+
+    // Fallback: nếu sau 12s iframe vẫn chưa load → force hiện
+    setTimeout(function() {
+      if (!frame.classList.contains('loaded')) {
+        frame.classList.add('loaded');
+        loadingScreen.classList.add('hidden');
+      }
+    }, 12000);
+
+    // 2. Đăng ký Service Worker cho PWA & Push Notification
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function() {
+        navigator.serviceWorker.register('/sw.js', { scope: '/' })
+          .then(function(reg) {
+            console.log('[PWA] Service Worker registered, scope:', reg.scope);
+          })
+          .catch(function(err) {
+            console.warn('[PWA] Service Worker registration failed:', err);
+          });
+      });
+    }
+
+    // 3. Chống kéo bounce trên iOS Safari (standalone mode)
+    document.addEventListener('touchmove', function(e) {
+      if (e.target === document.body || e.target === document.documentElement) {
+        e.preventDefault();
+      }
+    }, { passive: false });
+  </script>
 </body>
 </html>
