@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="rfBgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#18181b"/>
+      <stop offset="45%" stop-color="#09090b"/>
+      <stop offset="100%" stop-color="#040405"/>
+    </linearGradient>
+    <linearGradient id="rfGoldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFF5C0"/>
+      <stop offset="30%" stop-color="#F5D061"/>
+      <stop offset="70%" stop-color="#C59B27"/>
+      <stop offset="100%" stop-color="#FEDB37"/>
+    </linearGradient>
+    <linearGradient id="rfBorderGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F5D061" stop-opacity="0.95"/>
+      <stop offset="50%" stop-color="#3F3F46" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#B8860B" stop-opacity="0.85"/>
+    </linearGradient>
+    <linearGradient id="rfSilverGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#A1A1AA"/>
+    </linearGradient>
+    <filter id="rfGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="12" flood-color="#D4AF37" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+  <!-- Nền Squircle cao cấp -->
+  <rect width="512" height="512" rx="116" fill="url(#rfBgGrad)"/>
+  <!-- Khung viền mạ vàng kép tinh xảo -->
+  <rect x="14" y="14" width="484" height="484" rx="104" fill="none" stroke="url(#rfBorderGrad)" stroke-width="6"/>
+  <rect x="24" y="24" width="464" height="464" rx="94" fill="none" stroke="#27272A" stroke-width="2" opacity="0.6"/>
+  <!-- Biểu tượng chữ RF Hoàng Kim trung tâm -->
+  <g filter="url(#rfGlow)">
+    <text x="256" y="305" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="215" font-weight="900" text-anchor="middle" letter-spacing="-5" fill="url(#rfGoldGrad)">RF</text>
+  </g>
+  <!-- Nhận diện thương hiệu Rich Fish Aquarium -->
+  <text x="256" y="375" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="34" font-weight="800" text-anchor="middle" letter-spacing="14" fill="url(#rfSilverGrad)">RICH FISH</text>
+  <text x="256" y="415" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-size="20" font-weight="700" text-anchor="middle" letter-spacing="8" fill="#71717A">WORKSPACE</text>
+</svg>
