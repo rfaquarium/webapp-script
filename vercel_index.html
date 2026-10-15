@@ -51,5 +51,10 @@
     allow="geolocation; microphone; camera; clipboard-read; clipboard-write"
     sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals">
   </iframe>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js', {scope:'/', updateViaCache:'none'}).then(function(reg){reg.update();}).catch(function(){});
+    }
+  </script>
 </body>
 </html>

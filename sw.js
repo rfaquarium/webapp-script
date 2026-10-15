@@ -4,7 +4,7 @@
 // ============================================================================
 
 const CACHE_NAME = 'rf-workspace-v1';
-const ICON_URL = 'https://i.postimg.cc/TYD5NncZ/icon.png';
+const ICON_URL = '/icons/rf-workspace-v3-192.png';
 
 // Lắng nghe sự kiện Push từ Server khi ứng dụng ĐÃ TẮT
 self.addEventListener('push', function(event) {
@@ -74,3 +74,7 @@ self.addEventListener('notificationclick', function(event) {
         })
     );
 });
+
+// RF shell refresh: retire obsolete gold placeholder caches only.
+self.addEventListener('install', function(event){event.waitUntil(self.skipWaiting());});
+self.addEventListener('activate', function(event){event.waitUntil(caches.keys().then(function(keys){return Promise.all(keys.filter(function(key){return key.indexOf('rf-shell-')===0;}).map(function(key){return caches.delete(key);}));}).then(function(){return self.clients.claim();}));});
